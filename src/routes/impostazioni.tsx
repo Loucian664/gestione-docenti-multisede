@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { useAppStore, snapshot } from "@/lib/store";
 import { backupJson, parseBackupJson } from "@/lib/export";
-import { shareOrSave, shareOrSaveFile, toastSave } from "@/lib/share-file";
+import { shareOrSave, toastSave } from "@/lib/share-file";
 import type { DayOfWeek, PersistedData } from "@/lib/types";
 import { ensureTpPeriods } from "@/lib/periods";
 import { toast } from "sonner";
@@ -270,40 +270,6 @@ function ImpostazioniPage() {
                 }}
               />
             </label>
-          </Button>
-        </div>
-      </section>
-
-      <section className="paper-panel mb-4 rounded-xl p-5">
-        <h2 className="font-display text-lg">Copia su GitHub</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Scarica i file dell’applicazione, senza i dati. Sul Mac estrai lo zip e carica i file su GitHub.
-        </p>
-        <div className="mt-4">
-          <Button
-            variant="outline"
-            onClick={() => {
-              void (async () => {
-                try {
-                  const res = await fetch(`${import.meta.env.BASE_URL}gestione-docenti-github.zip`);
-                  if (!res.ok) throw new Error("missing");
-                  const blob = await res.blob();
-                  if (blob.size < 10_000 || /html|json|text/i.test(blob.type)) throw new Error("not-zip");
-                  const file = new File([blob], "gestione-docenti-github.zip", { type: "application/zip" });
-                  const outcome = await shareOrSaveFile(file);
-                  if (outcome === "cancelled") return;
-                  if (outcome === "downloaded" || outcome === "shared") {
-                    toast.success("Zip scaricato. Sul Mac: doppio clic per scompattare.");
-                    return;
-                  }
-                  toast.error("Download non riuscito. Prendi lo zip da artifacts.");
-                } catch {
-                  toast.error("Download non riuscito. Prendi lo zip da artifacts.");
-                }
-              })();
-            }}
-          >
-            Scarica zip per GitHub
           </Button>
         </div>
       </section>
