@@ -8,6 +8,11 @@
   una di queste.
 - L'aspetto resta quello dell'app di Rombiolo (colori, caratteri, impaginazione); l'icona può cambiare,
   ma nello stesso stile. La nuova app ha solo più funzioni.
+- Nome dell'app: «Orario Generale» (titolo, scritta in alto, nome sotto l'icona). Icona scelta
+  dall'utente: solo un calendario color crema, centrato, sullo stesso identico sfondo dell'icona di
+  Rombiolo (verde scuro con la sua grana); nella scheda del browser, lo stesso calendario.
+- I test copiati dall'app di Rombiolo contengono cognomi veri: per ora restano (decisione dell'utente,
+  se ne riparla alla fine del lavoro). Nei test nuovi solo nomi inventati.
 - Punto di partenza: copia, al 17/10/2026, dell'app di Rombiolo (repository `Loucian664/gestione-docenti`,
   sito https://loucian664.github.io/gestione-docenti/). Quella repository e quel sito restano separati:
   da qui non vanno toccati.
@@ -93,6 +98,37 @@ L'app gestisce un plesso alla volta (`plesso` nelle impostazioni). Chi insegna a
 `otherPlesso` e le ore occupate nell'altra sede in `awaySlots` (le «×»), segnate a mano; il motore ne
 tiene conto e lascia un'ora libera di spostamento prima e dopo. Da costruire: più sedi nello stesso
 archivio e docenti condivisi coordinati dall'app.
+
+## Più sedi: decisioni dell'utente (17/10/2026)
+
+- Solo scuole secondarie di I grado. Oggi nessuna sede fa lezione il sabato, ma i giorni restano
+  modificabili.
+- Le × hanno due significati: ore di lezione vere nell'altra sede, oppure giornata intera altrove per
+  comodità (anche se lì il docente fa meno ore). Giornate intere in una sola sede: preferenza; chi deve
+  stare tutto il giorno in una sede ha la × su tutta la giornata, e quella va sempre rispettata.
+- Spostamento tra due sedi: sempre un'ora intera libera. Al massimo un cambio di sede al giorno (mai
+  sede A, poi B, poi di nuovo A).
+- Docente con le × su tutte le mattine perché fa solo le ore del T.P.: va bene così.
+- Strumento (chitarra, pianoforte, flauto): resta nell'elenco docenti senza orario (lezioni individuali
+  al pomeriggio); serve per le sostituzioni.
+- Le sostituzioni di ogni giorno restano nell'app di Rombiolo: qui Oggi, Assenze e Report restano come
+  sono, senza funzioni nuove.
+- L'orario lo fa l'utente per tutte le sedi insieme; poi esporta quello di ogni sede per l'app della
+  singola scuola, dove si può migliorare. Niente confronto con altri programmi d'orario.
+
+## Piano a tappe
+
+0. Distinguere le due app: icona, nome «Orario Generale», README e GUIDA-GITHUB con il nuovo indirizzo,
+   via «Scarica zip per GitHub».
+1. Voce «Sedi» nel menu, dopo Classi: per ogni sede nome, responsabile, giorni e campanella. Ogni classe
+   in una sede. Docenti: elenco unico con filtri per sede e per materia, ore per sede nella scheda, sede
+   scelta a mano per chi non ha classi (strumento, potenziamento); «Su più plessi» automatico. Orario
+   una sede alla volta. Il backup dell'app di Rombiolo diventa la sede Rombiolo.
+2. Costruisci per tutte le sedi insieme, con le regole qui sopra.
+3. «Esporta sede»: un backup che si apre nell'app della singola scuola; docenti in comune «Su più
+   plessi» con × su tutta la giornata nei giorni solo altrove e × sulle ore vere nei giorni divisi. Lì
+   «Importa backup» sostituisce tutto (anche assenze e coperture): va fatto a inizio anno. Poi,
+   facoltativo, «Riporta sede»: rimette qui l'orario migliorato, controllando i docenti in comune.
 
 ## Parole dell'app
 
