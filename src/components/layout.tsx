@@ -150,7 +150,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
       >
         <div className="px-5 pt-6 pb-5">
           <p className="font-display text-[1.45rem] leading-[1.15] tracking-tight text-sidebar-foreground">
-            Gestione Docenti
+            Orario Generale
           </p>
           <p className="mt-2 text-[12px] leading-snug text-sidebar-muted">
             {persistReady ? data.settings.schoolName : "\u00a0"}
@@ -198,7 +198,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
           className="flex items-center justify-between gap-3 border-b border-border bg-card/80 px-4 py-3 backdrop-blur md:hidden"
         >
           <div>
-            <p className="font-display text-lg leading-none">Gestione Docenti</p>
+            <p className="font-display text-lg leading-none">Orario Generale</p>
             <p className="mt-0.5 text-[11px] text-muted-foreground">
               {persistReady ? data.settings.schoolName : "\u00a0"}
             </p>
@@ -236,7 +236,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
             children
           ) : (
             <div>
-              <h1 className="font-display text-3xl font-medium tracking-tight">Gestione Docenti</h1>
+              <h1 className="font-display text-3xl font-medium tracking-tight">Orario Generale</h1>
               <p className="mt-2 max-w-md text-sm text-muted-foreground">Caricamento dei dati…</p>
             </div>
           )}
