@@ -1,0 +1,15 @@
+{
+  "name": "Gestione Docenti",
+  "short_name": "Docenti",
+  "description": "Sostituzioni e orario — responsabile di plesso.",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "background_color": "#1F4A3C",
+  "theme_color": "#1F4A3C",
+  "icons": [
+    { "src": "icon-180.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
