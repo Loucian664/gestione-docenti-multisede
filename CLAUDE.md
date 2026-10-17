@@ -6,6 +6,8 @@
   dell'app (schermate, tasti, dati) e non di comandi o file, salvo richiesta.
 - Obiettivo: un'app che costruisca l'orario per più sedi (plessi) dell'istituto comprensivo. Rombiolo è
   una di queste.
+- L'aspetto resta quello dell'app di Rombiolo (colori, caratteri, impaginazione); l'icona può cambiare,
+  ma nello stesso stile. La nuova app ha solo più funzioni.
 - Punto di partenza: copia, al 17/10/2026, dell'app di Rombiolo (repository `Loucian664/gestione-docenti`,
   sito https://loucian664.github.io/gestione-docenti/). Quella repository e quel sito restano separati:
   da qui non vanno toccati.
