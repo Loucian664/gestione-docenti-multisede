@@ -1,7 +1,7 @@
 {
-  "name": "Gestione Docenti",
-  "short_name": "Docenti",
-  "description": "Sostituzioni e orario — responsabile di plesso.",
+  "name": "Orario Generale",
+  "short_name": "Orario Generale",
+  "description": "Orario delle sedi dell’istituto comprensivo — scuola secondaria di I grado.",
   "start_url": ".",
   "scope": ".",
   "display": "standalone",
