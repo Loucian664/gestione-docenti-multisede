@@ -2,10 +2,11 @@ import type { StateStorage } from "zustand/middleware";
 import { DEFAULT_SCHOOL_NAME, LEGACY_SCHOOL_NAMES, SEED_ABSENCE_IDS, SEED_CLASS_TEMPO, SEED_TEACHER_IDS, buildSeed } from "./seed";
 import type { PersistedData } from "./types";
 
-const OLD_KEYS = ["copertura-plesso-v5", "copertura-plesso-v4", "copertura-plesso-v3", "copertura-plesso-v2"];
-const IDB_NAME = "copertura-plesso";
+/** Nessun nome vecchio: l'app di Rombiolo (copertura-plesso…) sta sullo stesso sito e i suoi dati non vanno né letti né cancellati. */
+const OLD_KEYS: string[] = [];
+const IDB_NAME = "gestione-docenti-multisede";
 const IDB_STORE = "kv";
-const PERSIST_KEY = "copertura-plesso";
+const PERSIST_KEY = "gestione-docenti-multisede";
 export const PERSIST_VERSION = 7;
 
 let writesEnabled = false;

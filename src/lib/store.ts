@@ -460,7 +460,7 @@ export const useAppStore = create<AppStore>()(
       };
     },
     {
-      name: "copertura-plesso",
+      name: "gestione-docenti-multisede",
       skipHydration: true,
       version: PERSIST_VERSION,
       storage: createJSONStorage(() => createDurableStorage()),
