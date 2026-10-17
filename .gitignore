@@ -1,0 +1,16 @@
+node_modules
+dist
+.output
+.nitro
+.vinxi
+.tanstack
+.wrangler
+*.local
+.DS_Store
+screenshots
+artifacts
+attachments
+
+.vercel
+.output
+dist

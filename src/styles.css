@@ -1,0 +1,253 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: "Source Sans 3", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Fraunces", ui-serif, Georgia, "Times New Roman", serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  --color-background: #f3efe6;
+  --color-foreground: #1c1915;
+  --color-card: #faf7f0;
+  --color-card-foreground: #1c1915;
+  --color-popover: #fffcf6;
+  --color-popover-foreground: #1c1915;
+  --color-primary: #1f4a3c;
+  --color-primary-foreground: #f4efe4;
+  --color-secondary: #e7e0d2;
+  --color-secondary-foreground: #1c1915;
+  --color-muted: #e8e1d4;
+  --color-muted-foreground: #6b6458;
+  --color-accent: #dfe8e3;
+  --color-accent-foreground: #1f4a3c;
+  --color-destructive: #8f2d22;
+  --color-destructive-foreground: #faf6f1;
+  --color-border: #ddd4c4;
+  --color-input: #ddd4c4;
+  --color-ring: #1f4a3c;
+  --color-sidebar: #17382e;
+  --color-sidebar-foreground: #efe8da;
+  --color-sidebar-muted: #b7c4bd;
+  --color-sidebar-hover: #1f4a3c;
+  --color-warning: #8a5a18;
+  --color-warning-soft: #f3e6cf;
+  --color-success: #1f4a3c;
+  --color-success-soft: #dce8e2;
+  --color-danger-soft: #f3e4df;
+  /* segno «Classe» in Costruisci: pieno = obbligatoria, chiaro = se possibile */
+  --color-class-mark: #2e5b88;
+  --color-class-mark-foreground: #f7f4ee;
+  --color-ink-faint: #6e675c;
+  --color-paper-rule: #e4d9c8;
+
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-2xl: 28px;
+
+  --shadow-border:
+    0px 0px 0px 1px rgba(28, 25, 21, 0.06),
+    0px 1px 2px -1px rgba(28, 25, 21, 0.06),
+    0px 2px 4px 0px rgba(28, 25, 21, 0.04);
+  --shadow-border-hover:
+    0px 0px 0px 1px rgba(28, 25, 21, 0.1),
+    0px 1px 2px -1px rgba(28, 25, 21, 0.08),
+    0px 4px 10px 0px rgba(28, 25, 21, 0.06);
+
+  --teacher-wash: 12%;
+  --shell-glow: rgba(31, 74, 60, 0.05);
+}
+
+.dark {
+  --color-background: #111614;
+  --color-foreground: #ece7dc;
+  --color-card: #1a201c;
+  --color-card-foreground: #ece7dc;
+  --color-popover: #1f2622;
+  --color-popover-foreground: #ece7dc;
+  --color-primary: #9dc4b3;
+  --color-primary-foreground: #0e1613;
+  --color-secondary: #242c28;
+  --color-secondary-foreground: #ece7dc;
+  --color-muted: #242c28;
+  --color-muted-foreground: #a39c90;
+  --color-accent: #24332c;
+  --color-accent-foreground: #c5ddd2;
+  --color-destructive: #e07a6c;
+  --color-destructive-foreground: #1a100e;
+  --color-border: #2f3833;
+  --color-input: #2f3833;
+  --color-ring: #9dc4b3;
+  --color-sidebar: #0c1411;
+  --color-sidebar-foreground: #e6e0d2;
+  --color-sidebar-muted: #9aada4;
+  --color-sidebar-hover: #17382e;
+  --color-warning: #e0b066;
+  --color-warning-soft: #3a2e18;
+  --color-success: #9dc4b3;
+  --color-success-soft: #1c322c;
+  --color-danger-soft: #3a221e;
+  --color-class-mark: #8fb5dd;
+  --color-class-mark-foreground: #0e1613;
+  --color-ink-faint: #8f8a80;
+  --color-paper-rule: #2a322e;
+  --shadow-border:
+    0px 0px 0px 1px rgba(236, 231, 220, 0.06),
+    0px 1px 2px -1px rgba(0, 0, 0, 0.45),
+    0px 8px 18px -12px rgba(0, 0, 0, 0.55);
+  --shadow-border-hover:
+    0px 0px 0px 1px rgba(236, 231, 220, 0.1),
+    0px 1px 2px -1px rgba(0, 0, 0, 0.5),
+    0px 10px 22px -10px rgba(0, 0, 0, 0.6);
+  --teacher-wash: 28%;
+  --shell-glow: rgba(157, 196, 179, 0.06);
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    color-scheme: light;
+  }
+
+  html.dark {
+    color-scheme: dark;
+  }
+
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  * {
+    border-color: var(--color-border);
+  }
+
+  html,
+  body,
+  #app {
+    min-height: 100%;
+    background: var(--color-background);
+    color: var(--color-foreground);
+  }
+
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+    font-family: var(--font-display);
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+.grid > * {
+  min-width: 0;
+}
+
+input[type="date"],
+input[type="time"] {
+  display: block;
+  position: relative;
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  height: 2.5rem;
+  max-height: 2.5rem;
+  padding-block: 0;
+  padding-inline: 0.5rem;
+  overflow: hidden;
+  text-align: center;
+  line-height: 2.5rem;
+  font-variant-numeric: tabular-nums;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+input[type="date"]::-webkit-date-and-time-value,
+input[type="time"]::-webkit-date-and-time-value {
+  min-height: 2.5rem;
+  line-height: 2.5rem;
+  text-align: center;
+}
+
+input[type="date"]::-webkit-datetime-edit,
+input[type="time"]::-webkit-datetime-edit {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  justify-content: center;
+  text-align: center;
+  line-height: 2.5rem;
+}
+
+input[type="date"]::-webkit-datetime-edit-fields-wrapper,
+input[type="time"]::-webkit-datetime-edit-fields-wrapper {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  justify-content: center;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.app-shell {
+  min-height: 100dvh;
+  background:
+    radial-gradient(1200px 500px at 0% 0%, var(--shell-glow), transparent 55%),
+    var(--color-background);
+}
+
+.paper-panel {
+  background: var(--color-card);
+  box-shadow: var(--shadow-border);
+}
+
+@media print {
+  body {
+    background: white !important;
+  }
+  [data-print-hide] {
+    display: none !important;
+  }
+  [data-print-only] {
+    display: block !important;
+  }
+  .print-sheet {
+    display: block !important;
+    box-shadow: none !important;
+    background: white !important;
+    color: black !important;
+  }
+}
