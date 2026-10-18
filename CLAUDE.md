@@ -62,7 +62,7 @@
 
 - Test di `src/lib`: per ogni `src/lib/*.test.ts`
   `node_modules/.bin/rolldown <file> --platform node --format esm --file <cartella>/<nome>.mjs`,
-  poi `node --test <cartella>/*.mjs` (155 test al 18/10/2026). `npm test` non li esegue.
+  poi `node --test <cartella>/*.mjs` (156 test al 18/10/2026). `npm test` non li esegue.
 - `npx tsc --noEmit`: 10 errori già presenti; non devono aumentare.
 - `GITHUB_PAGES=true BASE_PATH=/gestione-docenti-multisede/ npm run build:pages` deve riuscire.
 - Nei test del motore usa l'orologio finto (`now: ticks()` in `src/lib/timetable-solver.test.ts`), così
@@ -143,6 +143,11 @@ tolte quelle, la sede si può togliere. Una cattedra salvata senza docente resta
 ricava solo da chi la insegna già nell'orario (`inferTeacherId` con `fromSlotsOnly` in `resolveCattedre`), non
 da chiunque abbia quella materia. Con «Tutte le sedi insieme» Costruisci elenca prima le materie senza
 docente di ogni sede. «Elimina» nella scheda toglie il docente solo dalla sede in uso.
+Materie senza docente (decisione dell'utente: mai senza avviso): `missingTeachers` (build-timetable) e
+`missingBySede` (sedi) le contano, con i rientri senza docente e, a parte (`tn`), le righe di Mensa o Laboratorio
+in una classe a tempo normale (es. una riga rimasta nella 1ª A di Rombiolo). Compaiono nel riquadro «Materie senza
+docente» (`MissingTeachersBox`) in Costruisci e in Docenti, accanto alla classe in Classi, nella scheda della
+sede in Sedi e, salvando o eliminando un docente, in un avviso «Restano senza docente: …».
 
 ## Più sedi: decisioni dell'utente (17/10/2026)
 

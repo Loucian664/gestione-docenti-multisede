@@ -265,6 +265,42 @@ export function timetableDemand(data: PersistedData): DemandResult {
   return { lessons, unassigned, fromOrganico };
 }
 
+export type MissingTeacher = {
+  classId: string;
+  className: string;
+  subject: string;
+  hours: number;
+  /** Mensa o Laboratorio in una classe a tempo normale: una riga rimasta per sbaglio */
+  tn?: boolean;
+};
+
+/**
+ * Le ore delle classi senza docente: le materie che Costruisci lascia fuori e i rientri (Mensa, Laboratorio)
+ * senza docente; in una classe a tempo normale Mensa e Laboratorio sono segnati con `tn`.
+ */
+export function missingTeachers(data: PersistedData): MissingTeacher[] {
+  const out: MissingTeacher[] = timetableDemand(data).unassigned.map((u) => ({ ...u }));
+  const pool = new Set(data.teachers.filter(isTimetableTeacher).map((t) => t.id));
+  for (const row of resolveCattedre(data)) {
+    if (row.hours <= 0 || !/^(Mensa|Laboratorio)$/i.test(row.subject)) continue;
+    if (row.teacherId && pool.has(row.teacherId)) continue;
+    const cls = data.classes.find((c) => c.id === row.classId);
+    out.push({
+      classId: row.classId,
+      className: cls?.name ?? row.classId,
+      subject: row.subject,
+      hours: row.hours,
+      tn: cls?.tempo !== "TP",
+    });
+  }
+  return out;
+}
+
+/** «1ª A Religione 1 h», «1ª A Laboratorio 2 h (tempo normale)». */
+export function missingText(m: MissingTeacher): string {
+  return `${m.className} ${m.subject} ${m.hours} h${m.tn ? " (tempo normale)" : ""}`;
+}
+
 type Place = {
   classId: string;
   teacherId: string;
