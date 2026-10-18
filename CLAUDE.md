@@ -8,6 +8,11 @@
   una di queste.
 - L'aspetto resta quello dell'app di Rombiolo (colori, caratteri, impaginazione); l'icona può cambiare,
   ma nello stesso stile. La nuova app ha solo più funzioni.
+- Nome dell'app: «Orario Generale» (titolo, scritta in alto, nome sotto l'icona). Icona scelta
+  dall'utente: solo un calendario color crema, centrato, sullo stesso identico sfondo dell'icona di
+  Rombiolo (verde scuro con la sua grana); nella scheda del browser, lo stesso calendario.
+- I test copiati dall'app di Rombiolo contengono cognomi veri: restano così (decisione dell'utente del
+  18/10/2026). Nei test nuovi solo nomi inventati.
 - Punto di partenza: copia, al 17/10/2026, dell'app di Rombiolo (repository `Loucian664/gestione-docenti`,
   sito https://loucian664.github.io/gestione-docenti/). Quella repository e quel sito restano separati:
   da qui non vanno toccati.
@@ -26,8 +31,12 @@
 
 - I backup JSON dell'utente e le sue schermate contengono nomi veri di colleghi. Usali solo in locale,
   in una cartella temporanea: mai in commit, anteprime, test o messaggi su GitHub.
-- Prima di pubblicare un'anteprima, controlla che non contenga nessun nome (o cognome) dei docenti del
-  backup.
+- Anteprime private su Claude: dal 18/10/2026 l'utente vuole i dati veri (nomi reali compresi). Dal 18/10
+  l'anteprima ha le 6 sedi vere: Rombiolo dal suo backup (con assenze, sostituzioni e orari salvati), le altre
+  dal PDF delle assegnazioni e dagli orari in vigore; la copia di prova usa un nome di salvataggio suo
+  (`gestione-docenti-multisede-sedi-reali-2`). Gli script che costruiscono questi dati (trascrizioni, confronti,
+  backup «orario-generale-6-sedi.json») stanno solo nella cartella temporanea della sessione, mai nella
+  repository. Nel codice, nei test, nei commit e sul sito pubblicato restano gli esempi con nomi inventati.
 
 ## Dati nel browser
 
@@ -55,7 +64,7 @@
 
 - Test di `src/lib`: per ogni `src/lib/*.test.ts`
   `node_modules/.bin/rolldown <file> --platform node --format esm --file <cartella>/<nome>.mjs`,
-  poi `node --test <cartella>/*.mjs` (121 test al 17/10/2026). `npm test` non li esegue.
+  poi `node --test <cartella>/*.mjs` (162 test al 18/10/2026). `npm test` non li esegue.
 - `npx tsc --noEmit`: 10 errori già presenti; non devono aumentare.
 - `GITHUB_PAGES=true BASE_PATH=/gestione-docenti-multisede/ npm run build:pages` deve riuscire.
 - Nei test del motore usa l'orologio finto (`now: ticks()` in `src/lib/timetable-solver.test.ts`), così
@@ -79,20 +88,160 @@ Una copia di prova, non il codice vero:
 
 - `src/lib/types.ts`: modello dati (`Teacher`, `SchoolClass`, impostazioni con `plesso`, `PersistedData`).
 - `src/lib/store.ts`: stato dell'app e slot degli orari; `src/lib/persist-storage.ts`: salvataggio.
+- `src/lib/sedi.ts`: più sedi (cambio sede, sedi non in uso, docenti in comune con `personId`, × automatiche
+  dalle altre sedi con `withOtherSedi`); `src/routes/sedi.tsx`: pagina Sedi; `src/components/campanella-editor.tsx`:
+  orari di una sede.
+- `src/lib/sedi-insieme.ts`: «Tutte le sedi insieme» (dati di tutte le sedi per il motore con `buildInsieme`,
+  risultato di nuovo per sede con `splitInsieme`, ore a disposizione per sede con `insiemeParts`);
+  `src/components/vista-generale.tsx`: vista generale (Giorno, Settimana, Docenti, Classe su tutte le sedi).
 - `src/lib/timetable-solver.ts`: motore di Costruisci («Da zero», «Migliora l'attuale», Ritocchi, Trova,
   ore a disposizione nelle buche); `timetable-worker.ts` e `timetable-runner.ts` lo fanno girare in
   background.
 - `src/lib/saved-timetables.ts` e `src/components/save-slots.tsx`: slot (0 = orario in vigore, 1–5 prove).
 - `src/components/costruisci-orario.tsx`: scheda Costruisci.
 - `src/lib/export.ts`, `xlsx.ts`, `pdf.ts`, `sheet-image.ts`: backup, Excel, PDF, immagini.
-- `src/routes/`: pagine Oggi (`index`), Orario, Assenze, Docenti, Classi, Report, Impostazioni.
+- `src/routes/`: pagine Oggi (`index`), Orario, Assenze, Docenti, Classi, Sedi, Report, Impostazioni.
 
 ## Più sedi: com'è oggi
 
-L'app gestisce un plesso alla volta (`plesso` nelle impostazioni). Chi insegna anche altrove ha
-`otherPlesso` e le ore occupate nell'altra sede in `awaySlots` (le «×»), segnate a mano; il motore ne
-tiene conto e lascia un'ora libera di spostamento prima e dopo. Da costruire: più sedi nello stesso
-archivio e docenti condivisi coordinati dall'app.
+Più sedi nello stesso archivio (tappa 1). La sede in uso tiene i suoi dati in cima, come l'archivio di un
+plesso dell'app di Rombiolo: pagine, motore ed esportazioni lavorano su quelli. Le altre stanno in
+`altreSedi` (`sedeId`, `ordineSedi`); cambiare sede scambia i dati e fa ripartire la pagina. Un backup
+dell'app di Rombiolo diventa una sede sola; un backup di questa app aperto in quella mostra solo la sede in
+uso. Chi insegna in più sedi ha una scheda in ognuna con lo stesso `personId` (nome, materie, ruolo e colore
+sincronizzati); in Costruisci le sue ore nelle altre sedi diventano × automatiche (`withOtherSedi`), sulla
+campanella della sede in uso, e il motore lascia l'ora di spostamento. Le × a mano (`awaySlots`) restano
+per giornate intere e impegni; `otherPlesso` a mano vale per chi insegna in sedi fuori dall'app. Gli esempi
+hanno due sedi con nomi inventati.
+
+Tappa 2: in Costruisci «Tutte le sedi insieme» (solo sedi con gli stessi giorni e le stesse ore del
+mattino; le ore si abbinano per numero). Il motore riceve le classi di tutte le sedi con la sede di ognuna
+(`InsiemeInfo` in `timetable-solver.ts`: `nSedi`, `classSede`, `sedeUnavail`, `tSede`); vincoli rigidi: mai
+due sedi alla stessa ora, un'ora libera tra lezioni in sedi diverse, al massimo un cambio di sede al giorno,
+× valide solo nella loro sede; le giornate in due sedi pesano come «qui e nell'altro plesso». Le ore a
+disposizione restano ferme durante la ricerca e si sistemano dopo, sede per sede. «Salva nello slot…» e
+«Usa questa proposta» valgono per tutte le sedi con lo stesso numero di slot.
+Conteggio (18/10, sera): chi insegna in più sedi (`multi` in `Prep`) ha ogni giornata contata come nell'app di
+ogni sede (`sedeViews`, `dayCostSedi`): le ore nelle altre sedi sono × con l'ora di spostamento accanto, che non
+è un'ora buca; buche, 5-6 lezioni, 1ª-6ª e ore libere oltre il consentito sede per sede; mai «a 18 ore» né giorni
+vuoti. Il resoconto di tutte le sedi è la somma di quelli delle sedi (un giorno diviso tra due sedi conta una
+volta): un test lo controlla. Accanto alle × a mano di una sede serve l'ora di spostamento (`sedeAwayMask`). Le
+sue ore a disposizione segnate restano ferme nella loro sede anche con «Da zero» (`dispSede`); quelle da mettere
+vanno nelle buche della loro sede (`fillSede`) e lì deve esserci posto (vincolo `dispRoom`). Dopo la proposta
+`insiemeParts` rimette le disposizioni una sede alla volta, con le lezioni nuove delle altre sedi come × (`relocate`).
+Ricerca: mosse mirate sui vincoli non rispettati (`tryHardMove`); fino a 6 ricerche in parallelo (processori - 1)
+che a ogni giro ripartono dalla migliore (`syncCycles`, `adopt`; messaggi `sync`/`adopt` tra worker e runner).
+Tempo con tutte le sedi: 30 s con «Rapida», 90 s con «Accurata». Provati 1 min 30 s e 3 min sulle 6 sedi vere: nessun
+miglioramento netto (buche 3-8 contro 3-5, 1ª-6ª e 5 lezioni a zero in tutti e due), quindi tolti (decisione dell'utente).
+Proposta per tutte le sedi: «Numeri di» (tutte le sedi o una, contata come nella sua app) sull'orario definitivo
+(`insiemeParts` + `withInsiemeParts`). Slot salvati per tutte le sedi: lo stesso codice `insieme` in ogni sede
+(`insiemeSlot`); si riaprono con tutte le sedi (`insiemeSlotData`); Usa, Rendi in vigore, Svuota e Rinomina valgono
+per tutte (`activateSlotAll`, `makeOfficialAll`, `clearSavedTimetableAll`, `renameSavedTimetableAll`) e «Annulla
+l'ultimo Rendi in vigore» annulla in tutte. Vincoli rigidi non rispettati: il riquadro «Da sistemare»
+(`vincoli-box.tsx`) li elenca per tipo; ogni voce porta le ore (`Issue.cells`, `teacherId`) e apre la settimana del
+docente o della classe con le ore in rosso; durante la ricerca `bestHardWho` dice di chi sono. Nella vista Docenti della proposta, per chi è in più sedi,
+ogni ora ha il nome della sede (niente lettere: decisione dell'utente). In Orario, Quadro e
+Settimana hanno «Tutte le sedi» (sola lettura); in Docente, per chi insegna in più sedi, ogni ora porta il nome
+della sua sede, anche quelle della sede in uso, e ha il colore della sua sede (`sedeColor` in teacher-palette, dalla
+posizione nella pagina Sedi; tenue per le ore a disposizione), con la legenda sopra la griglia; nella vista Giorno le sedi vanno a capo su più file, in ordine, quante ne
+servono per la larghezza dello schermo (`righeSedi`). Da costruire: «Esporta sede» e «Riporta sede» (tappa 3).
+
+Eliminare una sede (pagina Sedi, due avvisi): si cancellano classi, orario, docenti solo lì, orari salvati e
+assenze. I docenti in comune conservano le ore di quella sede (`removedSedi`: nome, ore, giorno), perché nella
+realtà le insegnano ancora: valgono «Su più plessi» e, finché le × a mano sono meno di quelle ore, Costruisci
+mostra l'avviso «Ore in sedi fuori dall'app» e non propone l'orario («Non insegna più lì» toglie la sede).
+Ritocchi e «Trova»: una mossa che mette un docente su una ×, senza ora di spostamento, in due classi insieme o
+contro le regole tra sedi non si può fare, anche se toglie altri vincoli (`dphys` in `PeekResult`).
+«Ritocca a mano» con «Tutte le sedi insieme» (dalla proposta o dagli orari in uso): lo stesso pannello dei
+ritocchi sui dati uniti (`insieme` passato a `Ritocchi`), classi con il nome della sede, catene tra sedi;
+«Salva nello slot…» e «Usa questo orario» valgono per tutte le sedi; i lucchetti lì non si cambiano.
+Scheda docente con più sedi: «Classi e materie» ha un riquadro per ogni sede spuntata in «Sedi in cui insegna»;
+salvando, ogni riga va nella scheda della persona in quella sede (`saveTeacherSedi`, `saveTeacherCardSedi` nello
+store) e un avviso dice cosa è cambiato nelle altre sedi. «Ore cattedra» è il totale di tutte le sedi
+(`cattedraTotal`): nelle altre sedi valgono le ore delle righe, alla sede in uso va il resto. Una sede si toglie
+quando non ha più righe né lezioni in orario. Il potenziamento resta per sede.
+Classi tolte dalla scheda: se le sue lezioni sono ancora nell'orario di quella sede, il riquadro lo dice e
+«Toglile dall'orario quando salvi» (spuntata) le toglie (`drop` in `saveTeacherCard`/`saveTeacherCardSedi`);
+tolte quelle, la sede si può togliere. Una cattedra salvata senza docente resta senza docente: il docente si
+ricava solo da chi la insegna già nell'orario (`inferTeacherId` con `fromSlotsOnly` in `resolveCattedre`), non
+da chiunque abbia quella materia. Con «Tutte le sedi insieme» Costruisci elenca prima le materie senza
+docente di ogni sede. «Elimina» nella scheda toglie il docente solo dalla sede in uso.
+Materie senza docente (decisione dell'utente: mai senza avviso): `missingTeachers` (build-timetable) e
+`missingBySede` (sedi) le contano, con i rientri senza docente e, a parte (`tn`), le righe di Mensa o Laboratorio
+in una classe a tempo normale (es. una riga rimasta nella 1ª A di Rombiolo). Compaiono nel riquadro «Materie senza
+docente» (`MissingTeachersBox`) in Costruisci e in Docenti, accanto alla classe in Classi, nella scheda della
+sede in Sedi e, salvando o eliminando un docente, in un avviso «Restano senza docente: …».
+«Proponi» (una sede o tutte) si ferma con la finestra «Materie senza docente» se una materia della proposta non ha
+il docente (`blockingGroups`: non contano Mensa, Laboratorio e le righe in classi a tempo normale).
+Nella scheda docente «+ Mensa» e «+ Laboratorio» propongono una classe a tempo prolungato della sede (quella
+delle sue righe, se c'è; senza classi a T.P. la classe resta da scegliere); su una classe a tempo normale la
+riga mostra un avviso.
+
+## Più sedi: decisioni dell'utente (17/10/2026)
+
+- Solo scuole secondarie di I grado. Oggi nessuna sede fa lezione il sabato, ma i giorni restano
+  modificabili.
+- Le sedi sono 6: alcune con una classe sola, altre con 3, altre con 6 come Rombiolo. Prova del
+  18/10/2026 con 6 sedi inventate (6, 6, 3, 3, 1, 1 classi; 600 ore; 19 docenti in più sedi, fino a 4):
+  «Tutte le sedi insieme» in 30 secondi mette tutte le ore e rispetta le regole tra sedi, anche con le ×
+  su tutta la giornata ricavate da un orario possibile.
+- Le × hanno due significati: ore di lezione vere nell'altra sede, oppure giornata intera altrove per
+  comodità (anche se lì il docente fa meno ore). Giornate intere in una sola sede: preferenza; chi deve
+  stare tutto il giorno in una sede ha la × su tutta la giornata, e quella va sempre rispettata.
+- Spostamento tra due sedi: sempre un'ora intera libera. Al massimo un cambio di sede al giorno (mai
+  sede A, poi B, poi di nuovo A).
+- Docente con le × su tutte le mattine perché fa solo le ore del T.P.: va bene così.
+- Laboratori del T.P.: come a Rombiolo. Ogni rientro è Mensa + 2 ore di Laboratorio (7ª e 8ª) con lo stesso
+  docente, segnate come materie «Mensa» e «Laboratorio» nella sua scheda; chi fa solo quelle ore ha le × su
+  tutte le mattine.
+- Dati delle altre sedi: PDF delle assegnazioni dei docenti alle classi arrivato il 18/10/2026; gli orari in
+  vigore (solo materia e cognome) devono ancora arrivare. Usarli solo in locale; se sedi, omonimie o cognomi
+  non sono chiari, chiedere all'utente. Sedi reali (dal PDF): Rombiolo (6 classi, 3ª B a T.P.), San Calogero
+  (6, T.N.), Cessaniti (5, T.P.), Zungri (3, T.N.), Zaccanopoli (una pluriclasse 1ª-2ª-3ª, T.P.), Nicotera
+  (7, T.P.).
+- Come leggere il PDF (regole dell'utente, già usate per Rombiolo): nelle classi a tempo normale l'ora di
+  «Laboratorio storico-sociale» è Geografia (Geografia 2 ore); nel tempo prolungato «Laboratorio della
+  comunicazione» + «Laboratorio storico-sociale» sono le 2 ore di Laboratorio del rientro di lettere (con
+  Mensa) e «Laboratorio scientifico» + Mensa il rientro di matematica; «Progetto LEL (Latino)» è la materia
+  «Latino», 1 ora; le righe con gli asterischi non ci sono.
+- Le lettere delle sedi non servono: si usano i nomi reali. La sede «ferma» per ora non serve.
+- Dati delle sedi (18/10/2026): ore di 60 minuti per tutte le sedi, Rombiolo compresa (8-14; Mensa 14-15,
+  7ª 15-16, 8ª 16-17), così le ore delle sedi coincidono. Stessa persona solo con cognome e nome uguali.
+  Ogni docente fa 18 ore, salvo rare eccezioni (Pontoriero Grazia: 9 a Rombiolo e 9 a Cessaniti). Comerci
+  è potenziamento a San Calogero. Strumento come a Rombiolo (senza orario), con Ventura a Rombiolo. La
+  pluriclasse di Zaccanopoli è una classe sola («1ª-2ª-3ª A»). Dove PDF e orario in vigore non coincidono
+  vale l'orario in vigore (es. matematica di 3ª A e 3ª B a Cessaniti). Il Progetto LEL (Latino) sta al
+  pomeriggio come nell'orario in vigore. La regola di Rombiolo sui rientri (mattina dalla 4ª ora) per ora
+  vale solo lì.
+- Correzioni (utente, 18/10): il backup di Rombiolo è la fonte più affidabile e non si tocca; ogni docente fa
+  18 ore e gli errori del PDF si sistemano «anche per arrangiare». Fatto: conflitti tra orari risolti con
+  scambi di ore nella stessa classe delle altre sedi (Pata Daniela e Francica a Nicotera), Latino di Vecchio a
+  Nicotera al mercoledì 14-15, Lico 10 ore a disposizione a Cessaniti, Staropoli Rosa 7 ore a disposizione da
+  mettere a Nicotera, «Su più plessi» per chi completa altrove (Brosio Rosaria, Russo, Rombolà, Solano).
+  Restano a 20 ore Di Leo, Francica, Naso e Scavone (10 classi da 2 ore negli orari in vigore).
+- Le × a mano dei docenti in comune (147, messe a Rombiolo per le ore nelle altre scuole) sono tolte dai dati
+  veri dell'anteprima (decisione dell'utente del 18/10: l'app serve dal prossimo anno); le ore nelle altre sedi
+  diventano × da sole.
+- Strumento (chitarra, pianoforte, flauto): resta nell'elenco docenti senza orario (lezioni individuali
+  al pomeriggio); serve per le sostituzioni.
+- Le sostituzioni di ogni giorno restano nell'app di Rombiolo: qui Oggi, Assenze e Report restano come
+  sono, senza funzioni nuove.
+- L'orario lo fa l'utente per tutte le sedi insieme; poi esporta quello di ogni sede per l'app della
+  singola scuola, dove si può migliorare. Niente confronto con altri programmi d'orario.
+
+## Piano a tappe
+
+0. Distinguere le due app: icona, nome «Orario Generale», README e GUIDA-GITHUB con il nuovo indirizzo,
+   via «Scarica zip per GitHub».
+1. Voce «Sedi» nel menu, dopo Classi: per ogni sede nome, responsabile, giorni e campanella. Ogni classe
+   in una sede. Docenti: elenco unico con filtri per sede e per materia, ore per sede nella scheda, sede
+   scelta a mano per chi non ha classi (strumento, potenziamento); «Su più plessi» automatico. Orario
+   una sede alla volta. Il backup dell'app di Rombiolo diventa la sede Rombiolo.
+2. Costruisci per tutte le sedi insieme, con le regole qui sopra.
+3. «Esporta sede»: un backup che si apre nell'app della singola scuola; docenti in comune «Su più
+   plessi» con × su tutta la giornata nei giorni solo altrove e × sulle ore vere nei giorni divisi. Lì
+   «Importa backup» sostituisce tutto (anche assenze e coperture): va fatto a inizio anno. Poi,
+   facoltativo, «Riporta sede»: rimette qui l'orario migliorato, controllando i docenti in comune.
 
 ## Parole dell'app
 

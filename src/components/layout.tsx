@@ -7,8 +7,10 @@ import {
   Users,
   BookOpen,
   BarChart3,
+  School,
 } from "lucide-react";
-import { useEffect, useLayoutEffect, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useLayoutEffect, useState, type ReactNode } from "react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/lib/store";
 import { officialData } from "@/lib/saved-timetables";
@@ -29,6 +31,7 @@ import {
   writePersistSync,
 } from "@/lib/persist-storage";
 import type { PersistedData } from "@/lib/types";
+import { allSedi, sedeIdOf, sedeName } from "@/lib/sedi";
 import { ThemeCycleButton, ThemePicker } from "@/components/theme-toggle";
 
 const NAV = [
@@ -37,6 +40,7 @@ const NAV = [
   { to: "/assenze", label: "Assenze", icon: ClipboardList },
   { to: "/docenti", label: "Docenti", icon: Users },
   { to: "/classi", label: "Classi", icon: BookOpen },
+  { to: "/sedi", label: "Sedi", icon: School },
   { to: "/report", label: "Report", icon: BarChart3 },
   { to: "/impostazioni", label: "Impostazioni", icon: Settings },
 ] as const;
@@ -63,7 +67,8 @@ export function AppLayout({ children }: { children: ReactNode }) {
         }
         const merged = isSeedLike(current) ? incoming : mergeSlices(current, incoming);
         const fixed = withOrigin(applyOrganicoFixes(merged));
-        useAppStore.setState(fixed);
+        // le sedi degli esempi non restano accanto ai dati salvati
+        useAppStore.setState({ sedeId: undefined, altreSedi: [], ordineSedi: undefined, ...fixed });
       } catch {
         // ignore corrupt storage
       }
@@ -150,11 +155,14 @@ export function AppLayout({ children }: { children: ReactNode }) {
       >
         <div className="px-5 pt-6 pb-5">
           <p className="font-display text-[1.45rem] leading-[1.15] tracking-tight text-sidebar-foreground">
-            Gestione Docenti
+            Orario Generale
           </p>
-          <p className="mt-2 text-[12px] leading-snug text-sidebar-muted">
-            {persistReady ? data.settings.schoolName : "\u00a0"}
-            <br />
+          {persistReady ? (
+            <SedeSwitcher className="mt-3" />
+          ) : (
+            <p className="mt-2 text-[12px] leading-snug text-sidebar-muted">{"\u00a0"}</p>
+          )}
+          <p className="mt-1.5 text-[12px] leading-snug text-sidebar-muted">
             {persistReady ? data.settings.schoolYear : "\u00a0"}
           </p>
         </div>
@@ -198,10 +206,12 @@ export function AppLayout({ children }: { children: ReactNode }) {
           className="flex items-center justify-between gap-3 border-b border-border bg-card/80 px-4 py-3 backdrop-blur md:hidden"
         >
           <div>
-            <p className="font-display text-lg leading-none">Gestione Docenti</p>
-            <p className="mt-0.5 text-[11px] text-muted-foreground">
-              {persistReady ? data.settings.schoolName : "\u00a0"}
-            </p>
+            <p className="font-display text-lg leading-none">Orario Generale</p>
+            {persistReady ? (
+              <SedeSwitcher compact className="mt-0.5" />
+            ) : (
+              <p className="mt-0.5 text-[11px] text-muted-foreground">{"\u00a0"}</p>
+            )}
           </div>
           <div className="flex items-center gap-1">
             {persistReady && uncovered > 0 && (
@@ -233,10 +243,11 @@ export function AppLayout({ children }: { children: ReactNode }) {
           )}
         >
           {persistReady ? (
-            children
+            // cambiando sede ogni pagina riparte da capo, con i dati della sede scelta
+            <Fragment key={sedeIdOf(snapshot(data))}>{children}</Fragment>
           ) : (
             <div>
-              <h1 className="font-display text-3xl font-medium tracking-tight">Gestione Docenti</h1>
+              <h1 className="font-display text-3xl font-medium tracking-tight">Orario Generale</h1>
               <p className="mt-2 max-w-md text-sm text-muted-foreground">Caricamento dei dati…</p>
             </div>
           )}
@@ -245,7 +256,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
           data-print-hide
           className="fixed inset-x-0 bottom-0 z-40 flex border-t border-border bg-card/95 backdrop-blur md:hidden"
         >
-          {NAV.slice(0, 5).map((item) => {
+          {NAV.slice(0, 6).map((item) => {
             const active = item.to === "/" ? path === "/" : path.startsWith(item.to);
             const Icon = item.icon;
             return (
@@ -265,6 +276,62 @@ export function AppLayout({ children }: { children: ReactNode }) {
         </nav>
       </div>
     </div>
+  );
+}
+
+/** La sede in uso: nel menu a sinistra e, sul telefono, sotto il nome dell'app. */
+function SedeSwitcher({ compact = false, className }: { compact?: boolean; className?: string }) {
+  const store = useAppStore();
+  const data = snapshot(store);
+  const sedi = allSedi(data);
+  const current = sedeIdOf(data);
+  const name = sedeName(data.settings);
+  if (sedi.length < 2) {
+    return (
+      <p
+        className={cn(
+          compact ? "text-[11px] text-muted-foreground" : "text-[12px] leading-snug text-sidebar-muted",
+          className,
+        )}
+      >
+        {name}
+      </p>
+    );
+  }
+  return (
+    <label className={cn("block", className)}>
+      <span className="sr-only">Sede in uso</span>
+      <select
+        value={current}
+        onChange={(e) => {
+          const target = sedi.find((s) => s.id === e.target.value);
+          if (!target) return;
+          store.switchSede(target.id);
+          toast.message(`Sede in uso: ${sedeName(target.data.settings)}`);
+        }}
+        className={cn(
+          "block max-w-full min-w-0 appearance-none rounded-md pr-6 focus-visible:outline-none focus-visible:ring-2",
+          compact
+            ? "h-6 border-0 bg-transparent pl-0 text-[11px] text-muted-foreground focus-visible:ring-ring/30"
+            : "h-9 w-full border border-white/15 bg-white/5 pl-2.5 text-[13px] font-medium text-sidebar-foreground hover:bg-white/10 focus-visible:ring-white/30",
+        )}
+        style={{
+          // la freccia della tendina, a destra
+          backgroundImage: `url("data:image/svg+xml,${encodeURIComponent(
+            `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="8" fill="none"><path d="M1 1.5 6 6.5 11 1.5" stroke="${compact ? "#6b6458" : "#b7c4bd"}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+          )}")`,
+          backgroundPosition: "right 8px center",
+          backgroundSize: "10px",
+          backgroundRepeat: "no-repeat",
+        }}
+      >
+        {sedi.map((s) => (
+          <option key={s.id} value={s.id} className="text-foreground">
+            {sedeName(s.data.settings)}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 

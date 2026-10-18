@@ -1,86 +1,62 @@
-# Mettere Gestione Docenti su GitHub (senza saper programmare)
+# Orario Generale su GitHub (senza saper programmare)
 
-Fallo al computer (Mac). Il telefono serve solo alla fine, per aprire il link.
+La repository c’è già: si chiama **`gestione-docenti-multisede`** ed è separata da quella dell’app di Rombiolo (`gestione-docenti`), che resta com’è.
 
-Non caricare il file JSON dei tuoi dati. Quello resta sul Mac/iPhone.
-
----
-
-## 1. Account
-
-1. Apri [github.com](https://github.com)
-2. **Sign up** con la tua email
-3. Conferma il messaggio che arriva in posta
-4. Piano **Free**
+Non caricare mai su GitHub il file JSON dei tuoi dati: contiene i nomi dei colleghi. Quello resta sul Mac e sull’iPhone.
 
 ---
 
-## 2. Crea il cassetto (repository)
+## 1. I due indirizzi
 
-1. In alto a sinistra (o il + in alto a destra) → **New repository**
-2. Nome: **`gestione-docenti`** (scritto così, con il trattino)
-3. Scegli **Private** se non vuoi che il codice sia pubblico
-4. Non spuntare “Add a README”
-5. **Create repository**
+- **Il sito (l’app):** [https://loucian664.github.io/gestione-docenti-multisede/](https://loucian664.github.io/gestione-docenti-multisede/)
+- **Il cassetto (il codice):** [https://github.com/Loucian664/gestione-docenti-multisede](https://github.com/Loucian664/gestione-docenti-multisede)
 
----
-
-## 3. Carica i file
-
-Usa lo zip **`gestione-docenti-github.zip`** (quello preparato con l’app).
-
-1. Scompatta lo zip sul Mac (doppio clic)
-2. Si apre una cartella. Dentro devi vedere `package.json`, `src`, `public`, `.github`
-3. Su GitHub, nella pagina vuota del repository: **uploading an existing file**
-4. Trascina **il contenuto** della cartella (tutti i file e le sottocartelle), non lo zip chiuso
-5. Non deve comparire una cartella `node_modules` (è enorme e inutile)
-6. Scorri in basso → **Commit changes**
-
-Se GitHub dice che i file sono troppi: carica prima `package.json`, `src`, `public`, `scripts`, `.github`, poi gli altri. In caso scrivimi.
+L’app si usa sempre dall’indirizzo con **github.io** nel mezzo.
 
 ---
 
-## 4. Accendi il sito (Pages)
+## 2. Come si aggiorna il sito
 
-1. Nel repository: **Settings** (ingranaggio in alto)
-2. A sinistra, in fondo: **Pages**
-3. **Source**: **GitHub Actions**
-4. Torna in alto sul repository → scheda **Actions**
-5. Se chiede di abilitare le Actions: **I understand** / Enable
-6. Sulla sinistra dovrebbe comparire **Pubblica sito**
-7. Se non parte da sola: **Run workflow** → **Run workflow**
+Ogni modifica approvata e messa su `main` ripubblica il sito da sola.
 
-Aspetta 1–2 minuti. Il pallino deve diventare **verde**.
+1. Nel cassetto: scheda **Actions**
+2. In cima all’elenco: **Pubblica sito**, con il messaggio dell’ultima modifica
+3. Aspetta 1–2 minuti: il pallino deve diventare **verde**
 
 Se è **rosso**: apri quella riga, fai uno screenshot e mandamelo. Non è il tuo registro: è solo la pubblicazione.
 
----
+Se un giorno la scheda Actions non pubblica più nulla:
 
-## 5. Il tuo link
-
-Quando è verde:
-
-**Settings → Pages** in alto mostra un indirizzo tipo:
-
-`https://TUONOME.github.io/gestione-docenti/`
-
-(TUONOME è il tuo username GitHub.)
-
-1. Aprilo sul Mac
-2. Aprilo su iPhone, Safari
-3. iPhone: pulsante Condividi → **Aggiungi a Home**
+1. **Settings** (ingranaggio in alto) → a sinistra, in fondo: **Pages**
+2. **Source**: **GitHub Actions**
+3. Torna su **Actions** → **Pubblica sito** → **Run workflow** → **Run workflow**
 
 ---
 
-## 6. I tuoi dati
+## 3. Sul telefono
 
-Sul sito nuovo l’orario è vuoto o di esempio.
+1. Apri il sito su iPhone, in Safari
+2. Pulsante Condividi → **Aggiungi a Home**
+3. Il nome proposto è **Orario Generale**: se sotto l’icona esce tagliato, puoi accorciarlo qui
+4. **Aggiungi**
 
-1. Nell’app di Grok: **Esporta** il JSON
-2. Salvalo su iCloud / File
-3. Sul sito GitHub: **Impostazioni → Importa** quel JSON
+Sulla Home le due app si distinguono dall’icona: **due persone** con le frecce è Gestione Docenti (Rombiolo), il **calendario** è Orario Generale.
 
-Ogni dispositivo ha i **suoi** dati. Se vuoi lo stesso registro su iPhone e Mac, importa lo stesso JSON su entrambi.
+Se avevi già aggiunto questa app con l’icona vecchia, l’icona non cambia da sola. Prima fai **Impostazioni → Esporta backup**, poi togli l’icona dalla Home e aggiungila di nuovo. Se i dati non ci sono più: **Impostazioni → Importa backup**.
+
+---
+
+## 4. I tuoi dati
+
+I dati di questa app sono **separati** da quelli di Gestione Docenti, anche sullo stesso telefono.
+
+Per partire dai dati di Rombiolo:
+
+1. In Gestione Docenti: **Impostazioni → Esporta backup**
+2. Salva il file su iCloud / File
+3. In Orario Generale: **Impostazioni → Importa backup** e scegli quel file
+
+Ogni dispositivo ha i **suoi** dati. Se vuoi gli stessi dati su iPhone e Mac, importa lo stesso JSON su entrambi.
 
 Ogni tanto: esporta di nuovo il JSON e tieni una copia.
 
@@ -88,6 +64,7 @@ Ogni tanto: esporta di nuovo il JSON e tieni una copia.
 
 ## Se qualcosa non si apre
 
-- Link 404: controlla che il repository si chiami esattamente `gestione-docenti`
-- Pagina bianca: Actions rossa → screenshot
-- “Non è questo il programma”: stai aprendo github.com/tuonome/gestione-docenti (il cassetto) invece del link `github.io` (il sito). Il sito è quello con **github.io** nel mezzo.
+- **Link 404:** controlla che l’indirizzo finisca con `/gestione-docenti-multisede/`
+- **Pagina bianca:** Actions rossa → screenshot
+- **«Non è questo il programma»:** stai aprendo github.com/Loucian664/gestione-docenti-multisede (il cassetto) invece del link `github.io` (il sito)
+- **Si apre l’app di Rombiolo:** l’indirizzo è quello senza `-multisede`
