@@ -163,10 +163,12 @@ function resolveSubject(t: Teacher, subject: string): string {
   return subject;
 }
 
+/** Il docente di una materia senza docente: chi la insegna già nell'orario o, se `fromSlotsOnly` è falso, chi ha quella materia. */
 export function inferTeacherId(
   data: PersistedData,
   classId: string,
   subject: string,
+  fromSlotsOnly = false,
 ): string {
   const pool = data.teachers.filter(isTimetableTeacher);
   const slotHits = new Map<string, number>();
@@ -177,7 +179,7 @@ export function inferTeacherId(
     if (s.subject !== subject && !(subject === "Francese" && s.subject === "Spagnolo")) continue;
     slotHits.set(s.teacherId, (slotHits.get(s.teacherId) ?? 0) + 1);
   }
-  const candidates = pool.filter((t) => teachesSubject(t, subject));
+  const candidates = pool.filter((t) => teachesSubject(t, subject) && (!fromSlotsOnly || slotHits.has(t.id)));
   candidates.sort((a, b) => (slotHits.get(b.id) ?? 0) - (slotHits.get(a.id) ?? 0));
   return candidates[0]?.id ?? "";
 }
@@ -194,7 +196,8 @@ export function resolveCattedre(data: PersistedData): Cattedra[] {
     for (const row of rows) {
       if (!row.subject) continue;
       const existing = custom.find((c) => c.subject === row.subject);
-      const teacherId = existing?.teacherId || inferTeacherId(data, cls.id, row.subject);
+      // una materia salvata senza docente resta così, salvo chi la insegna già nell'orario
+      const teacherId = existing?.teacherId || inferTeacherId(data, cls.id, row.subject, Boolean(existing));
       out.push({ classId: cls.id, subject: row.subject, hours: row.hours, teacherId });
     }
   }

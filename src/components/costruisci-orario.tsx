@@ -73,6 +73,7 @@ import {
   autoAwayCells,
   linkedElsewhere,
   removedSediIssues,
+  sedeAsData,
   sedeName,
   withOtherSedi,
   type ElsewhereCell,
@@ -196,6 +197,20 @@ export function CostruisciOrario({
   );
   const [scope, setScope] = useState<"sede" | "tutte">("sede");
   const allTogether = scope === "tutte" && sediCount > 1;
+  // «Tutte le sedi insieme»: le materie senza docente di ogni sede, che non entrano nella proposta
+  const togetherUnassigned = useMemo(
+    () =>
+      allTogether
+        ? allSedi(rawData)
+            .map((s) => ({
+              sede: sedeName(s.data.settings),
+              list: timetableDemand(sedeAsData(rawData, s.data)).unassigned,
+            }))
+            .filter((x) => x.list.length > 0)
+        : [],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rawData.teachers, rawData.classes, rawData.slots, rawData.cattedre, rawData.altreSedi, allTogether],
+  );
   const [insieme, setInsieme] = useState<InsiemeResult | null>(null);
   const insiemeRef = useRef<HTMLElement>(null);
   // «Ritocca a mano» su tutte le sedi insieme: i dati uniti e le lezioni con i ritocchi
@@ -795,6 +810,15 @@ export function CostruisciOrario({
             {together.ok
               ? "Costruisce insieme le classi di tutte le sedi. Chi insegna in più sedi non è mai in due sedi alla stessa ora, ha sempre un’ora libera per spostarsi, cambia sede al massimo una volta al giorno e, se possibile, passa giornate intere in una sede. Le × segnate in una sede valgono solo lì; le ore «no» valgono ovunque."
               : `${together.reason} Per ora si costruisce una sede alla volta.`}
+          </p>
+        )}
+        {allTogether && together.ok && togetherUnassigned.length > 0 && (
+          <p className="mt-2 text-[13px] text-warning">
+            Senza docente, restano fuori dalla proposta:{" "}
+            {togetherUnassigned
+              .map((x) => `${x.sede}: ${x.list.map((u) => `${u.className} ${u.subject} ${u.hours} h`).join(", ")}`)
+              .join(" · ")}
+            . Il docente si sceglie nella sua scheda, in Docenti.
           </p>
         )}
         <p className="mt-2 text-[13px] text-muted-foreground">

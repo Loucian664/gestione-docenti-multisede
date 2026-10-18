@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { cattedreOfTeacher, isTimetableTeacher } from "./build-timetable.ts";
+import { cattedreOfTeacher, isTimetableTeacher, timetableDemand } from "./build-timetable.ts";
 import { backupJson, parseBackupJson } from "./export.ts";
 import { encodePersist, mergeSlices, shouldAcceptWrite } from "./persist-storage.ts";
 import {
@@ -409,6 +409,48 @@ describe("sedi: docenti in comune", () => {
     const now = snapshot(st());
     assert.equal(other(now).data.teachers.find((t) => t.id === "tb-fra-1")!.weeklyHours, 2);
     assert.equal(now.teachers.find((t) => t.id === "t-fra-1")!.weeklyHours, 16);
+    st().resetDemo();
+  });
+
+  it("classi tolte dalla scheda: finché le lezioni restano nell'orario sono sue, poi la materia resta senza docente", () => {
+    const d = seed();
+    const idA = sedeIdOf(d);
+    const idB = other(d).id;
+    const rowsA = cattedreOfTeacher(d, "t-fra-1").map(({ classId, subject, hours }) => ({ classId, subject, hours }));
+    const out = saveTeacherSedi(d, "t-fra-1", [idA, idB], { [idA]: rowsA, [idB]: [] }, 12).data;
+    const b = () => sedeAsData(out, other(out).data);
+    // le lezioni di francese sono ancora nell'orario della seconda sede: Costruisci le considera sue
+    assert.ok(other(out).data.slots.some((s) => s.teacherId === "tb-fra-1"));
+    assert.equal(timetableDemand(b()).unassigned.filter((u) => u.subject === "Francese").length, 0);
+    // tolte dall'orario, il francese resta senza docente anche se lei è ancora in quella sede
+    const empty = editSede(out, idB, (sede) => ({ ...sede, slots: sede.slots.filter((s) => s.teacherId !== "tb-fra-1") }));
+    assert.ok(other(empty).data.teachers.some((t) => t.id === "tb-fra-1"));
+    const missing = timetableDemand(sedeAsData(empty, other(empty).data)).unassigned.filter((u) => u.subject === "Francese");
+    assert.equal(missing.length, 3);
+    // una classe senza cattedre salvate continua a prendere il docente della materia
+    const fresh = { ...d, cattedre: [], slots: [] };
+    assert.ok(timetableDemand(fresh).lessons.some((l) => l.subject === "Francese" && l.teacherId === "t-fra-1"));
+  });
+
+  it("scheda docente: le lezioni delle classi tolte escono dall'orario e la sede si toglie", () => {
+    useAppStore.getState().resetDemo();
+    const st = () => useAppStore.getState();
+    const d = snapshot(st());
+    const idA = sedeIdOf(d);
+    const idB = other(d).id;
+    const { id: _id, ...patch } = d.teachers.find((t) => t.id === "t-fra-1")!;
+    const rowsA = cattedreOfTeacher(d, "t-fra-1").map(({ classId, subject, hours }) => ({ classId, subject, hours }));
+    const lessonsB = other(d).data.slots.filter((s) => s.teacherId === "tb-fra-1").map((s) => s.id);
+    assert.ok(lessonsB.length > 0);
+    const res = st().saveTeacherCardSedi("t-fra-1", { ...patch, weeklyHours: 12 }, { [idA]: rowsA }, [idA], {
+      [idB]: lessonsB,
+    });
+    assert.deepEqual(res.blocked, []);
+    const now = snapshot(st());
+    assert.ok(!other(now).data.teachers.some((t) => t.id === "tb-fra-1"));
+    assert.ok(!other(now).data.slots.some((s) => lessonsB.includes(s.id)));
+    assert.equal(other(now).data.slots.length, other(d).data.slots.length - lessonsB.length);
+    assert.equal(now.slots.length, d.slots.length);
     st().resetDemo();
   });
 
