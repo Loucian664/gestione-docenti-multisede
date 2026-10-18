@@ -67,7 +67,10 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { teacherCell } from "@/lib/teacher-palette";
 import { corePeriods, isTpPeriodId } from "@/lib/periods";
-import { autoAwayCells, linkedElsewhere, sedeName, withOtherSedi, type ElsewhereCell } from "@/lib/sedi";
+import { allSedi, autoAwayCells, linkedElsewhere, sedeName, withOtherSedi, type ElsewhereCell } from "@/lib/sedi";
+import { buildInsieme, canBuildTogether, insiemeParts, splitInsieme, vistaSedi, type InsiemeMap } from "@/lib/sedi-insieme";
+import { ClasseGenerale, DocentiGenerale, GiornoGenerale, SettimanaGenerale } from "@/components/vista-generale";
+import { SAVE_SLOTS } from "@/lib/saved-timetables";
 
 type Cell = { day: DayOfWeek; periodId: string };
 type CellState = "empty" | "no" | "away" | "class";
@@ -166,6 +169,17 @@ export function CostruisciOrario({
   const [classPick, setClassPick] = useState<ClassPick | null>(null);
   const [patternFor, setPatternFor] = useState<string | null>(null);
   const [cattedraClassId, setCattedraClassId] = useState(data.classes[0]?.id ?? "");
+  // «Tutte le sedi insieme»: le classi di tutte le sedi in una proposta sola
+  const sediCount = allSedi(rawData).length;
+  const together = useMemo(
+    () => canBuildTogether(rawData),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rawData.settings, rawData.altreSedi],
+  );
+  const [scope, setScope] = useState<"sede" | "tutte">("sede");
+  const allTogether = scope === "tutte" && sediCount > 1;
+  const [insieme, setInsieme] = useState<InsiemeResult | null>(null);
+  const insiemeRef = useRef<HTMLElement>(null);
   const morning = corePeriods(data.settings.periods);
 
   const byName = (a: Teacher, b: Teacher) =>
@@ -328,8 +342,52 @@ export function CostruisciOrario({
     return m;
   }, [data.teachers, data.slots]);
 
-  function propose() {
+  function proposeTogether() {
     if (handleRef.current) return;
+    if (!together.ok) {
+      toast.error(`${together.reason} Per ora si costruisce una sede alla volta.`);
+      return;
+    }
+    const built = buildInsieme(rawData);
+    if (timetableDemand(built.joint).lessons.length === 0) {
+      toast.message("Niente da piazzare: inserisci prima docenti, classi e ore in orario.");
+      return;
+    }
+    const current = evaluateCurrent(built.joint);
+    setResult(null);
+    setOpenSave(null);
+    setSavedIn(null);
+    setRunning({ fraction: 0, iterations: 0, bestHard: 0, bestSoft: 0, bestGaps: 0, workers: 0 });
+    const runMode = mode;
+    const handle = runTimetable(built.joint, {
+      timeMs: speed === "accurata" ? 90000 : 30000,
+      mode: runMode,
+      onProgress: (p) => setRunning(p),
+    });
+    handleRef.current = handle;
+    handle.result
+      .then((res) => {
+        setInsieme({ result: res, map: built.map, notes: built.notes, mode: runMode, current, savedIn: null });
+        window.setTimeout(() => {
+          insiemeRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }, 50);
+      })
+      .catch((err: unknown) => {
+        toast.error(`La costruzione si è fermata: ${err instanceof Error ? err.message : String(err)}`);
+      })
+      .finally(() => {
+        handleRef.current = null;
+        setRunning(null);
+      });
+  }
+
+  function propose() {
+    if (allTogether) {
+      proposeTogether();
+      return;
+    }
+    if (handleRef.current) return;
+    setInsieme(null);
     if (timetableDemand(data).lessons.length === 0) {
       toast.message("Niente da piazzare: inserisci prima docenti, classi e ore in orario.");
       return;
@@ -592,6 +650,18 @@ export function CostruisciOrario({
       <section className="paper-panel rounded-xl p-5">
         <StepTitle n={3} title="Proponi l’orario" />
         <div className="mt-4 flex flex-wrap items-center gap-3">
+          {sediCount > 1 && (
+            <Segmented
+              label="Sedi"
+              value={scope}
+              onChange={setScope}
+              disabled={Boolean(running)}
+              options={[
+                { value: "sede", label: "Questa sede" },
+                { value: "tutte", label: "Tutte le sedi insieme" },
+              ]}
+            />
+          )}
           <Segmented
             label="Punto di partenza"
             value={mode}
@@ -607,12 +677,26 @@ export function CostruisciOrario({
             value={speed}
             onChange={setSpeed}
             disabled={Boolean(running)}
-            options={[
-              { value: "rapida", label: "Rapida · 12 s" },
-              { value: "accurata", label: "Accurata · 35 s" },
-            ]}
+            options={
+              allTogether
+                ? [
+                    { value: "rapida", label: "Rapida · 30 s" },
+                    { value: "accurata", label: "Accurata · 90 s" },
+                  ]
+                : [
+                    { value: "rapida", label: "Rapida · 12 s" },
+                    { value: "accurata", label: "Accurata · 35 s" },
+                  ]
+            }
           />
         </div>
+        {allTogether && (
+          <p className={cn("mt-2 text-[13px]", together.ok ? "text-muted-foreground" : "text-warning")}>
+            {together.ok
+              ? "Costruisce insieme le classi di tutte le sedi. Chi insegna in più sedi non è mai in due sedi alla stessa ora, ha sempre un’ora libera per spostarsi, cambia sede al massimo una volta al giorno e, se possibile, passa giornate intere in una sede. Le × segnate in una sede valgono solo lì; le ore «no» valgono ovunque."
+              : `${together.reason} Per ora si costruisce una sede alla volta.`}
+          </p>
+        )}
         <p className="mt-2 text-[13px] text-muted-foreground">
           {mode === "scratch"
             ? "Genera un nuovo orario e poi mette le ore a disposizione nelle ore buche. Nella ricerca le ore buche colmabili con ore a disposizione non vengono conteggiate, ma al massimo una al giorno."
@@ -620,8 +704,8 @@ export function CostruisciOrario({
           {speed === "accurata" ? " Richiede più tempo, ma in genere trova soluzioni migliori." : ""}
         </p>
         <div className="mt-4 flex flex-wrap items-center gap-3">
-          <Button onClick={propose} disabled={Boolean(running)}>
-            {running ? "Sto cercando…" : "Proponi orario"}
+          <Button onClick={propose} disabled={Boolean(running) || (allTogether && !together.ok)}>
+            {running ? "Sto cercando…" : allTogether ? "Proponi l’orario di tutte le sedi" : "Proponi orario"}
           </Button>
           <Button variant="outline" onClick={() => openEdit("uso")} disabled={Boolean(running) || !inUseDraft.length}>
             Ritocca a mano
@@ -648,6 +732,20 @@ export function CostruisciOrario({
           onApply={() => setConfirmFor("ritocchi")}
           onSave={() => setSaveFor("ritocchi")}
           onUpdateTeacher={(id, patch) => store.updateTeacher(id, patch)}
+        />
+      )}
+
+      {!edit && insieme && (
+        <InsiemeProposta
+          sectionRef={insiemeRef}
+          data={rawData}
+          value={insieme}
+          running={running}
+          onStop={() => handleRef.current?.stop()}
+          onRetry={proposeTogether}
+          onClose={() => setInsieme(null)}
+          onSaved={(n) => setInsieme((v) => (v ? { ...v, savedIn: n } : v))}
+          report={<ReportPanel current={insieme.current} proposal={insieme.result.report} mode={insieme.mode} label="Proposta" />}
         />
       )}
 
@@ -3764,5 +3862,266 @@ function ReportPanel({
         </details>
       )}
     </div>
+  );
+}
+
+/** «Tutte le sedi insieme»: la proposta del motore, l'insieme da cui viene e il confronto con l'attuale. */
+type InsiemeResult = {
+  result: SolveResult;
+  map: InsiemeMap;
+  notes: string[];
+  mode: SolveMode;
+  current: TimetableReport;
+  /** slot in cui è stata salvata la proposta */
+  savedIn: number | null;
+};
+
+/** La proposta per tutte le sedi: riepilogo, confronto, vista generale e i tasti per tutte le sedi. */
+function InsiemeProposta({
+  sectionRef,
+  data,
+  value,
+  running,
+  onStop,
+  onRetry,
+  onClose,
+  onSaved,
+  report,
+}: {
+  sectionRef: React.RefObject<HTMLElement | null>;
+  data: PersistedData;
+  value: InsiemeResult;
+  running: RunProgress | null;
+  onStop: () => void;
+  onRetry: () => void;
+  onClose: () => void;
+  onSaved: (n: number) => void;
+  report: ReactNode;
+}) {
+  const store = useAppStore();
+  const lessons = useMemo(() => splitInsieme(value.map, value.result.slots), [value]);
+  const sedi = vistaSedi(data, lessons);
+  const [view, setView] = useState<"giorno" | "settimana" | "docenti" | "classe">("giorno");
+  const [day, setDay] = useState<DayOfWeek>(data.settings.days[0] ?? 1);
+  const [dialog, setDialog] = useState<"save" | "use" | null>(null);
+  const name = value.mode === "scratch" ? "Tutte le sedi · da zero" : "Tutte le sedi · migliorato";
+  const warnings = [...value.notes, ...value.result.report.warnings];
+
+  function pick(n: number, slotName: string) {
+    const parts = insiemeParts(data, lessons, value.mode);
+    if (dialog === "use") {
+      store.putInSlotAll(n, parts, slotName);
+      toast.success(`Slot ${n} in uso in tutte le sedi. Gli orari in vigore restano nello slot 0.`);
+      onClose();
+    } else {
+      store.saveTimetableAll(n, parts, slotName);
+      toast.success(`Salvata nello slot ${n} di tutte le sedi: «${slotName}».`);
+      onSaved(n);
+    }
+    setDialog(null);
+  }
+
+  return (
+    <section ref={sectionRef} className="mt-1 max-md:pb-16">
+      <div className="sticky top-0 z-20 -mx-1 flex flex-wrap items-center gap-2 border-b border-border bg-background px-1 py-2 md:bg-background/95 md:backdrop-blur-sm">
+        <h2 className={cn("min-w-0 font-display text-lg", !running && "mr-auto")}>Proposta · tutte le sedi</h2>
+        {running ? (
+          <SearchBar progress={running} className="min-w-0 flex-1 md:mr-auto md:flex-none" />
+        ) : (
+          <span className="hidden text-[13px] text-muted-foreground sm:inline">
+            {value.savedIn ? `Salvata nello slot ${value.savedIn}` : "Non ancora salvata"}
+          </span>
+        )}
+        <Button variant="outline" className="md:order-1" onClick={() => setDialog("save")} disabled={Boolean(running)}>
+          <Save aria-hidden />
+          <span className="md:hidden">Salva</span>
+          <span className="hidden md:inline">Salva nello slot…</span>
+        </Button>
+        <div className="fixed inset-x-0 bottom-14 z-30 flex items-center gap-2 border-t border-border bg-background/95 px-4 py-2 backdrop-blur-sm md:contents">
+          {running ? (
+            <Button variant="outline" className="max-md:px-3" onClick={onStop}>
+              Basta così
+            </Button>
+          ) : (
+            <>
+              <Button variant="outline" className="max-md:px-3" onClick={onClose}>
+                Chiudi
+              </Button>
+              <Button variant="outline" className="max-md:px-3" onClick={onRetry}>
+                Riprova
+              </Button>
+            </>
+          )}
+          <Button className="max-md:flex-1 md:order-2" onClick={() => setDialog("use")} disabled={Boolean(running)}>
+            Usa questa proposta
+          </Button>
+        </div>
+      </div>
+
+      <ul className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-[13px] text-muted-foreground">
+        {sedi.map((s) => (
+          <li key={s.id}>
+            <span className="font-medium text-foreground">{s.name}</span>: {s.data.classes.length}{" "}
+            {s.data.classes.length === 1 ? "classe" : "classi"}, {(lessons[s.id] ?? []).length} ore messe
+          </li>
+        ))}
+      </ul>
+      <p className="mt-1 text-[13px] text-muted-foreground">
+        Per ritoccarla, usala e poi in ogni sede «Ritocca a mano». Le ore a disposizione si sistemano sede per sede
+        quando la usi o la salvi{value.mode === "scratch" ? ", anche nelle ore buche" : ""}.
+      </p>
+      {warnings.length > 0 && (
+        <ul className="mt-2 flex list-disc flex-col gap-1 pl-5 text-[13px] text-warning">
+          {warnings.map((w, i) => (
+            <li key={i}>{w}</li>
+          ))}
+        </ul>
+      )}
+
+      {report}
+
+      <div className="mt-4 flex flex-col gap-3">
+        <Tabs
+          className="flex-wrap overflow-visible"
+          value={view}
+          onValueChange={(v) => setView(v as typeof view)}
+          items={[
+            { value: "giorno", label: "Giorno", title: "Un giorno, tutte le classi di tutte le sedi" },
+            { value: "settimana", label: "Settimana", title: "Tutte le classi, sede per sede" },
+            { value: "docenti", label: "Docenti", title: "La settimana di ogni docente in tutte le sedi" },
+            { value: "classe", label: "Classe", title: "La settimana di una classe" },
+          ]}
+        />
+        {view === "giorno" && (
+          <div className="flex flex-wrap gap-1.5">
+            {data.settings.days.map((d) => (
+              <button
+                key={d}
+                type="button"
+                onClick={() => setDay(d)}
+                className={cn(
+                  "h-10 min-w-14 rounded-md px-3 text-sm font-medium",
+                  day === d ? "bg-primary text-primary-foreground" : "bg-secondary text-secondary-foreground",
+                )}
+              >
+                {DAY_SHORT[d]}
+              </button>
+            ))}
+          </div>
+        )}
+        {view === "giorno" && <GiornoGenerale sedi={sedi} day={day} />}
+        {view === "settimana" && <SettimanaGenerale sedi={sedi} />}
+        {view === "docenti" && <DocentiGenerale sedi={sedi} />}
+        {view === "classe" && <ClasseGenerale sedi={sedi} />}
+      </div>
+
+      <InsiemeSlotDialog
+        mode={dialog}
+        defaultName={name}
+        data={data}
+        onClose={() => setDialog(null)}
+        onPick={pick}
+      />
+    </section>
+  );
+}
+
+/**
+ * Slot di prova (1–5) per la proposta di tutte le sedi: lo stesso numero in ogni sede. «save» non tocca
+ * gli orari in uso (uno slot in uso in una sede non si sceglie); «use» mette e usa in tutte le sedi.
+ */
+function InsiemeSlotDialog({
+  mode,
+  defaultName,
+  data,
+  onClose,
+  onPick,
+}: {
+  mode: "save" | "use" | null;
+  defaultName: string;
+  data: PersistedData;
+  onClose: () => void;
+  onPick: (n: number, name: string) => void;
+}) {
+  const [name, setName] = useState(defaultName);
+  const [confirmN, setConfirmN] = useState<number | null>(null);
+  useEffect(() => {
+    if (!mode) return;
+    setName(defaultName);
+    setConfirmN(null);
+  }, [mode, defaultName]);
+  const sedi = allSedi(data);
+  const clean = name.trim().slice(0, 40) || defaultName;
+  const row =
+    "flex min-h-12 w-full items-center gap-3 rounded-lg border px-3 py-2 text-left text-sm transition-colors disabled:opacity-60";
+
+  return (
+    <Dialog open={mode !== null} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{mode === "use" ? "Usare questa proposta?" : "Salva nello slot"}</DialogTitle>
+          <DialogDescription>
+            {mode === "use"
+              ? "In ogni sede va nello slot di prova scelto e diventa l’orario in uso. Gli orari in vigore (slot 0) non cambiano."
+              : "In ogni sede si salva nello slot scelto, con le ore a disposizione del mattino. Gli orari in uso non cambiano."}
+          </DialogDescription>
+        </DialogHeader>
+        <label className="mt-1 flex flex-col gap-1.5 text-sm font-medium">
+          Nome
+          <Input id="insieme-slot-nome" value={name} maxLength={40} onChange={(e) => setName(e.target.value)} />
+        </label>
+        <ul className="mt-4 flex flex-col gap-1.5">
+          {SAVE_SLOTS.map((n) => {
+            const per = sedi.map((s) => ({
+              name: sedeName(s.data.settings),
+              saved: (s.data.savedTimetables ?? []).find((x) => x.n === n),
+              inUse: (s.data.activeSlot ?? 0) === n,
+            }));
+            const full = per.some((x) => x.saved || x.inUse);
+            const usedIn = per.filter((x) => x.inUse).map((x) => x.name);
+            const blocked = mode === "save" && usedIn.length > 0;
+            const meta = per
+              .map((x) => `${x.name}: ${x.inUse ? "in uso" : x.saved ? `«${x.saved.name}»` : "vuoto"}`)
+              .join(" · ");
+            if (confirmN === n && full) {
+              return (
+                <li key={n} className="rounded-lg border border-destructive/60 px-3 py-2 text-sm">
+                  <p>Lo slot {n} non è vuoto in tutte le sedi ({meta}): sostituire?</p>
+                  <div className="mt-2 flex justify-end gap-2">
+                    <Button size="sm" variant="outline" onClick={() => setConfirmN(null)}>
+                      No
+                    </Button>
+                    <Button size="sm" variant="destructive" onClick={() => onPick(n, clean)}>
+                      Sostituisci
+                    </Button>
+                  </div>
+                </li>
+              );
+            }
+            return (
+              <li key={n}>
+                <button
+                  type="button"
+                  disabled={blocked}
+                  className={cn(row, full ? "border-border bg-card hover:bg-muted" : "border-dashed border-border hover:bg-muted")}
+                  onClick={() => (full ? setConfirmN(n) : onPick(n, clean))}
+                >
+                  <span className="w-4 shrink-0 text-center font-semibold tabular-nums">{n}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className={cn("block", full ? "font-medium" : "text-ink-faint")}>{full ? `Slot ${n}` : "Vuoto"}</span>
+                    {full && (
+                      <span className="block text-[12px] text-muted-foreground">
+                        {meta}
+                        {blocked ? " · per cambiarlo usa «Usa questa proposta»" : ""}
+                      </span>
+                    )}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      </DialogContent>
+    </Dialog>
   );
 }
