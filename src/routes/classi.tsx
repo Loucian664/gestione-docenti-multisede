@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { NativeSelect } from "@/components/ui/native-select";
 import { useAppStore, snapshot } from "@/lib/store";
+import { allSedi, classInUse, sedeIdOf, sedeName, type SedeEntry } from "@/lib/sedi";
 import type { SchoolClass, Tempo } from "@/lib/types";
 import { Plus } from "lucide-react";
 import { toast } from "sonner";
@@ -17,15 +18,20 @@ function tempoLabel(tempo: Tempo): string {
   return tempo === "TN" ? "Tempo normale" : "Tempo prolungato";
 }
 
+const ALL = "tutte";
+
 function ClassiPage() {
   const store = useAppStore();
   const data = snapshot(store);
-  const [editing, setEditing] = useState<SchoolClass | null | "new">(null);
-  const grouped = [1, 2, 3] as const;
+  const sedi = allSedi(data);
+  const [filter, setFilter] = useState(() => sedeIdOf(data));
+  const [editing, setEditing] = useState<{ value: SchoolClass | "new"; sedeId: string } | null>(null);
+  const shown = filter === ALL ? sedi : sedi.filter((s) => s.id === filter);
+  const several = sedi.length > 1;
 
-  function saveTempo(c: SchoolClass, tempo: Tempo) {
+  function saveTempo(sedeId: string, c: SchoolClass, tempo: Tempo) {
     if (c.tempo === tempo) return;
-    store.updateClass(c.id, { tempo });
+    store.updateClassIn(sedeId, c.id, { tempo });
     toast.success(`${c.name}: ${tempoLabel(tempo)}`);
   }
 
@@ -33,26 +39,80 @@ function ClassiPage() {
     <div>
       <PageHeader
         title="Classi"
-        description="Classi del plesso e tempo scuola (normale o prolungato). Il tempo scelto dalla tendina viene salvato subito."
+        description="Classi di ogni sede e tempo scuola (normale o prolungato). Il tempo scelto dalla tendina viene salvato subito."
         actions={
-          <Button onClick={() => setEditing("new")}>
+          <Button
+            onClick={() => setEditing({ value: "new", sedeId: filter === ALL ? sedeIdOf(data) : filter })}
+          >
             <Plus />
             Nuova classe
           </Button>
         }
       />
+      {several && (
+        <div className="mb-4 max-w-xs">
+          <NativeSelect value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Sede">
+            <option value={ALL}>Tutte le sedi</option>
+            {sedi.map((s) => (
+              <option key={s.id} value={s.id}>
+                {sedeName(s.data.settings)}
+              </option>
+            ))}
+          </NativeSelect>
+        </div>
+      )}
+      <div className="flex flex-col gap-6">
+        {shown.map((s) => (
+          <SedeClasses
+            key={s.id}
+            sede={s}
+            title={filter === ALL}
+            onEdit={(c) => setEditing({ value: c, sedeId: s.id })}
+            onTempo={(c, tempo) => saveTempo(s.id, c, tempo)}
+          />
+        ))}
+      </div>
+      {editing && (
+        <ClassDialog
+          key={editing.value === "new" ? "new" : editing.value.id}
+          value={editing.value}
+          sedeId={editing.sedeId}
+          onClose={() => setEditing(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function SedeClasses({
+  sede,
+  title,
+  onEdit,
+  onTempo,
+}: {
+  sede: SedeEntry;
+  title: boolean;
+  onEdit: (c: SchoolClass) => void;
+  onTempo: (c: SchoolClass, tempo: Tempo) => void;
+}) {
+  const grouped = [1, 2, 3] as const;
+  return (
+    <section>
+      {title && <h2 className="mb-2 font-display text-lg">{sedeName(sede.data.settings)}</h2>}
       <div className="grid gap-4 md:grid-cols-3">
         {grouped.map((grade) => {
-          const items = data.classes.filter((c) => c.grade === grade).sort((a, b) => a.section.localeCompare(b.section));
+          const items = sede.data.classes
+            .filter((c) => c.grade === grade)
+            .sort((a, b) => a.section.localeCompare(b.section));
           return (
             <section key={grade} className="paper-panel rounded-xl p-4">
-              <h2 className="font-display text-xl">{grade}ª</h2>
+              <h3 className="font-display text-xl">{grade}ª</h3>
               <ul className="mt-3 flex flex-col gap-1.5">
                 {items.map((c) => (
                   <li key={c.id} className="flex items-center gap-2 rounded-md px-1 hover:bg-muted">
                     <button
                       type="button"
-                      onClick={() => setEditing(c)}
+                      onClick={() => onEdit(c)}
                       className="flex min-h-12 min-w-0 flex-1 items-center text-left"
                     >
                       <span className="font-medium">{c.name}</span>
@@ -64,7 +124,7 @@ function ClassiPage() {
                       value={c.tempo}
                       aria-label={`Tempo ${c.name}`}
                       className="h-10 w-40 shrink-0"
-                      onChange={(e) => saveTempo(c, e.target.value as Tempo)}
+                      onChange={(e) => onTempo(c, e.target.value as Tempo)}
                     >
                       <option value="TN">Tempo normale</option>
                       <option value="TP">Tempo prolungato</option>
@@ -77,25 +137,31 @@ function ClassiPage() {
           );
         })}
       </div>
-      {editing && (
-        <ClassDialog
-          key={editing === "new" ? "new" : editing.id}
-          value={editing}
-          onClose={() => setEditing(null)}
-        />
-      )}
-    </div>
+    </section>
   );
 }
 
-function ClassDialog({ value, onClose }: { value: SchoolClass | "new"; onClose: () => void }) {
+function ClassDialog({
+  value,
+  sedeId,
+  onClose,
+}: {
+  value: SchoolClass | "new";
+  sedeId: string;
+  onClose: () => void;
+}) {
   const store = useAppStore();
+  const sedi = allSedi(snapshot(store));
   const isNew = value === "new";
   const current = isNew || !value ? null : value;
   const [grade, setGrade] = useState<1 | 2 | 3>(current?.grade ?? 1);
   const [section, setSection] = useState(current?.section ?? "A");
   const [students, setStudents] = useState(String(current?.students ?? 22));
   const [tempo, setTempo] = useState<Tempo>(current?.tempo ?? "TN");
+  const [sede, setSede] = useState(sedeId);
+  const home = sedi.find((s) => s.id === sedeId);
+  // una classe con lezioni o cattedre resta nella sua sede
+  const locked = Boolean(current && home && classInUse(home.data, current.id));
 
   function save() {
     const name = `${grade}ª ${section.trim().toUpperCase()}`;
@@ -106,8 +172,15 @@ function ClassDialog({ value, onClose }: { value: SchoolClass | "new"; onClose: 
       students: Number(students) || 0,
       tempo,
     };
-    if (isNew) store.addClass(payload);
-    else if (current) store.updateClass(current.id, payload);
+    if (isNew) store.addClassIn(sede, payload);
+    else if (current) {
+      store.updateClassIn(sedeId, current.id, payload);
+      if (sede !== sedeId && !store.moveClass(sedeId, current.id, sede)) {
+        toast.error("La classe ha già lezioni o cattedre: resta nella sua sede.");
+        onClose();
+        return;
+      }
+    }
     toast.success("Classe salvata");
     onClose();
   }
@@ -119,6 +192,23 @@ function ClassDialog({ value, onClose }: { value: SchoolClass | "new"; onClose: 
           <DialogTitle>{isNew ? "Nuova classe" : "Modifica classe"}</DialogTitle>
         </DialogHeader>
         <div className="grid min-w-0 gap-3">
+          {sedi.length > 1 && (
+            <div className="flex min-w-0 flex-col gap-1.5">
+              <Label>Sede</Label>
+              <NativeSelect value={sede} onChange={(e) => setSede(e.target.value)} disabled={locked}>
+                {sedi.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {sedeName(s.data.settings)}
+                  </option>
+                ))}
+              </NativeSelect>
+              {locked && (
+                <p className="text-[12px] text-muted-foreground">
+                  Ha già lezioni o cattedre in questa sede: per spostarla toglile prima.
+                </p>
+              )}
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <div className="flex min-w-0 flex-col gap-1.5">
               <Label>Anno</Label>
@@ -145,7 +235,7 @@ function ClassDialog({ value, onClose }: { value: SchoolClass | "new"; onClose: 
                 const next = e.target.value as Tempo;
                 setTempo(next);
                 if (current) {
-                  store.updateClass(current.id, { tempo: next });
+                  store.updateClassIn(sedeId, current.id, { tempo: next });
                   toast.success(`${current.name}: ${tempoLabel(next)}`);
                 }
               }}
@@ -159,7 +249,7 @@ function ClassDialog({ value, onClose }: { value: SchoolClass | "new"; onClose: 
               <Button
                 variant="outline"
                 onClick={() => {
-                  store.removeClass(current.id);
+                  store.removeClassIn(sedeId, current.id);
                   toast.message("Classe rimossa");
                   onClose();
                 }}

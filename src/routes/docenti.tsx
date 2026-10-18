@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { PageHeader } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { useAppStore, snapshot } from "@/lib/store";
 import { teacherName } from "@/lib/coverage";
 import { cattedreOfTeacher } from "@/lib/build-timetable";
+import { allSedi, canRemoveRecord, hoursIn, persons, sedeAsData, sedeIdOf, sedeName } from "@/lib/sedi";
 import { DAY_SHORT, ROLE_LABELS, ACTIVITY_SUBJECTS, CURRICULAR_SUBJECTS, SUBJECTS, type DayOfWeek, type Teacher, type TeacherRole } from "@/lib/types";
 import { Plus, Search, LayoutGrid } from "lucide-react";
 import { toast } from "sonner";
@@ -25,30 +26,105 @@ import {
   teacherDotColor,
 } from "@/lib/teacher-palette";
 
-export const Route = createFileRoute("/docenti")({ component: DocentiPage });
+type DocentiSearch = { apri?: string };
+
+export const Route = createFileRoute("/docenti")({
+  component: DocentiPage,
+  validateSearch: (raw: Record<string, unknown>): DocentiSearch => ({
+    // scheda da aprire dopo il passaggio a un'altra sede
+    apri: typeof raw.apri === "string" ? raw.apri : undefined,
+  }),
+});
+
+const ALL = "tutte";
 
 function DocentiPage() {
   const store = useAppStore();
   const data = snapshot(store);
   const navigate = useNavigate();
+  const search = Route.useSearch();
   const [q, setQ] = useState("");
+  const [sedeFilter, setSedeFilter] = useState(ALL);
+  const [subjectFilter, setSubjectFilter] = useState(ALL);
   const [editing, setEditing] = useState<Teacher | null | "new">(null);
+  const sedi = allSedi(data);
+  const several = sedi.length > 1;
+
+  useEffect(() => {
+    if (!search.apri) return;
+    const t = data.teachers.find((x) => x.id === search.apri);
+    if (t) setEditing(t);
+    void navigate({ to: "/docenti", search: {}, replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search.apri]);
+
+  const people = useMemo(() => persons(data), [data]);
+  const subjectsAll = useMemo(
+    () =>
+      [...new Set(people.flatMap((p) => p.records.flatMap((r) => r.teacher.subjects)))].sort((a, b) =>
+        a.localeCompare(b, "it"),
+      ),
+    [people],
+  );
 
   const list = useMemo(() => {
     const query = q.trim().toLowerCase();
-    return data.teachers
-      .filter((t) => {
+    return people
+      .map((p) => ({ ...p, main: p.records.find((r) => r.active) ?? p.records[0]! }))
+      .filter((p) => {
+        const t = p.main.teacher;
+        if (sedeFilter !== ALL && !p.records.some((r) => r.sedeId === sedeFilter)) return false;
+        if (subjectFilter !== ALL && !p.records.some((r) => r.teacher.subjects.includes(subjectFilter))) return false;
         if (!query) return true;
         return `${t.lastName} ${t.firstName} ${t.subjects.join(" ")}`.toLowerCase().includes(query);
       })
-      .sort((a, b) => a.lastName.localeCompare(b.lastName, "it"));
-  }, [data.teachers, q]);
+      .sort(
+        (a, b) =>
+          a.main.teacher.lastName.localeCompare(b.main.teacher.lastName, "it") ||
+          a.main.teacher.firstName.localeCompare(b.main.teacher.firstName, "it"),
+      );
+  }, [people, q, sedeFilter, subjectFilter]);
+
+  /** La scheda nella sede in uso; se il docente insegna solo altrove, si passa alla sua sede. */
+  function open(row: (typeof list)[number], to: "scheda" | "orario") {
+    const here = row.records.find((r) => r.active);
+    if (here) {
+      if (to === "scheda") setEditing(here.teacher);
+      else void navigate({ to: "/orario", search: { docente: here.teacher.id } });
+      return;
+    }
+    const rec = row.main;
+    store.switchSede(rec.sedeId);
+    toast.message(`Sede in uso: ${rec.sedeName}`);
+    if (to === "scheda") void navigate({ to: "/docenti", search: { apri: rec.teacher.id } });
+    else void navigate({ to: "/orario", search: { docente: rec.teacher.id } });
+  }
+
+  /** Classi; per chi insegna in più sedi, divise per sede. */
+  function classesText(row: (typeof list)[number]): string {
+    const parts = row.records
+      .map((r) => ({ r, text: classLabels(sedeAsData(data, r.sede), r.teacher.id) }))
+      .filter((x) => x.text);
+    if (row.records.length < 2) return parts[0]?.text ?? "";
+    return parts.map((x) => `${x.r.sedeName}: ${x.text}`).join(" · ");
+  }
+
+  const sediText = (row: (typeof list)[number]) => row.records.map((r) => r.sedeName).join(" · ");
+
+  const hoursOf = (row: (typeof list)[number]): string[] =>
+    row.records.length > 1
+      ? row.records.map((r) => `${r.sedeName} ${r.hours} h`)
+      : hoursLines(row.main.teacher);
 
   return (
     <div>
       <PageHeader
         title="Docenti"
-        description="Docenti del plesso con materie, classi e ore. Seleziona un docente per modificarne i dati."
+        description={
+          several
+            ? "Docenti di tutte le sedi con materie, classi e ore. Seleziona un docente per modificarne i dati."
+            : "Docenti del plesso con materie, classi e ore. Seleziona un docente per modificarne i dati."
+        }
         actions={
           <Button onClick={() => setEditing("new")}>
             <Plus />
@@ -56,41 +132,71 @@ function DocentiPage() {
           </Button>
         }
       />
-      <div className="relative mb-4 max-w-sm">
-        <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-faint" />
-        <Input className="pl-9" placeholder="Cerca per cognome o materia" value={q} onChange={(e) => setQ(e.target.value)} />
+      <div className="mb-4 flex flex-wrap gap-2">
+        <div className="relative w-full max-w-sm">
+          <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-faint" />
+          <Input className="pl-9" placeholder="Cerca per cognome o materia" value={q} onChange={(e) => setQ(e.target.value)} />
+        </div>
+        {several && (
+          <NativeSelect
+            value={sedeFilter}
+            onChange={(e) => setSedeFilter(e.target.value)}
+            aria-label="Sede"
+            className="w-auto min-w-40 flex-1 sm:flex-none"
+          >
+            <option value={ALL}>Tutte le sedi</option>
+            {sedi.map((s) => (
+              <option key={s.id} value={s.id}>
+                {sedeName(s.data.settings)}
+              </option>
+            ))}
+          </NativeSelect>
+        )}
+        <NativeSelect
+          value={subjectFilter}
+          onChange={(e) => setSubjectFilter(e.target.value)}
+          aria-label="Materia"
+          className="w-auto min-w-40 flex-1 sm:flex-none"
+        >
+          <option value={ALL}>Tutte le materie</option>
+          {subjectsAll.map((x) => (
+            <option key={x} value={x}>
+              {x}
+            </option>
+          ))}
+        </NativeSelect>
       </div>
       <ul className="paper-panel divide-y divide-border rounded-xl md:hidden">
-        {list.map((t) => (
-          <li key={t.id} className="flex items-start gap-2 py-3 pr-2 pl-4">
-            <button type="button" onClick={() => setEditing(t)} className="min-w-0 flex-1 text-left">
-              <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                <span className="size-2.5 shrink-0 rounded-full" style={{ background: teacherDotColor(t.color) }} />
-                <span className="font-medium">{teacherName(t)}</span>
-                <Badge variant="outline">{ROLE_LABELS[t.role]}</Badge>
-              </span>
-              <span className="mt-0.5 block text-[13px] text-muted-foreground">{t.subjects.join(", ")}</span>
-              <span className="block text-[13px] text-muted-foreground">{classLabels(data, t.id) || "—"}</span>
-            </button>
-            <div className="flex shrink-0 flex-col items-end gap-1">
-              <span className="pt-0.5 text-right text-[13px] whitespace-nowrap text-muted-foreground tabular-nums">
-                {hoursLines(t).map((line) => (
-                  <span key={line} className="block">
-                    {line}
-                  </span>
-                ))}
-              </span>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => void navigate({ to: "/orario", search: { docente: t.id } })}
-              >
-                <LayoutGrid />
-                Orario
-              </Button>
-            </div>
-          </li>
-        ))}
+        {list.map((row) => {
+          const t = row.main.teacher;
+          return (
+            <li key={row.key} className="flex items-start gap-2 py-3 pr-2 pl-4">
+              <button type="button" onClick={() => open(row, "scheda")} className="min-w-0 flex-1 text-left">
+                <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="size-2.5 shrink-0 rounded-full" style={{ background: teacherDotColor(t.color) }} />
+                  <span className="font-medium">{teacherName(t)}</span>
+                  <Badge variant="outline">{ROLE_LABELS[t.role]}</Badge>
+                </span>
+                <span className="mt-0.5 block text-[13px] text-muted-foreground">{t.subjects.join(", ")}</span>
+                <span className="block text-[13px] text-muted-foreground">{classesText(row) || "—"}</span>
+                {several && <span className="block text-[12px] text-muted-foreground">{sediText(row)}</span>}
+              </button>
+              <div className="flex shrink-0 flex-col items-end gap-1">
+                <span className="pt-0.5 text-right text-[13px] whitespace-nowrap text-muted-foreground tabular-nums">
+                  {hoursOf(row).map((line) => (
+                    <span key={line} className="block">
+                      {line}
+                    </span>
+                  ))}
+                </span>
+                <Button size="sm" variant="ghost" onClick={() => open(row, "orario")}>
+                  <LayoutGrid />
+                  Orario
+                </Button>
+              </div>
+            </li>
+          );
+        })}
       </ul>
       <div className="paper-panel hidden overflow-x-auto rounded-xl md:block">
         <table className="w-full min-w-[52rem] text-sm">
@@ -106,55 +212,65 @@ function DocentiPage() {
             </tr>
           </thead>
           <tbody>
-            {list.map((t) => (
-              <tr
-                key={t.id}
-                className="cursor-pointer border-b border-border last:border-0 hover:bg-muted/60"
-                onClick={() => setEditing(t)}
-              >
-                <td className="whitespace-nowrap px-4 py-3">
-                  <div className="flex items-center gap-2">
-                    <span className="size-2.5 shrink-0 rounded-full" style={{ background: teacherDotColor(t.color) }} />
-                    <span className="font-medium">{teacherName(t)}</span>
-                  </div>
-                </td>
-                <td className="px-4 py-3 text-muted-foreground">{t.subjects.join(", ")}</td>
-                <td className="whitespace-nowrap px-4 py-3">
-                  <Badge variant="outline">{ROLE_LABELS[t.role]}</Badge>
-                </td>
-                <td className="px-4 py-3 text-muted-foreground">
-                  {classLabels(data, t.id) || "—"}
-                </td>
-                <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">{t.weeklyHours} h</td>
-                <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">
-                  {t.role === "potenziamento" ? (
-                    <DispHoursCell
-                      quota={t.weeklyHours}
-                      assigned={t.dispSlots?.length ?? 0}
-                      emptyLabel="0 h"
-                    />
-                  ) : (
-                    <DispHoursCell quota={t.dispHours ?? 0} assigned={t.dispSlots?.length ?? 0} />
-                  )}
-                </td>
-                <td className="whitespace-nowrap px-4 py-3">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void navigate({ to: "/orario", search: { docente: t.id } });
-                    }}
-                  >
-                    <LayoutGrid />
-                    Ore
-                  </Button>
-                </td>
-              </tr>
-            ))}
+            {list.map((row) => {
+              const t = row.main.teacher;
+              const away = !row.records.some((r) => r.active);
+              return (
+                <tr
+                  key={row.key}
+                  className="cursor-pointer border-b border-border last:border-0 hover:bg-muted/60"
+                  onClick={() => open(row, "scheda")}
+                >
+                  <td className="whitespace-nowrap px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <span className="size-2.5 shrink-0 rounded-full" style={{ background: teacherDotColor(t.color) }} />
+                      <span className="font-medium">{teacherName(t)}</span>
+                    </div>
+                    {several && <div className="mt-0.5 pl-4.5 text-[12px] text-muted-foreground">{sediText(row)}</div>}
+                  </td>
+                  <td className="px-4 py-3 text-muted-foreground">{t.subjects.join(", ")}</td>
+                  <td className="whitespace-nowrap px-4 py-3">
+                    <Badge variant="outline">{ROLE_LABELS[t.role]}</Badge>
+                  </td>
+                  <td className="px-4 py-3 text-muted-foreground">{classesText(row) || "—"}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">
+                    {row.records.length > 1
+                      ? row.records.map((r) => (
+                          <span key={r.sedeId} className="block">
+                            {r.sedeName} {r.hours} h
+                          </span>
+                        ))
+                      : `${t.weeklyHours} h`}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">
+                    {away ? (
+                      <span className="text-muted-foreground">—</span>
+                    ) : t.role === "potenziamento" ? (
+                      <DispHoursCell quota={t.weeklyHours} assigned={t.dispSlots?.length ?? 0} emptyLabel="0 h" />
+                    ) : (
+                      <DispHoursCell quota={t.dispHours ?? 0} assigned={t.dispSlots?.length ?? 0} />
+                    )}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        open(row, "orario");
+                      }}
+                    >
+                      <LayoutGrid />
+                      Ore
+                    </Button>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
+      {list.length === 0 && <p className="mt-4 text-sm text-muted-foreground">Nessun docente con questi filtri.</p>}
       {editing && (
         <TeacherDialog
           key={editing === "new" ? "new" : editing.id}
@@ -218,6 +334,20 @@ function TeacherDialog({ value, onClose }: { value: Teacher | "new"; onClose: ()
     current?.dispSlots ?? [],
   );
   const data = snapshot(store);
+  const sedi = allSedi(data);
+  const several = sedi.length > 1;
+  const activeId = sedeIdOf(data);
+  const here = sedeName(data.settings);
+  // le schede della stessa persona nelle altre sedi
+  const elsewhere = current?.personId
+    ? sedi
+        .filter((x) => !x.active)
+        .flatMap((x) => {
+          const rec = x.data.teachers.find((y) => y.personId === current.personId);
+          return rec ? [{ sede: x, teacher: rec }] : [];
+        })
+    : [];
+  const [sediSel, setSediSel] = useState<string[]>(() => [activeId, ...elsewhere.map((e) => e.sede.id)]);
   const [rows, setRows] = useState(() =>
     current
       ? cattedreOfTeacher(data, current.id).map((c) => ({
@@ -269,7 +399,12 @@ function TeacherDialog({ value, onClose }: { value: Teacher | "new"; onClose: ()
             .map((r) => ({ classId: r.classId, subject: r.subject.trim(), hours: Number(r.hours) || 0 }))
             .filter((r) => r.classId && r.subject && r.hours > 0);
     payload.subjects = [...new Set([...payload.subjects, ...parsed.map((r) => r.subject)])];
-    store.saveTeacherCard(isNew ? null : current!.id, payload, parsed);
+    const savedId = store.saveTeacherCard(isNew ? null : current!.id, payload, parsed);
+    const before = [activeId, ...elsewhere.map((e) => e.sede.id)].sort().join("|");
+    if ([...sediSel].sort().join("|") !== before) {
+      const blocked = store.setTeacherSedi(savedId, sediSel);
+      if (blocked.length) toast.error(`Resta anche a ${blocked.join(", ")}: lì ha lezioni o cattedre.`);
+    }
     toast.success(
       payload.role === "potenziamento"
         ? "Docente salvato. Nelle ore in sede è disponibile per le sostituzioni."
@@ -351,8 +486,46 @@ function TeacherDialog({ value, onClose }: { value: Teacher | "new"; onClose: ()
               }
             />
           )}
+          {several && (
+            <Field label="Sedi in cui insegna">
+              <div className="flex flex-col gap-1">
+                {sedi.map((x) => {
+                  const rec = elsewhere.find((e) => e.sede.id === x.id);
+                  const locked = x.active || Boolean(rec && !canRemoveRecord(x.data, rec.teacher.id));
+                  const on = sediSel.includes(x.id);
+                  return (
+                    <label key={x.id} className="flex min-h-9 items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        className="size-4 accent-primary"
+                        checked={on}
+                        disabled={locked}
+                        onChange={(e) =>
+                          setSediSel((all) => (e.target.checked ? [...all, x.id] : all.filter((y) => y !== x.id)))
+                        }
+                      />
+                      <span className="font-medium">{sedeName(x.data.settings)}</span>
+                      <span className="text-[12px] text-muted-foreground">
+                        {x.active
+                          ? "· questa scheda"
+                          : rec
+                            ? `· ${hoursIn(data, x.data, rec.teacher.id)} h${locked ? " (ha lezioni lì)" : ""}`
+                            : on
+                              ? "· nuova scheda, senza classi"
+                              : ""}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+              <p className="text-[12px] text-muted-foreground">
+                Nome, materie, ruolo e colore sono uguali in tutte le sedi. Classi e ore di un’altra sede si inseriscono
+                passando a quella sede.
+              </p>
+            </Field>
+          )}
           {role !== "potenziamento" && (
-          <Field label="Classi e materie su questo plesso">
+          <Field label={several ? `Classi e materie a ${here}` : "Classi e materie su questo plesso"}>
             <p className="text-[12px] text-muted-foreground">
               Per ogni classe indica materia e ore (anche Mensa o Laboratorio). Se il docente insegna anche in altri plessi,
               il totale può essere inferiore.
@@ -437,9 +610,21 @@ function TeacherDialog({ value, onClose }: { value: Teacher | "new"; onClose: ()
                 </Button>
               </div>
               <p className="text-[12px] tabular-nums text-muted-foreground">
-                Totale su questo plesso: {assignedHours} h
+                {several ? `Totale a ${here}` : "Totale su questo plesso"}: {assignedHours} h
                 {Number(weeklyHours) > 0 ? ` su ${weeklyHours} h di organico` : ""}
               </p>
+              {elsewhere.map((e) => {
+                const other = cattedreOfTeacher(sedeAsData(data, e.sede.data), e.teacher.id);
+                if (!other.length) return null;
+                return (
+                  <p key={e.sede.id} className="text-[12px] text-muted-foreground">
+                    A {sedeName(e.sede.data.settings)}:{" "}
+                    {other
+                      .map((c) => `${e.sede.data.classes.find((x) => x.id === c.classId)?.name ?? "classe"} ${c.subject} ${c.hours} h`)
+                      .join(", ")}
+                  </p>
+                );
+              })}
             </div>
           </Field>
           )}
@@ -450,8 +635,8 @@ function TeacherDialog({ value, onClose }: { value: Teacher | "new"; onClose: ()
             <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
           </Field>
           <p className="text-[12px] text-muted-foreground">
-            Se il docente presta servizio anche in un altro plesso, indica in Orario → Costruisci le ore in cui è
-            nell’altra sede.
+            Le ore nelle altre sedi dell’app Costruisci le conosce da solo. Se il docente insegna anche in una sede che
+            non è nell’app, indica in Orario → Costruisci le ore in cui è altrove.
           </p>
           <div className="sticky bottom-0 z-10 flex items-center gap-2 border-t border-border bg-popover pt-3">
             {!isNew && current && (
