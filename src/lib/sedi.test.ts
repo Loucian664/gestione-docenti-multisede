@@ -28,7 +28,7 @@ import {
 } from "./sedi.ts";
 import { buildSeed, EMPTY_DATA } from "./seed.ts";
 import { snapshot, useAppStore } from "./store.ts";
-import { solveTimetable } from "./timetable-solver.ts";
+import { solveTimetable, TimetableEditor } from "./timetable-solver.ts";
 import type { PersistedData, SedeData, Teacher } from "./types.ts";
 
 /** Senza le voci vuote (undefined), come nel salvataggio. */
@@ -224,6 +224,48 @@ describe("sedi: docenti in comune", () => {
         assert.ok(!busy.some((c) => c.day === s.day && c.periodId === s.periodId), `${id} ${s.day} ${s.periodId}`);
       }
     }
+  });
+
+  it("Ritocchi e «Trova» non mettono un docente in comune sulle ore altrove, neanche per togliere altri vincoli", () => {
+    // l'orario di esempio ha giornate 1ª–6ª con due ore buche: una mossa che le toglie mettendo il docente
+    // nell'ora in cui è nell'altra sede (o senza ora di spostamento) non si può fare
+    const data = withOtherSedi(seed());
+    const ed = new TimetableEditor(data);
+    const p = ed.prep;
+    const days = [...data.settings.days].sort((a, b) => a - b);
+    const zOf = (x: { day: number; periodId: string }) =>
+      days.indexOf(x.day as (typeof days)[number]) * p.M +
+      p.morningPos.indexOf(data.settings.periods.findIndex((q) => q.id === x.periodId));
+    let checked = 0;
+    for (const id of ["t-fra-1", "t-tec-1"]) {
+      const ti = p.teachers.findIndex((t) => t.id === id);
+      const blocked = (z: number) => {
+        const un = p.unavail[(ti * p.D + Math.floor(z / p.M)) * p.P + p.morningPos[z % p.M]!];
+        return un === 1 || un === 2;
+      };
+      for (const s of data.slots.filter((x) => x.teacherId === id)) {
+        const from = zOf(s);
+        if (from < 0) continue;
+        ed.effects(s.classId, from).forEach((eff, to) => {
+          if (eff && blocked(to)) {
+            checked += 1;
+            assert.equal(eff.verdict, "breaks", `${id} ${s.classId} → ${to}`);
+            assert.ok(eff.hard > 0);
+          }
+        });
+        const gen = new TimetableEditor(data).findFixes({ kind: "lesson", classId: s.classId, z: from }, 60_000);
+        let r = gen.next();
+        while (!r.done) r = gen.next();
+        for (const opt of r.value.options) {
+          assert.notEqual(opt.effect.verdict, "breaks");
+          const e2 = new TimetableEditor(data);
+          let out: ReturnType<TimetableEditor["apply"]> = null;
+          for (const st of opt.steps) out = e2.apply(st.classId, st.from, st.to);
+          for (const x of out!.slots.filter((y) => y.teacherId === id)) assert.ok(!blocked(zOf(x)), `${id} ${x.day} ${x.periodId}`);
+        }
+      }
+    }
+    assert.ok(checked > 0);
   });
 
   it("nome, materie, ruolo e colore restano uguali in tutte le sedi", () => {

@@ -794,6 +794,11 @@ export type SolveMode = "scratch" | "improve";
 export type PeekResult = {
   ds: number;
   dh: number;
+  /**
+   * Vincoli che nessuna mossa può scambiare con altri (docente in due classi alla stessa ora, lezione su una
+   * ×, senza ora di spostamento, regole tra sedi): quanti in più (positivo) o in meno, per i docenti toccati
+   */
+  dphys: number;
   G: Int32Array;
   lastMax: number;
   patOk: number;
@@ -2124,16 +2129,19 @@ export class TimetableSolver {
     const [ds, dh, dp] = this.evaluateApplied();
     if (this.peeking) {
       this.peeked = [ds, dh, dp];
+      let physAfter = 0;
       if (this.peekDetail) {
         const disp: PeekResult["disp"] = [];
         for (let i = 0; i < this.nTD; i++) {
           const k = this.affTD[i]!;
+          physAfter += this.physicalTD(k);
           if (this.uTDdisp[i] !== this.tdDisp[k])
             disp.push({ t: (k / this.p.D) | 0, d: k % this.p.D, before: this.uTDdisp[i]!, after: this.tdDisp[k]! });
         }
         this.peekOut = {
           ds,
           dh,
+          dphys: 0,
           G: Int32Array.from(this.G),
           lastMax: this.lastMax(),
           patOk: this.patternOkCount(),
@@ -2142,6 +2150,11 @@ export class TimetableSolver {
         };
       }
       undo();
+      if (this.peekOut && this.peekDetail) {
+        let physBefore = 0;
+        for (let i = 0; i < this.nTD; i++) physBefore += this.physicalTD(this.affTD[i]!);
+        this.peekOut.dphys = physAfter - physBefore;
+      }
       this.restoreCaches();
       return false;
     }
@@ -2157,6 +2170,28 @@ export class TimetableSolver {
     undo();
     this.restoreCaches();
     return false;
+  }
+
+  /**
+   * I vincoli della giornata `k` (docente * D + giorno) che nessuna mossa può scambiare con altri: il docente
+   * in due classi alla stessa ora, una lezione su una ×, senza l'ora di spostamento, le regole tra sedi.
+   */
+  private physicalTD(k: number): number {
+    const p = this.p;
+    const base = k * p.P;
+    let n = 0;
+    for (let pos = 0; pos < p.P; pos++) {
+      const occ = this.tOcc[base + pos]!;
+      if (occ > 1) n += occ - 1;
+    }
+    for (let m = 0; m < p.M; m++) {
+      const pos = p.morningPos[m]!;
+      const occ = this.tOcc[base + pos]!;
+      const un = p.unavail[base + pos]!;
+      if (occ && (un === 1 || un === 2)) n += occ;
+    }
+    if (p.nSedi > 1) n += this.sedeDay((k / p.D) | 0, k % p.D).hard;
+    return n;
   }
 
   /** Prova a scambiare due celle di una classe. */
@@ -3788,6 +3823,14 @@ export type FixOption = { steps: FixStep[]; effect: MoveEffect };
 /** Le proposte di «Trova»; `partial`: la ricerca si è fermata prima della fine (le migliori trovate fin lì). */
 export type FindResult = { options: FixOption[]; partial: boolean };
 
+/**
+ * Vincoli in più (positivo) o in meno di una mossa. Se mette qualcuno su una × o senza ora di spostamento non
+ * «sistema» nulla, anche se toglie altri vincoli: conta come vincoli in più.
+ */
+function hardOf(peek: PeekResult): number {
+  return peek.dphys > 0 ? Math.max(peek.dh, peek.dphys) : peek.dh;
+}
+
 function hardTexts(r: TimetableReport): string[] {
   return Object.values(r.hard).flatMap((list) => list.map((i) => i.text));
 }
@@ -3930,7 +3973,9 @@ export class TimetableEditor {
     }
     const a = this.s.peekMove(c, x, y, false);
     const b = this.s.peekMove(c, x, y, true);
-    if (b && b.classes.length > 1 && (!a || b.dh < a.dh)) return { kind: "kempe", classes: b.classes, peek: b };
+    // prima chi non mette nessuno su una × o senza ora di spostamento, poi meno vincoli
+    const rank = (r: PeekResult) => (r.dphys > 0 ? 1_000_000 : 0) + r.dh;
+    if (b && b.classes.length > 1 && (!a || rank(b) < rank(a))) return { kind: "kempe", classes: b.classes, peek: b };
     return a ? { kind: "swap", classes: [c], peek: a } : null;
   }
 
@@ -4037,8 +4082,17 @@ export class TimetableEditor {
     const hard = peek.dh;
     const nb = rows.filter((r) => r.better).length + (hard < 0 ? 1 : 0);
     const nw = rows.filter((r) => !r.better).length;
+    // una × o l'ora di spostamento non si scambiano con altri vincoli: la mossa non si può fare
     const verdict: MoveEffect["verdict"] =
-      hard > 0 ? "breaks" : nb && !nw ? "better" : nw && !nb ? "worse" : nb && nw ? "mixed" : "same";
+      hard > 0 || peek.dphys > 0
+        ? "breaks"
+        : nb && !nw
+          ? "better"
+          : nw && !nb
+            ? "worse"
+            : nb && nw
+              ? "mixed"
+              : "same";
     let worseW = 0;
     let betterW = 0;
     for (const r of rows) {
@@ -4055,7 +4109,7 @@ export class TimetableEditor {
     if (!mv.peek) return { verdict: "same", hard: 0, rows: [], also, dispLost: [], dispMoved: [] };
     const j = this.judge(mv.peek);
     const dt = this.dispTexts(mv.peek.disp);
-    return { verdict: j.verdict, hard: mv.peek.dh, rows: j.rows, also, dispLost: dt.lost, dispMoved: dt.moved };
+    return { verdict: j.verdict, hard: hardOf(mv.peek), rows: j.rows, also, dispLost: dt.lost, dispMoved: dt.moved };
   }
 
   // ---------- «Trova»: le migliori combinazioni di una o due mosse ----------
@@ -4236,19 +4290,20 @@ export class TimetableEditor {
         const peek1 = mv.peek;
         const ok1 = fewerGaps(peek1);
         const worse1 = this.judge(peek1).worse;
-        if (peek1.dh <= 0 && ok1) keep([step1], peek1);
+        if (peek1.dh <= 0 && peek1.dphys <= 0 && ok1) keep([step1], peek1);
         // se la prima mossa lascia qualcosa di storto, una seconda può rimetterlo a posto
-        if (peek1.dh > 0 || worse1 > 0 || !ok1) {
+        if (peek1.dh > 0 || peek1.dphys > 0 || worse1 > 0 || !ok1) {
           for (const [c2, x2, y2] of this.repairMoves(cls, x, y)) {
             if (cls.includes(c2) && ((x2 === x && y2 === y) || (x2 === y && y2 === x))) continue;
             const mv2 = this.plan(c2, x2, y2);
             if (!mv2 || mv2.kind === "same" || !mv2.peek) continue;
             const dh = peek1.dh + mv2.peek.dh;
-            if (dh > 0) continue;
-            const both: PeekResult = { ...mv2.peek, dh, ds: peek1.ds + mv2.peek.ds };
+            const dphys = peek1.dphys + mv2.peek.dphys;
+            if (dh > 0 || dphys > 0) continue;
+            const both: PeekResult = { ...mv2.peek, dh, dphys, ds: peek1.ds + mv2.peek.ds };
             if (!fewerGaps(both)) continue;
             // utile solo se sistema qualcosa rispetto alla prima mossa da sola
-            if (!(dh < peek1.dh || this.judge(both).worse < worse1 || !ok1)) continue;
+            if (!(dh < peek1.dh || dphys < peek1.dphys || this.judge(both).worse < worse1 || !ok1)) continue;
             const step2 = this.stepOf(c2, x2, y2, mv2);
             if (touches(mv2, x2, y2)) {
               const cls2 = s.applyMove(c2, x2, y2, mv2.kind === "kempe");
@@ -4281,7 +4336,7 @@ export class TimetableEditor {
         steps: f.steps,
         effect: {
           verdict: j.verdict,
-          hard: f.peek.dh,
+          hard: hardOf(f.peek),
           rows: j.rows,
           also: [...new Set(f.steps.flatMap((x) => x.also))],
           ...(() => {
@@ -4317,7 +4372,7 @@ export class TimetableEditor {
   newHardIssues(classId: string, from: number, to: number): string[] {
     const c = this.classOf(classId);
     const mv = this.plan(c, from, to);
-    if (!mv || !mv.peek || mv.peek.dh <= 0) return [];
+    if (!mv || !mv.peek || (mv.peek.dh <= 0 && mv.peek.dphys <= 0)) return [];
     const before = new Set(hardTexts(buildReport(this.s, 0)));
     this.s.applyMove(c, from, to, mv.kind === "kempe");
     const after = hardTexts(buildReport(this.s, 0));
