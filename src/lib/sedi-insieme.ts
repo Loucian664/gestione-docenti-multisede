@@ -161,7 +161,7 @@ export function buildInsieme(data: PersistedData): { joint: InsiemeData; map: In
       cardRows: undefined,
       // × di una sede: per chi è in più sedi valgono solo lì; per gli altri come sempre
       awaySlots: multi ? [] : cells(first, first.t.awaySlots),
-      otherPlesso: multi ? false : first.t.otherPlesso,
+      otherPlesso: multi ? false : first.t.otherPlesso || Boolean(first.t.removedSedi?.length),
       avoidSlots: unique(recs.flatMap((r) => cells(r, r.t.avoidSlots))),
       preferSlots: unique(recs.flatMap((r) => cells(r, r.t.preferSlots))),
       mustSlots: recs.flatMap((r) =>

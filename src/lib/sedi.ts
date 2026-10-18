@@ -8,8 +8,9 @@
  * Un docente che insegna in più sedi ha una scheda in ognuna, con lo stesso `personId`. Nome, materie,
  * ruolo e colore restano uguali in tutte; classi, ore, × e disposizioni sono di ogni sede.
  */
-import type { DayOfWeek, Period, PersistedData, SedeData, Settings, Teacher } from "./types";
+import type { DayOfWeek, Period, PersistedData, RemovedSede, SedeData, Settings, Teacher } from "./types";
 import { cattedreOfTeacher } from "./build-timetable";
+import { todayIso } from "./dates";
 import { uid } from "./utils";
 
 /** Id della sede di un archivio che non ne ha ancora uno (un backup dell'app di Rombiolo). */
@@ -170,8 +171,24 @@ export function sedeContents(data: PersistedData, id: string) {
   };
 }
 
-export function removeSede(data: PersistedData, id: string): PersistedData {
+/**
+ * Elimina la sede. I docenti in comune restano nelle altre sedi e conservano le ore che facevano qui
+ * (`removedSedi`): nella realtà le insegnano ancora, quindi vanno segnate con le × prima di costruire l'orario.
+ */
+export function removeSede(data: PersistedData, id: string, today = todayIso()): PersistedData {
   if (!canRemoveSede(data, id)) return data;
+  const sede = allSedi(data).find((s) => s.id === id)!;
+  const traces = new Map<string, RemovedSede>();
+  for (const t of sede.data.teachers) {
+    if (!t.personId) continue;
+    const hours = hoursIn(data, sede.data, t.id);
+    if (hours > 0) traces.set(t.personId, { name: sedeName(sede.data.settings), hours, removedOn: today });
+  }
+  const mark = (teachers: Teacher[]) =>
+    teachers.map((t) => {
+      const trace = t.personId ? traces.get(t.personId) : undefined;
+      return trace ? { ...t, removedSedi: [...(t.removedSedi ?? []), trace] } : t;
+    });
   let next = data;
   if (id === sedeIdOf(data)) {
     const other = allSedi(data).find((s) => s.id !== id);
@@ -180,8 +197,38 @@ export function removeSede(data: PersistedData, id: string): PersistedData {
   }
   return {
     ...next,
-    altreSedi: (next.altreSedi ?? []).filter((a) => a.id !== id),
+    teachers: mark(next.teachers),
+    altreSedi: (next.altreSedi ?? [])
+      .filter((a) => a.id !== id)
+      .map((a) => ({ id: a.id, data: { ...a.data, teachers: mark(a.data.teachers) } })),
     ordineSedi: (next.ordineSedi ?? []).filter((x) => x !== id),
+  };
+}
+
+/** Un docente con ore in sedi eliminate dall'app e meno × di quelle ore: l'orario non si propone. */
+export type RemovedSedeIssue = { teacher: Teacher; sedi: RemovedSede[]; hours: number; marked: number };
+
+export function removedSediIssues(teachers: Teacher[]): RemovedSedeIssue[] {
+  return teachers.flatMap((t) => {
+    const sedi = t.removedSedi ?? [];
+    const hours = sedi.reduce((n, x) => n + x.hours, 0);
+    const marked = t.awaySlots?.length ?? 0;
+    return hours > 0 && marked < hours ? [{ teacher: t, sedi, hours, marked }] : [];
+  });
+}
+
+/** «Non insegna più lì»: toglie la sede eliminata dalle schede della persona, in tutte le sedi. */
+export function dropRemovedSede(data: PersistedData, personId: string, name: string): PersistedData {
+  const fix = (teachers: Teacher[]) =>
+    teachers.map((t) => {
+      if (t.personId !== personId || !t.removedSedi?.some((x) => x.name === name)) return t;
+      const rest = t.removedSedi.filter((x) => x.name !== name);
+      return { ...t, removedSedi: rest.length ? rest : undefined };
+    });
+  return {
+    ...data,
+    teachers: fix(data.teachers),
+    altreSedi: (data.altreSedi ?? []).map((a) => ({ id: a.id, data: { ...a.data, teachers: fix(a.data.teachers) } })),
   };
 }
 
@@ -497,11 +544,13 @@ export function autoAwayCells(data: PersistedData, t: Teacher): ElsewhereCell[] 
  * è «su più plessi» e ha come × le ore che lì è occupato (l'ora di spostamento la lascia il motore).
  */
 export function withOtherSedi(data: PersistedData): PersistedData {
-  if (!data.altreSedi?.length) return data;
   let changed = false;
   const teachers = data.teachers.map((t) => {
-    if (!linkedElsewhere(data, t).length) return t;
+    const linked = data.altreSedi?.length ? linkedElsewhere(data, t).length > 0 : false;
+    // chi ha ore in una sede eliminata insegna ancora altrove: le × a mano hanno l'ora di spostamento
+    if (!linked && !t.removedSedi?.length) return t;
     changed = true;
+    if (!linked) return t.otherPlesso ? t : { ...t, otherPlesso: true };
     const extra = autoAwayCells(data, t).map((c) => ({ day: c.day, periodId: c.periodId }));
     return { ...t, otherPlesso: true, awaySlots: [...(t.awaySlots ?? []), ...extra] };
   });

@@ -240,8 +240,8 @@ function SedeDialog({ sedeId, onClose }: { sedeId: string; onClose: () => void }
                 {info.shared > 0 && (
                   <p className="mt-1 text-muted-foreground">
                     {info.shared === 1
-                      ? "Il docente in comune resta nelle altre sedi, senza le ore di qui."
-                      : `I ${info.shared} docenti in comune restano nelle altre sedi, senza le ore di qui.`}
+                      ? "Nella scheda del docente in comune restano le ore di questa sede, da considerare quando si costruisce l’orario delle altre."
+                      : `Nella scheda dei ${info.shared} docenti in comune restano le ore di questa sede, da considerare quando si costruisce l’orario delle altre.`}
                   </p>
                 )}
               </div>

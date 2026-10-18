@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { isTimetableTeacher } from "./build-timetable.ts";
 import { backupJson, parseBackupJson } from "./export.ts";
 import { encodePersist, mergeSlices, shouldAcceptWrite } from "./persist-storage.ts";
 import {
@@ -8,6 +9,7 @@ import {
   canRemoveRecord,
   canRemoveSede,
   classInUse,
+  dropRemovedSede,
   editSede,
   elsewhereCells,
   importSede,
@@ -17,6 +19,7 @@ import {
   persons,
   pickSede,
   removeSede,
+  removedSediIssues,
   sedeContents,
   sedeIdOf,
   sedeName,
@@ -27,6 +30,7 @@ import {
   withOtherSedi,
 } from "./sedi.ts";
 import { buildSeed, EMPTY_DATA } from "./seed.ts";
+import { buildInsieme } from "./sedi-insieme.ts";
 import { snapshot, useAppStore } from "./store.ts";
 import { solveTimetable, TimetableEditor } from "./timetable-solver.ts";
 import type { PersistedData, SedeData, Teacher } from "./types.ts";
@@ -119,14 +123,16 @@ describe("sedi: cambio e modifica", () => {
     assert.equal(info.lessons, b.data.slots.length);
     assert.equal(info.shared, 4);
     assert.equal(info.teachers, b.data.teachers.length - 4);
+    // a parte le ore dei docenti in comune nella sede eliminata, l'altra sede resta com'era
+    const untraced = (x: SedeData) => ({ ...x, teachers: x.teachers.map(({ removedSedi: _r, ...t }) => t) });
     const noB = removeSede(d, b.id);
     assert.equal(allSedi(noB).length, 1);
     assert.equal(allSedi(noB)[0]!.data.teachers.length, d.teachers.length);
-    assert.deepEqual(plain(pickSede(noB)), plain(pickSede(d)));
-    // eliminando la sede in uso si passa all'altra, che resta com'era
+    assert.deepEqual(plain(untraced(pickSede(noB))), plain(pickSede(d)));
+    // eliminando la sede in uso si passa all'altra
     const noA = removeSede(d, sedeIdOf(d));
     assert.equal(sedeIdOf(noA), b.id);
-    assert.deepEqual(plain(pickSede(noA)), plain(b.data));
+    assert.deepEqual(plain(untraced(pickSede(noA))), plain(b.data));
     const { data: withC, id } = addSede(d, newSedeData(d.settings, "Sede C"));
     assert.equal(canRemoveSede(withC, id), true);
     assert.equal(allSedi(removeSede(withC, id)).length, 2);
@@ -137,6 +143,41 @@ describe("sedi: cambio e modifica", () => {
     assert.equal(allSedi(gone).length, 2);
     const alone: PersistedData = { ...EMPTY_DATA, altreSedi: [] };
     assert.equal(canRemoveSede(alone, sedeIdOf(alone)), false);
+  });
+
+  it("eliminando una sede i docenti in comune conservano le sue ore: l'orario aspetta le ×", () => {
+    const d = seed();
+    const b = other(d);
+    const name = sedeName(b.data.settings);
+    const after = removeSede(d, b.id, "2026-10-18");
+    const fra = after.teachers.find((t) => t.id === "t-fra-1")!;
+    assert.deepEqual(fra.removedSedi, [{ name, hours: 6, removedOn: "2026-10-18" }]);
+    assert.ok(!after.teachers.find((t) => t.id === "t-ita-1")!.removedSedi);
+    // con una sede sola resta «Su più plessi», così le × hanno l'ora di spostamento
+    assert.equal(withOtherSedi(after).teachers.find((t) => t.id === "t-fra-1")!.otherPlesso, true);
+    const pool = (x: PersistedData) => x.teachers.filter(isTimetableTeacher);
+    assert.deepEqual(
+      removedSediIssues(pool(after)).map((x) => [x.teacher.id, x.hours, x.marked]).sort(),
+      [["t-fra-1", 6, 0], ["t-mus-1", 6, 0], ["t-rel-1", 3, 0], ["t-tec-1", 6, 0]],
+    );
+    // con le × che bastano l'avviso si spegne
+    const morning = d.settings.periods.filter((p) => !p.tpOnly);
+    const marked: PersistedData = {
+      ...after,
+      teachers: after.teachers.map((t) =>
+        t.id === "t-fra-1" ? { ...t, awaySlots: morning.map((p) => ({ day: 1 as const, periodId: p.id })) } : t,
+      ),
+    };
+    assert.ok(!removedSediIssues(pool(marked)).some((x) => x.teacher.id === "t-fra-1"));
+    // «Non insegna più lì»
+    const dropped = dropRemovedSede(after, fra.personId!, name);
+    assert.equal(dropped.teachers.find((t) => t.id === "t-fra-1")!.removedSedi, undefined);
+    assert.equal(removedSediIssues(pool(dropped)).length, 3);
+    // con tutte le sedi insieme le ore della sede eliminata restano per chi è in una sede sola
+    const { data: three } = addSede(d, newSedeData(d.settings, "Sede C"));
+    const noB = removeSede(three, b.id, "2026-10-18");
+    assert.equal(allSedi(noB).length, 2);
+    assert.equal(buildInsieme(noB).joint.teachers.find((t) => t.id === "P~p-esempio-fra")!.otherPlesso, true);
   });
 
   it("l'anno scolastico vale per tutte le sedi", () => {
