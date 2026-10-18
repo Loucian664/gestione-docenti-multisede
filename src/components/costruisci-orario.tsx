@@ -204,10 +204,8 @@ export function CostruisciOrario({
   );
   const [scope, setScope] = useState<"sede" | "tutte">("sede");
   const allTogether = scope === "tutte" && sediCount > 1;
-  // tutte le sedi insieme: più classi, più tempo (3 s a classe con «Rapida», 6 s con «Accurata»)
-  const jointClasses = sediCount > 1 ? allSedi(rawData).reduce((n, s) => n + s.data.classes.length, 0) : 0;
-  const jointMs = (fast: boolean) =>
-    Math.max(fast ? 30000 : 90000, Math.round((jointClasses * (fast ? 3000 : 6000)) / 30000) * 30000);
+  // tutte le sedi insieme: 30 s o 90 s (più tempo non migliora in modo netto: misurato sulle 6 sedi vere)
+  const jointMs = (fast: boolean) => (fast ? 30000 : 90000);
   // le materie senza docente della sede in uso o, con «Tutte le sedi insieme», di ogni sede: restano fuori
   const missing = useMemo(
     () => missingBySede(rawData).filter((x) => allTogether || x.active),
@@ -842,8 +840,8 @@ export function CostruisciOrario({
             options={
               allTogether
                 ? [
-                    { value: "rapida", label: `Rapida · ${durationText(jointMs(true))}` },
-                    { value: "accurata", label: `Accurata · ${durationText(jointMs(false))}` },
+                    { value: "rapida", label: "Rapida · 30 s" },
+                    { value: "accurata", label: "Accurata · 90 s" },
                   ]
                 : [
                     { value: "rapida", label: "Rapida · 12 s" },
@@ -3733,14 +3731,6 @@ function CattedrePanel({
       </div>
     </details>
   );
-}
-
-/** Il tempo di ricerca: «30 s», «1 min 30 s», «3 min». */
-function durationText(ms: number): string {
-  const sec = Math.round(ms / 1000);
-  if (sec < 60) return `${sec} s`;
-  const min = Math.floor(sec / 60);
-  return sec % 60 ? `${min} min ${sec % 60} s` : `${min} min`;
 }
 
 function formatCount(n: number): string {
