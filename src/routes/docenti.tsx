@@ -11,7 +11,17 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { useAppStore, snapshot } from "@/lib/store";
 import { teacherName } from "@/lib/coverage";
 import { cattedreOfTeacher } from "@/lib/build-timetable";
-import { allSedi, canRemoveRecord, hoursIn, persons, sedeAsData, sedeIdOf, sedeName } from "@/lib/sedi";
+import {
+  allSedi,
+  canRemoveRecord,
+  cattedraTotal,
+  hoursIn,
+  persons,
+  sedeAsData,
+  sedeIdOf,
+  sedeName,
+  type CardRow,
+} from "@/lib/sedi";
 import { DAY_SHORT, ROLE_LABELS, ACTIVITY_SUBJECTS, CURRICULAR_SUBJECTS, SUBJECTS, type DayOfWeek, type Teacher, type TeacherRole } from "@/lib/types";
 import { Plus, Search, LayoutGrid } from "lucide-react";
 import { toast } from "sonner";
@@ -323,7 +333,16 @@ function TeacherDialog({ value, onClose }: { value: Teacher | "new"; onClose: ()
   const [lastName, setLastName] = useState(current?.lastName ?? "");
   const [firstName, setFirstName] = useState(current?.firstName ?? "");
   const [subjects, setSubjects] = useState(current?.subjects.join(", ") ?? "");
-  const [weeklyHours, setWeeklyHours] = useState(String(current?.weeklyHours ?? 18));
+  // con più sedi le ore cattedra sono quelle di tutte le sedi (il potenziamento resta per sede)
+  const [weeklyHours, setWeeklyHours] = useState(() =>
+    String(
+      !current
+        ? 18
+        : current.role === "potenziamento"
+          ? current.weeklyHours
+          : cattedraTotal(snapshot(useAppStore.getState()), current),
+    ),
+  );
   const [dispHours, setDispHours] = useState(String(current?.dispHours ?? 0));
   const [role, setRole] = useState<TeacherRole>(current?.role ?? "cattedra");
   const [notes, setNotes] = useState(current?.notes ?? "");
@@ -348,26 +367,66 @@ function TeacherDialog({ value, onClose }: { value: Teacher | "new"; onClose: ()
         })
     : [];
   const [sediSel, setSediSel] = useState<string[]>(() => [activeId, ...elsewhere.map((e) => e.sede.id)]);
-  const [rows, setRows] = useState(() =>
+  // le righe di tutte le sedi in cui insegna, ognuna con la sua sede
+  const [initialRows] = useState(() =>
     current
-      ? cattedreOfTeacher(data, current.id).map((c) => ({
-          classId: c.classId,
-          subject: c.subject,
-          hours: String(c.hours),
-        }))
-      : [] as { classId: string; subject: string; hours: string }[],
+      ? [
+          ...cattedreOfTeacher(data, current.id).map((c) => ({ ...c, sedeId: activeId })),
+          ...elsewhere.flatMap((e) =>
+            cattedreOfTeacher(sedeAsData(data, e.sede.data), e.teacher.id).map((c) => ({ ...c, sedeId: e.sede.id })),
+          ),
+        ].map((c) => ({ sedeId: c.sedeId, classId: c.classId, subject: c.subject, hours: String(c.hours) }))
+      : [],
   );
-  const assignedHours = rows.reduce((n, r) => n + (Number(r.hours) || 0), 0);
+  const [rows, setRows] = useState<{ sedeId: string; classId: string; subject: string; hours: string }[]>(initialRows);
+  const hoursOf = (sedeId?: string) =>
+    rows.filter((r) => !sedeId || r.sedeId === sedeId).reduce((n, r) => n + (Number(r.hours) || 0), 0);
+  const assignedHours = hoursOf();
+  const classesOf = (sedeId: string) => sedi.find((x) => x.id === sedeId)?.data.classes ?? [];
+  // un riquadro per ogni sede in cui insegna, nell'ordine della pagina Sedi
+  const blocks = sedi.filter((x) => sediSel.includes(x.id));
+  const multi = blocks.length > 1;
 
-  function addRow(subject?: string) {
+  function addRow(sedeId: string, subject?: string) {
     setRows((all) => [
       ...all,
       {
-        classId: data.classes[0]?.id ?? "",
+        sedeId,
+        classId: classesOf(sedeId)[0]?.id ?? "",
         subject: subject ?? subjects.split(",")[0]?.trim() ?? "",
         hours: "1",
       },
     ]);
+  }
+
+  /** Le righe valide di ogni sede. */
+  function parsedBySede(list: typeof rows): Record<string, CardRow[]> {
+    const out: Record<string, CardRow[]> = {};
+    for (const r of list) {
+      const row = { classId: r.classId, subject: r.subject.trim(), hours: Number(r.hours) || 0 };
+      if (!row.classId || !row.subject || row.hours <= 0) continue;
+      (out[r.sedeId] ??= []).push(row);
+    }
+    return out;
+  }
+
+  /** Le altre sedi in cui cambiano le classi, con le righe nuove: per l'avviso dopo il salvataggio. */
+  function changedElsewhere(next: Record<string, CardRow[]>): string {
+    const before = parsedBySede(initialRows);
+    const key = (list: CardRow[] = []) =>
+      list
+        .map((r) => `${r.classId}|${r.subject}|${r.hours}`)
+        .sort()
+        .join("#");
+    return sedi
+      .filter((x) => !x.active && sediSel.includes(x.id) && key(before[x.id]) !== key(next[x.id]))
+      .map((x) => {
+        const list = (next[x.id] ?? []).map(
+          (r) => `${x.data.classes.find((c) => c.id === r.classId)?.name ?? "classe"} ${r.subject} ${r.hours} h`,
+        );
+        return `${sedeName(x.data.settings)}: ${list.length ? list.join(", ") : "nessuna classe"}`;
+      })
+      .join(" · ");
   }
 
   function save() {
@@ -383,7 +442,7 @@ function TeacherDialog({ value, onClose }: { value: Teacher | "new"; onClose: ()
       role,
       notes,
       color,
-      assignedClassIds: [...new Set(rows.map((r) => r.classId).filter(Boolean))],
+      assignedClassIds: [...new Set(rows.filter((r) => r.sedeId === activeId).map((r) => r.classId).filter(Boolean))],
       otherPlesso: current?.otherPlesso ?? false,
       awaySlots: current?.awaySlots ?? [],
       rientroDays: current?.rientroDays ?? [],
@@ -392,25 +451,32 @@ function TeacherDialog({ value, onClose }: { value: Teacher | "new"; onClose: ()
       mustSlots: current?.mustSlots ?? [],
     };
     if (!payload.lastName) return;
-    const parsed =
-      payload.role === "potenziamento"
-        ? []
-        : rows
-            .map((r) => ({ classId: r.classId, subject: r.subject.trim(), hours: Number(r.hours) || 0 }))
-            .filter((r) => r.classId && r.subject && r.hours > 0);
-    payload.subjects = [...new Set([...payload.subjects, ...parsed.map((r) => r.subject)])];
-    const savedId = store.saveTeacherCard(isNew ? null : current!.id, payload, parsed);
-    const before = [activeId, ...elsewhere.map((e) => e.sede.id)].sort().join("|");
-    if ([...sediSel].sort().join("|") !== before) {
-      const blocked = store.setTeacherSedi(savedId, sediSel);
-      if (blocked.length) toast.error(`Resta anche a ${blocked.join(", ")}: lì ha lezioni o cattedre.`);
+    let blocked: string[] = [];
+    let elsewhereNote = "";
+    if (payload.role === "potenziamento") {
+      const savedId = store.saveTeacherCard(isNew ? null : current!.id, payload, []);
+      const before = [activeId, ...elsewhere.map((e) => e.sede.id)].sort().join("|");
+      if ([...sediSel].sort().join("|") !== before) blocked = store.setTeacherSedi(savedId, sediSel);
+    } else {
+      // ogni riga va nella scheda del docente nella sua sede
+      const bySede = parsedBySede(rows.filter((r) => sediSel.includes(r.sedeId)));
+      const all = Object.values(bySede).flat();
+      payload.subjects = [...new Set([...payload.subjects, ...all.map((r) => r.subject)])];
+      if (several) {
+        elsewhereNote = changedElsewhere(bySede);
+        blocked = store.saveTeacherCardSedi(isNew ? null : current!.id, payload, bySede, sediSel).blocked;
+      } else {
+        store.saveTeacherCard(isNew ? null : current!.id, payload, bySede[activeId] ?? []);
+      }
     }
+    if (blocked.length) toast.error(`Resta anche a ${blocked.join(", ")}: lì ha lezioni o cattedre.`);
     toast.success(
       payload.role === "potenziamento"
         ? "Docente salvato. Nelle ore in sede è disponibile per le sostituzioni."
         : payload.role === "sostegno"
           ? "Docente salvato. Ora inserisci le sue ore in Orario → Docente."
           : "Docente salvato",
+      elsewhereNote ? { description: `Classi aggiornate anche a ${elsewhereNote}.` } : undefined,
     );
     onClose();
   }
@@ -451,7 +517,8 @@ function TeacherDialog({ value, onClose }: { value: Teacher | "new"; onClose: ()
           </div>
           {role !== "potenziamento" && (
             <p className="-mt-1 text-[12px] text-muted-foreground">
-              Ore cattedra: ore di lezione in questo plesso. Ore a disposizione: ore di servizio senza classe, utilizzabili
+              Ore cattedra: ore di lezione {several ? "in tutte le sedi" : "in questo plesso"}. Ore a disposizione: ore di
+              servizio senza classe{several ? " in questa sede" : ""}, utilizzabili
               per le sostituzioni. Se l’orario generato deve lasciare ore buche, le assegna prima a chi ha ore a
               disposizione.
             </p>
@@ -491,8 +558,17 @@ function TeacherDialog({ value, onClose }: { value: Teacher | "new"; onClose: ()
               <div className="flex flex-col gap-1">
                 {sedi.map((x) => {
                   const rec = elsewhere.find((e) => e.sede.id === x.id);
-                  const locked = x.active || Boolean(rec && !canRemoveRecord(x.data, rec.teacher.id));
+                  const lessons = Boolean(rec && x.data.slots.some((s) => s.teacherId === rec.teacher.id));
+                  const rowsHere = rows.filter((r) => r.sedeId === x.id);
+                  // una sede si toglie quando lì non ha più classi né lezioni in orario
+                  const locked =
+                    x.active ||
+                    (role === "potenziamento"
+                      ? Boolean(rec && !canRemoveRecord(x.data, rec.teacher.id))
+                      : lessons || rowsHere.length > 0);
                   const on = sediSel.includes(x.id);
+                  const hours =
+                    role === "potenziamento" ? (rec ? hoursIn(data, x.data, rec.teacher.id) : 0) : hoursOf(x.id);
                   return (
                     <label key={x.id} className="flex min-h-9 items-center gap-2 text-sm">
                       <input
@@ -507,125 +583,128 @@ function TeacherDialog({ value, onClose }: { value: Teacher | "new"; onClose: ()
                       <span className="font-medium">{sedeName(x.data.settings)}</span>
                       <span className="text-[12px] text-muted-foreground">
                         {x.active
-                          ? "· questa scheda"
-                          : rec
-                            ? `· ${hoursIn(data, x.data, rec.teacher.id)} h${locked ? " (ha lezioni lì)" : ""}`
-                            : on
-                              ? "· nuova scheda, senza classi"
-                              : ""}
+                          ? "· sede in uso"
+                          : on
+                            ? `· ${hours} h${lessons ? " · ha lezioni in orario" : ""}`
+                            : ""}
                       </span>
                     </label>
                   );
                 })}
               </div>
               <p className="text-[12px] text-muted-foreground">
-                Nome, materie, ruolo e colore sono uguali in tutte le sedi. Classi e ore di un’altra sede si inseriscono
-                passando a quella sede.
+                Nome, materie, ruolo e colore sono uguali in tutte le sedi.
+                {role === "potenziamento"
+                  ? " Le ore di un’altra sede si inseriscono passando a quella sede."
+                  : " Spuntando una sede, qui sotto compaiono le sue classi; una sede si toglie quando non ha più classi né lezioni in orario."}
               </p>
             </Field>
           )}
           {role !== "potenziamento" && (
-          <Field label={several ? `Classi e materie a ${here}` : "Classi e materie su questo plesso"}>
+          <Field label={multi ? "Classi e materie" : several ? `Classi e materie a ${here}` : "Classi e materie su questo plesso"}>
             <p className="text-[12px] text-muted-foreground">
-              Per ogni classe indica materia e ore (anche Mensa o Laboratorio). Se il docente insegna anche in altri plessi,
-              il totale può essere inferiore.
+              Per ogni classe indica materia e ore (anche Mensa o Laboratorio).
+              {multi
+                ? " Ogni sede ha le sue classi: salvando, le righe vanno nella scheda del docente in quella sede."
+                : " Se il docente insegna anche in altri plessi, il totale può essere inferiore."}
             </p>
-            <div className="mt-2 flex flex-col gap-2">
-              {rows.map((row, i) => (
-                <div key={i} className="grid grid-cols-[minmax(0,0.9fr)_minmax(0,1.15fr)_3.75rem_2rem] items-center gap-1.5">
-                  <NativeSelect
-                    value={row.classId}
-                    onChange={(e) =>
-                      setRows((all) => all.map((r, j) => (j === i ? { ...r, classId: e.target.value } : r)))
-                    }
-                    aria-label="Classe"
-                  >
-                    <option value="">Classe</option>
-                    {data.classes
-                      .slice()
-                      .sort((a, b) => a.name.localeCompare(b.name, "it"))
-                      .map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                  </NativeSelect>
-                  <NativeSelect
-                    value={row.subject}
-                    onChange={(e) =>
-                      setRows((all) => all.map((r, j) => (j === i ? { ...r, subject: e.target.value } : r)))
-                    }
-                    aria-label="Materia"
-                  >
-                    <option value="">Materia</option>
-                    <optgroup label="Materie">
-                      {CURRICULAR_SUBJECTS.map((s) => (
-                        <option key={s} value={s}>
-                          {s}
-                        </option>
-                      ))}
-                    </optgroup>
-                    <optgroup label="Altre attività">
-                      {ACTIVITY_SUBJECTS.map((s) => (
-                        <option key={s} value={s}>
-                          {s}
-                        </option>
-                      ))}
-                    </optgroup>
-                    {row.subject && !SUBJECTS.includes(row.subject) && (
-                      <option value={row.subject}>{row.subject}</option>
-                    )}
-                  </NativeSelect>
-                  <Input
-                    type="number"
-                    min={1}
-                    max={18}
-                    inputMode="numeric"
-                    className="text-right tabular-nums"
-                    value={row.hours}
-                    onChange={(e) =>
-                      setRows((all) => all.map((r, j) => (j === i ? { ...r, hours: e.target.value } : r)))
-                    }
-                    aria-label="Ore"
-                  />
-                  <button
-                    type="button"
-                    className="inline-flex size-10 items-center justify-center text-muted-foreground"
-                    aria-label="Togli riga"
-                    onClick={() => setRows((all) => all.filter((_, j) => j !== i))}
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
-              <div className="flex flex-wrap gap-2">
-                <Button type="button" variant="outline" onClick={() => addRow()}>
-                  Aggiungi classe
-                </Button>
-                <Button type="button" variant="outline" onClick={() => addRow("Mensa")}>
-                  + Mensa
-                </Button>
-                <Button type="button" variant="outline" onClick={() => addRow("Laboratorio")}>
-                  + Laboratorio
-                </Button>
-              </div>
-              <p className="text-[12px] tabular-nums text-muted-foreground">
-                {several ? `Totale a ${here}` : "Totale su questo plesso"}: {assignedHours} h
-                {Number(weeklyHours) > 0 ? ` su ${weeklyHours} h di organico` : ""}
-              </p>
-              {elsewhere.map((e) => {
-                const other = cattedreOfTeacher(sedeAsData(data, e.sede.data), e.teacher.id);
-                if (!other.length) return null;
-                return (
-                  <p key={e.sede.id} className="text-[12px] text-muted-foreground">
-                    A {sedeName(e.sede.data.settings)}:{" "}
-                    {other
-                      .map((c) => `${e.sede.data.classes.find((x) => x.id === c.classId)?.name ?? "classe"} ${c.subject} ${c.hours} h`)
-                      .join(", ")}
+            {blocks.map((x) => (
+              <div
+                key={x.id}
+                className={cn("mt-2 flex flex-col gap-2", multi && "rounded-lg border border-border p-2.5")}
+              >
+                {multi && (
+                  <p className="flex items-baseline justify-between gap-2 text-[13px] font-medium">
+                    <span>{sedeName(x.data.settings)}</span>
+                    <span className="text-[12px] font-normal tabular-nums text-muted-foreground">{hoursOf(x.id)} h</span>
                   </p>
-                );
-              })}
-            </div>
+                )}
+                {rows.map((row, i) =>
+                  row.sedeId !== x.id ? null : (
+                    <div key={i} className="grid grid-cols-[minmax(0,0.9fr)_minmax(0,1.15fr)_3.75rem_2rem] items-center gap-1.5">
+                      <NativeSelect
+                        value={row.classId}
+                        onChange={(e) =>
+                          setRows((all) => all.map((r, j) => (j === i ? { ...r, classId: e.target.value } : r)))
+                        }
+                        aria-label="Classe"
+                      >
+                        <option value="">Classe</option>
+                        {x.data.classes
+                          .slice()
+                          .sort((a, b) => a.name.localeCompare(b.name, "it"))
+                          .map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.name}
+                            </option>
+                          ))}
+                      </NativeSelect>
+                      <NativeSelect
+                        value={row.subject}
+                        onChange={(e) =>
+                          setRows((all) => all.map((r, j) => (j === i ? { ...r, subject: e.target.value } : r)))
+                        }
+                        aria-label="Materia"
+                      >
+                        <option value="">Materia</option>
+                        <optgroup label="Materie">
+                          {CURRICULAR_SUBJECTS.map((s) => (
+                            <option key={s} value={s}>
+                              {s}
+                            </option>
+                          ))}
+                        </optgroup>
+                        <optgroup label="Altre attività">
+                          {ACTIVITY_SUBJECTS.map((s) => (
+                            <option key={s} value={s}>
+                              {s}
+                            </option>
+                          ))}
+                        </optgroup>
+                        {row.subject && !SUBJECTS.includes(row.subject) && (
+                          <option value={row.subject}>{row.subject}</option>
+                        )}
+                      </NativeSelect>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={18}
+                        inputMode="numeric"
+                        className="text-right tabular-nums"
+                        value={row.hours}
+                        onChange={(e) =>
+                          setRows((all) => all.map((r, j) => (j === i ? { ...r, hours: e.target.value } : r)))
+                        }
+                        aria-label="Ore"
+                      />
+                      <button
+                        type="button"
+                        className="inline-flex size-10 items-center justify-center text-muted-foreground"
+                        aria-label="Togli riga"
+                        onClick={() => setRows((all) => all.filter((_, j) => j !== i))}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ),
+                )}
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" variant="outline" onClick={() => addRow(x.id)}>
+                    Aggiungi classe
+                  </Button>
+                  <Button type="button" variant="outline" onClick={() => addRow(x.id, "Mensa")}>
+                    + Mensa
+                  </Button>
+                  <Button type="button" variant="outline" onClick={() => addRow(x.id, "Laboratorio")}>
+                    + Laboratorio
+                  </Button>
+                </div>
+              </div>
+            ))}
+            <p className="mt-2 text-[12px] tabular-nums text-muted-foreground">
+              {multi ? "Totale in tutte le sedi" : several ? `Totale a ${here}` : "Totale su questo plesso"}: {assignedHours} h
+              {Number(weeklyHours) > 0 ? ` su ${weeklyHours} h di organico` : ""}
+            </p>
           </Field>
           )}
           <Field label="Colore in orario">

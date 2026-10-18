@@ -62,7 +62,7 @@
 
 - Test di `src/lib`: per ogni `src/lib/*.test.ts`
   `node_modules/.bin/rolldown <file> --platform node --format esm --file <cartella>/<nome>.mjs`,
-  poi `node --test <cartella>/*.mjs` (151 test al 18/10/2026). `npm test` non li esegue.
+  poi `node --test <cartella>/*.mjs` (153 test al 18/10/2026). `npm test` non li esegue.
 - `npx tsc --noEmit`: 10 errori già presenti; non devono aumentare.
 - `GITHUB_PAGES=true BASE_PATH=/gestione-docenti-multisede/ npm run build:pages` deve riuscire.
 - Nei test del motore usa l'orologio finto (`now: ticks()` in `src/lib/timetable-solver.test.ts`), così
@@ -132,6 +132,11 @@ contro le regole tra sedi non si può fare, anche se toglie altri vincoli (`dphy
 «Ritocca a mano» con «Tutte le sedi insieme» (dalla proposta o dagli orari in uso): lo stesso pannello dei
 ritocchi sui dati uniti (`insieme` passato a `Ritocchi`), classi con il nome della sede, catene tra sedi;
 «Salva nello slot…» e «Usa questo orario» valgono per tutte le sedi; i lucchetti lì non si cambiano.
+Scheda docente con più sedi: «Classi e materie» ha un riquadro per ogni sede spuntata in «Sedi in cui insegna»;
+salvando, ogni riga va nella scheda della persona in quella sede (`saveTeacherSedi`, `saveTeacherCardSedi` nello
+store) e un avviso dice cosa è cambiato nelle altre sedi. «Ore cattedra» è il totale di tutte le sedi
+(`cattedraTotal`): nelle altre sedi valgono le ore delle righe, alla sede in uso va il resto. Una sede si toglie
+quando non ha più righe né lezioni in orario. Il potenziamento resta per sede.
 
 ## Più sedi: decisioni dell'utente (17/10/2026)
 

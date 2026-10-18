@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { isTimetableTeacher } from "./build-timetable.ts";
+import { cattedreOfTeacher, isTimetableTeacher } from "./build-timetable.ts";
 import { backupJson, parseBackupJson } from "./export.ts";
 import { encodePersist, mergeSlices, shouldAcceptWrite } from "./persist-storage.ts";
 import {
@@ -8,6 +8,7 @@ import {
   allSedi,
   canRemoveRecord,
   canRemoveSede,
+  cattedraTotal,
   classInUse,
   dropRemovedSede,
   editSede,
@@ -20,6 +21,8 @@ import {
   pickSede,
   removeSede,
   removedSediIssues,
+  saveTeacherSedi,
+  sedeAsData,
   sedeContents,
   sedeIdOf,
   sedeName,
@@ -339,6 +342,74 @@ describe("sedi: docenti in comune", () => {
     assert.deepEqual(no, ["Sede B (esempio)"]);
     assert.ok(other(kept).data.teachers.some((t) => t.id === "tb-fra-1"));
     assert.equal(canRemoveRecord(other(d).data, "tb-fra-1"), false);
+  });
+
+  it("scheda docente con le classi di tutte le sedi: ogni riga va nella sua sede, le ore cattedra sono il totale", () => {
+    const d = seed();
+    const idA = sedeIdOf(d);
+    const idB = other(d).id;
+    const rowsOf = (x: PersistedData, sede: SedeData, id: string) =>
+      cattedreOfTeacher(sedeAsData(x, sede), id)
+        .map((c) => `${c.classId} ${c.subject} ${c.hours}`)
+        .sort();
+    const fra = d.teachers.find((t) => t.id === "t-fra-1")!;
+    assert.equal(cattedraTotal(d, fra), 18);
+    const rowsA = cattedreOfTeacher(d, fra.id).map(({ classId, subject, hours }) => ({ classId, subject, hours }));
+    const before = cattedreOfTeacher(sedeAsData(d, other(d).data), "tb-fra-1");
+    const rowsB = before.map(({ classId, subject, hours }) => ({ classId, subject, hours }));
+    // senza cambiamenti l'altra sede resta identica
+    const same = saveTeacherSedi(d, fra.id, [idA, idB], { [idA]: rowsA, [idB]: rowsB }, 18).data;
+    assert.equal(other(same).data, other(d).data);
+    assert.equal(same.teachers.find((t) => t.id === fra.id)!.weeklyHours, 12);
+    // nell'altra sede una classe in meno e un'ora in più nella prima
+    const fewer = [{ ...rowsB[0]!, hours: 3 }, rowsB[1]!];
+    const { data: out, blocked } = saveTeacherSedi(d, fra.id, [idA, idB], { [idA]: rowsA, [idB]: fewer }, 18);
+    assert.deepEqual(blocked, []);
+    assert.deepEqual(rowsOf(out, other(out).data, "tb-fra-1"), fewer.map((c) => `${c.classId} ${c.subject} ${c.hours}`).sort());
+    assert.equal(other(out).data.teachers.find((t) => t.id === "tb-fra-1")!.weeklyHours, 5);
+    // alla sede in uso va quello che resta delle 18 ore
+    const fraNow = out.teachers.find((t) => t.id === fra.id)!;
+    assert.equal(fraNow.weeklyHours, 13);
+    assert.equal(cattedraTotal(out, fraNow), 18);
+    const dropped = rowsB[2]!;
+    assert.ok(
+      !(other(out).data.cattedre ?? []).some(
+        (c) => c.classId === dropped.classId && c.subject === dropped.subject && c.teacherId === "tb-fra-1",
+      ),
+    );
+
+    // una sede nuova con le sue classi; poi, tolte le classi, la sede si toglie
+    const ita = d.teachers.find((t) => t.id === "t-ita-1")!;
+    const total = ita.weeklyHours + 2;
+    const classB = other(d).data.classes[0]!.id;
+    const withB = saveTeacherSedi(d, ita.id, [idA, idB], { [idB]: [{ classId: classB, subject: "Italiano", hours: 2 }] }, total).data;
+    const itaNow = withB.teachers.find((t) => t.id === ita.id)!;
+    const rec = other(withB).data.teachers.find((t) => t.personId === itaNow.personId)!;
+    assert.equal(rec.weeklyHours, 2);
+    assert.deepEqual(rowsOf(withB, other(withB).data, rec.id), [`${classB} Italiano 2`]);
+    assert.equal(itaNow.weeklyHours, ita.weeklyHours);
+    const back = saveTeacherSedi(withB, ita.id, [idA], {}, ita.weeklyHours);
+    assert.deepEqual(back.blocked, []);
+    assert.ok(!other(back.data).data.teachers.some((t) => t.personId === itaNow.personId));
+  });
+
+  it("scheda docente: il salvataggio su tutte le sedi passa dallo stato dell'app", () => {
+    useAppStore.getState().resetDemo();
+    const st = () => useAppStore.getState();
+    const d = snapshot(st());
+    const idA = sedeIdOf(d);
+    const idB = other(d).id;
+    const { id: _id, ...patch } = d.teachers.find((t) => t.id === "t-fra-1")!;
+    const rowsA = cattedreOfTeacher(d, "t-fra-1").map(({ classId, subject, hours }) => ({ classId, subject, hours }));
+    const rowsB = cattedreOfTeacher(sedeAsData(d, other(d).data), "tb-fra-1")
+      .slice(0, 1)
+      .map(({ classId, subject, hours }) => ({ classId, subject, hours }));
+    const res = st().saveTeacherCardSedi("t-fra-1", { ...patch, weeklyHours: 18 }, { [idA]: rowsA, [idB]: rowsB }, [idA, idB]);
+    assert.deepEqual(res, { teacherId: "t-fra-1", blocked: [] });
+    const now = snapshot(st());
+    assert.equal(other(now).data.teachers.find((t) => t.id === "tb-fra-1")!.weeklyHours, 2);
+    assert.equal(now.teachers.find((t) => t.id === "t-fra-1")!.weeklyHours, 16);
+    st().resetDemo();
   });
 
   it("aggiungendo una sede da backup collega i docenti con lo stesso nome", () => {
