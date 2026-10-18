@@ -34,7 +34,7 @@
 - Anteprime private su Claude: dal 18/10/2026 l'utente vuole i dati veri (nomi reali compresi). Dal 18/10
   l'anteprima ha le 6 sedi vere: Rombiolo dal suo backup (con assenze, sostituzioni e orari salvati), le altre
   dal PDF delle assegnazioni e dagli orari in vigore; la copia di prova usa un nome di salvataggio suo
-  (`gestione-docenti-multisede-sedi-reali`). Gli script che costruiscono questi dati (trascrizioni, confronti,
+  (`gestione-docenti-multisede-sedi-reali-2`). Gli script che costruiscono questi dati (trascrizioni, confronti,
   backup «orario-generale-6-sedi.json») stanno solo nella cartella temporanea della sessione, mai nella
   repository. Nel codice, nei test, nei commit e sul sito pubblicato restano gli esempi con nomi inventati.
 
@@ -218,6 +218,9 @@ riga mostra un avviso.
   Nicotera al mercoledì 14-15, Lico 10 ore a disposizione a Cessaniti, Staropoli Rosa 7 ore a disposizione da
   mettere a Nicotera, «Su più plessi» per chi completa altrove (Brosio Rosaria, Russo, Rombolà, Solano).
   Restano a 20 ore Di Leo, Francica, Naso e Scavone (10 classi da 2 ore negli orari in vigore).
+- Le × a mano dei docenti in comune (147, messe a Rombiolo per le ore nelle altre scuole) sono tolte dai dati
+  veri dell'anteprima (decisione dell'utente del 18/10: l'app serve dal prossimo anno); le ore nelle altre sedi
+  diventano × da sole.
 - Strumento (chitarra, pianoforte, flauto): resta nell'elenco docenti senza orario (lezioni individuali
   al pomeriggio); serve per le sostituzioni.
 - Le sostituzioni di ogni giorno restano nell'app di Rombiolo: qui Oggi, Assenze e Report restano come
