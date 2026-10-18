@@ -31,8 +31,10 @@
 
 - I backup JSON dell'utente e le sue schermate contengono nomi veri di colleghi. Usali solo in locale,
   in una cartella temporanea: mai in commit, anteprime, test o messaggi su GitHub.
-- Prima di pubblicare un'anteprima, controlla che non contenga nessun nome (o cognome) dei docenti del
-  backup.
+- Anteprime private su Claude: dal 18/10/2026 l'utente vuole i dati veri (nomi reali compresi). Nell'anteprima
+  la sede Rombiolo viene dal suo backup (con assenze, sostituzioni e orari salvati), accanto alle sedi
+  inventate; la copia di prova usa un nome di salvataggio suo (es. `gestione-docenti-multisede-rombiolo`).
+  Nel codice, nei test, nei commit e sul sito pubblicato restano gli esempi con nomi inventati.
 
 ## Dati nel browser
 
