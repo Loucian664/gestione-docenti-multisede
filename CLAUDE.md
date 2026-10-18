@@ -23,6 +23,8 @@
 2. Le prove vanno prima in un'anteprima privata su Claude (Artifact, vedi sotto), non su GitHub.
 3. Su GitHub solo con l'OK esplicito dell'utente. Un commit per modifica, messaggio in italiano che dice
    cosa cambia nell'app. Rami con nomi che ricordano la modifica (es. `slot-salvataggio-orari`).
+   Quando l'utente chiede di pubblicare, le modifiche arrivano sempre su `main` (richiesta di unione e unione),
+   così il sito si aggiorna, salvo indicazione diversa (decisione dell'utente del 18/10/2026).
 4. Non cambiare colori, caratteri o logica oltre quanto chiesto. Mai `prettier --write` (né
    `npm run format`) su file interi.
 5. Chiudi i server temporanei dopo le prove.
