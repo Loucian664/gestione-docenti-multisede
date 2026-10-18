@@ -40,7 +40,9 @@ import { cn } from "@/lib/utils";
 import { ScrollGrid } from "@/components/scroll-grid";
 import { teacherCell } from "@/lib/teacher-palette";
 import { CostruisciOrario } from "@/components/costruisci-orario";
-import { elsewhereCells } from "@/lib/sedi";
+import { allSedi, elsewhereCells } from "@/lib/sedi";
+import { GiornoGenerale, SettimanaGenerale } from "@/components/vista-generale";
+import { vistaSedi } from "@/lib/sedi-insieme";
 import { BucheList } from "@/components/buche-list";
 import { gapsOf, gapsRanking, isTimetableTeacher } from "@/lib/build-timetable";
 import { ensureTpPeriods, isMensaPeriod, isRestrictedTpPeriod, visiblePeriods } from "@/lib/periods";
@@ -78,6 +80,10 @@ function OrarioPage() {
     weekday && data.settings.days.includes(weekday) ? weekday : 1,
   );
   const [cellEdit, setCellEdit] = useState<CellEdit | null>(null);
+  // Quadro e Settimana: la sede in uso o tutte le sedi (vista generale, in sola lettura)
+  const several = allSedi(data).length > 1;
+  const [allSediView, setAllSediView] = useState(false);
+  const generale = several && allSediView && (view === "quadro" || view === "settimana");
   const [teacherEdit, setTeacherEdit] = useState<TeacherEdit | null>(null);
 
   useEffect(() => {
@@ -230,6 +236,36 @@ function OrarioPage() {
             { value: "costruisci", label: "Costruisci", title: "Generazione guidata dell’orario" },
           ]}
         />
+        {several && (view === "quadro" || view === "settimana") && (
+          <div className="flex flex-wrap items-center gap-3">
+            <div role="radiogroup" aria-label="Sedi" className="inline-flex flex-wrap rounded-lg bg-muted p-1">
+              {([
+                [false, "Questa sede"],
+                [true, "Tutte le sedi"],
+              ] as const).map(([v, label]) => (
+                <button
+                  key={label}
+                  type="button"
+                  role="radio"
+                  aria-checked={allSediView === v}
+                  onClick={() => setAllSediView(v)}
+                  className={cn(
+                    "min-h-9 rounded-md px-3 text-[13px] font-medium transition-colors",
+                    allSediView === v ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {generale && (
+              <span className="text-[13px] text-muted-foreground">
+                Vista generale, da consultare: le ore si cambiano nella loro sede. Stampe ed esportazioni restano della
+                sede in uso.
+              </span>
+            )}
+          </div>
+        )}
         <label className="flex min-h-10 items-center gap-2 text-sm">
           <input
             type="checkbox"
@@ -378,7 +414,11 @@ function OrarioPage() {
         />
       )}
 
-      {view === "quadro" && (
+      {view === "quadro" && generale && <GiornoGenerale sedi={vistaSedi(data)} day={quadroDay} />}
+
+      {view === "settimana" && generale && <SettimanaGenerale sedi={vistaSedi(data)} />}
+
+      {view === "quadro" && !generale && (
         <ScrollGrid unit={["Classe", "Classi"]}>
           <table className="w-full min-w-[820px] border-collapse text-sm">
             <thead>
@@ -454,7 +494,7 @@ function OrarioPage() {
         </ScrollGrid>
       )}
 
-      {view === "settimana" && (
+      {view === "settimana" && !generale && (
         <div>
           <p className="mb-3 text-sm text-muted-foreground">
             Quadro settimanale di lavoro: con Foto e PDF, in alto, lo esporti così com’è, con i docenti.
