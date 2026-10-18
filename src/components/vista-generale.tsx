@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { ScrollGrid } from "@/components/scroll-grid";
 import { NativeSelect } from "@/components/ui/native-select";
 import { classCellSlots, teacherName, teacherShort } from "@/lib/coverage";
@@ -220,9 +220,9 @@ export function SettimanaGenerale({ sedi }: { sedi: VistaSede[] }) {
   );
 }
 
-type PersonLesson = { letter: string; sede: string; day: DayOfWeek; index: number; label: string };
+type PersonLesson = { sede: string; day: DayOfWeek; index: number; label: string };
 
-/** La settimana di ogni docente in tutte le sedi; chi è in più sedi ha la lettera della sede. */
+/** La settimana di ogni docente in tutte le sedi; per chi è in più sedi ogni ora ha il nome della sede. */
 export function DocentiGenerale({ sedi }: { sedi: VistaSede[] }) {
   const [onlyShared, setOnlyShared] = useState(false);
   const rows = useMemo(() => {
@@ -235,7 +235,6 @@ export function DocentiGenerale({ sedi }: { sedi: VistaSede[] }) {
         row.sedi.add(s.id);
         for (const x of s.data.slots.filter((y) => y.teacherId === t.id)) {
           row.lessons.push({
-            letter: s.letter,
             sede: s.name,
             day: x.day,
             index: idx.get(x.periodId) ?? 0,
@@ -254,14 +253,6 @@ export function DocentiGenerale({ sedi }: { sedi: VistaSede[] }) {
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-[13px] text-muted-foreground">
-        <span>
-          {sedi.map((s, i) => (
-            <Fragment key={s.id}>
-              {i > 0 ? " · " : ""}
-              <span className="font-semibold text-foreground">{s.letter}</span> = {s.name}
-            </Fragment>
-          ))}
-        </span>
         <label className="flex min-h-9 items-center gap-2">
           <input
             type="checkbox"
@@ -298,7 +289,7 @@ export function DocentiGenerale({ sedi }: { sedi: VistaSede[] }) {
                       <div className="pl-4.5 text-[11px] text-muted-foreground">
                         {sedi
                           .filter((s) => r.sedi.has(s.id))
-                          .map((s) => s.letter)
+                          .map((s) => s.name)
                           .join(" + ")}
                       </div>
                     )}
@@ -312,7 +303,8 @@ export function DocentiGenerale({ sedi }: { sedi: VistaSede[] }) {
                         ) : (
                           today.map((x, i) => (
                             <div key={i}>
-                              {x.index}ª {multi && <span className="font-semibold">{x.letter}</span>} {x.label}
+                              {x.index}ª {x.label}
+                              {multi && <span className="text-muted-foreground"> · {x.sede}</span>}
                             </div>
                           ))
                         )}

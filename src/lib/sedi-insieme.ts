@@ -265,15 +265,14 @@ export function insiemeParts(
 }
 
 /** Vista generale: ogni sede come archivio di un plesso, con le lezioni nuove al posto di quelle del mattino (se date). */
-export type VistaSede = { id: string; name: string; letter: string; data: PersistedData };
+export type VistaSede = { id: string; name: string; data: PersistedData };
 
 export function vistaSedi(data: PersistedData, lessons?: Record<string, TimetableSlot[]>): VistaSede[] {
-  return allSedi(data).map((s, i) => {
+  return allSedi(data).map((s) => {
     const base = sedeAsData(data, s.data);
     return {
       id: s.id,
       name: sedeName(s.data.settings),
-      letter: String.fromCharCode(65 + (i % 26)),
       data: lessons ? { ...base, slots: slotsWithLessons(base, lessons[s.id] ?? []) } : base,
     };
   });
