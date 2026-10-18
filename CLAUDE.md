@@ -123,7 +123,8 @@ disposizione restano ferme durante la ricerca e si sistemano dopo, sede per sede
 «Usa questa proposta» valgono per tutte le sedi con lo stesso numero di slot. Nella vista Docenti della proposta, per chi è in più sedi,
 ogni ora ha il nome della sede (niente lettere: decisione dell'utente). In Orario, Quadro e
 Settimana hanno «Tutte le sedi» (sola lettura); in Docente, per chi insegna in più sedi, ogni ora porta il nome
-della sua sede, anche quelle della sede in uso, e tutte hanno il colore del docente; nella vista Giorno le sedi vanno a capo su più file, in ordine, quante ne
+della sua sede, anche quelle della sede in uso, e ha il colore della sua sede (`sedeColor` in teacher-palette, dalla
+posizione nella pagina Sedi; tenue per le ore a disposizione), con la legenda sopra la griglia; nella vista Giorno le sedi vanno a capo su più file, in ordine, quante ne
 servono per la larghezza dello schermo (`righeSedi`). Da costruire: «Esporta sede» e «Riporta sede» (tappa 3).
 
 Eliminare una sede (pagina Sedi, due avvisi): si cancellano classi, orario, docenti solo lì, orari salvati e
