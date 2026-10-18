@@ -123,6 +123,10 @@ Settimana hanno «Tutte le sedi» (sola lettura). Da costruire: «Esporta sede»
 
 - Solo scuole secondarie di I grado. Oggi nessuna sede fa lezione il sabato, ma i giorni restano
   modificabili.
+- Le sedi sono 6: alcune con una classe sola, altre con 3, altre con 6 come Rombiolo. Prova del
+  18/10/2026 con 6 sedi inventate (6, 6, 3, 3, 1, 1 classi; 600 ore; 19 docenti in più sedi, fino a 4):
+  «Tutte le sedi insieme» in 30 secondi mette tutte le ore e rispetta le regole tra sedi, anche con le ×
+  su tutta la giornata ricavate da un orario possibile.
 - Le × hanno due significati: ore di lezione vere nell'altra sede, oppure giornata intera altrove per
   comodità (anche se lì il docente fa meno ore). Giornate intere in una sola sede: preferenza; chi deve
   stare tutto il giorno in una sede ha la × su tutta la giornata, e quella va sempre rispettata.
