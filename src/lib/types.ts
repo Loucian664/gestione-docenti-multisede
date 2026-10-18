@@ -184,6 +184,11 @@ export type SavedTimetable = {
   lessons: TimetableSlot[];
   /** ore a disposizione del mattino, per docente */
   disp: Record<string, { day: DayOfWeek; periodId: string }[]>;
+  /**
+   * Salvato con «Tutte le sedi insieme»: lo stesso codice nello slot di ogni sede. Riaperto, lo slot mostra
+   * tutte le sedi; «Usa», «Rendi in vigore», «Svuota» e «Rinomina» valgono per tutte.
+   */
+  insieme?: string;
 };
 
 export type PersistedData = {
