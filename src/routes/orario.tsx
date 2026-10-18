@@ -38,9 +38,9 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { ScrollGrid } from "@/components/scroll-grid";
-import { teacherCell } from "@/lib/teacher-palette";
+import { sedeColor, teacherCell } from "@/lib/teacher-palette";
 import { CostruisciOrario } from "@/components/costruisci-orario";
-import { allSedi, elsewhereCells, sedeName } from "@/lib/sedi";
+import { allSedi, elsewhereCells, sedeIdOf, sedeName } from "@/lib/sedi";
 import { GiornoGenerale, SettimanaGenerale } from "@/components/vista-generale";
 import { vistaSedi } from "@/lib/sedi-insieme";
 import { BucheList } from "@/components/buche-list";
@@ -113,8 +113,17 @@ function OrarioPage() {
   const elsewhere = currentTeacher ? elsewhereCells(data, currentTeacher) : [];
   const elsewhereLessons = elsewhere.filter((c) => c.label !== "disp.");
   const elsewhereSedi = [...new Set(elsewhere.map((c) => c.sedeName))];
-  // chi insegna anche in altre sedi: ogni ora dice in quale sede è, anche quelle della sede in uso
+  // chi insegna anche in altre sedi: ogni ora dice in quale sede è, anche quelle della sede in uso, e ogni
+  // sede ha il suo colore (dalla posizione nella pagina Sedi)
   const hereName = elsewhere.length > 0 ? sedeName(data.settings) : "";
+  const sediOrder = allSedi(data).map((s) => s.id);
+  const colorOfSede = (id: string, tone?: 0 | 2) => sedeColor(Math.max(0, sediOrder.indexOf(id)), tone);
+  const hereId = sedeIdOf(data);
+  const sediLegend = hereName
+    ? sediOrder
+        .filter((id) => id === hereId || elsewhere.some((c) => c.sedeId === id))
+        .map((id) => ({ id, name: id === hereId ? hereName : elsewhere.find((c) => c.sedeId === id)!.sedeName }))
+    : [];
   const teacherDisp = currentTeacher?.dispSlots?.length ?? 0;
   const teacherGaps =
     currentTeacher && isTimetableTeacher(currentTeacher)
@@ -405,6 +414,19 @@ function OrarioPage() {
                 : ""}
               . Seleziona una casella per inserire o modificare un’ora, anche in compresenza.
             </p>
+            {sediLegend.length > 1 && (
+              <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-muted-foreground">
+                {sediLegend.map((s) => {
+                  const c = teacherCell(colorOfSede(s.id));
+                  return (
+                    <span key={s.id} className="inline-flex items-center gap-1.5">
+                      <span className={cn("size-3 rounded-sm", c.className)} style={c.style} aria-hidden />
+                      {s.name}
+                    </span>
+                  );
+                })}
+              </p>
+            )}
           </div>
         )}
       </div>
@@ -652,12 +674,21 @@ function OrarioPage() {
                         p.index <= win.last,
                     );
                     const disp = Boolean(currentTeacher && !slot && isDispHour(currentTeacher, d, p.id));
-                    const tc = teacherCell(slot ? currentTeacher?.color : undefined);
+                    // in più sedi: il colore della sede (tenue per le ore a disposizione); altrimenti quello del docente
+                    const tc = teacherCell(
+                      slot
+                        ? hereName
+                          ? colorOfSede(hereId)
+                          : currentTeacher?.color
+                        : disp && hereName
+                          ? colorOfSede(hereId, 0)
+                          : undefined,
+                    );
                     const there = slot ? undefined : elsewhere.find((c) => c.day === d && c.periodId === p.id);
                     if (there) {
-                      // ora in un'altra sede: stessi colori delle ore di qui, si cambia passando a quella sede
+                      // ora in un'altra sede: il colore di quella sede; si cambia passando a quella sede
                       const thereDisp = there.label === "disp.";
-                      const thc = teacherCell(thereDisp ? undefined : currentTeacher?.color);
+                      const thc = teacherCell(colorOfSede(there.sedeId, thereDisp ? 0 : 2));
                       return (
                         <td key={d} className="p-1.5 align-top">
                           <button

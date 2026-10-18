@@ -27,6 +27,17 @@ export const TEACHER_PALETTE: readonly PastelHue[] = [
 ];
 
 export const TONE_NAMES = ["tenue", "medio", "deciso", "vivace"] as const;
+
+/** Tinte per le sedi, le più diverse tra loro per prime (Celeste, Pesca, Salvia, Lavanda, Sabbia, Rosa…). */
+const SEDE_HUES = [2, 9, 0, 5, 10, 7, 11, 4, 8, 1, 6, 3] as const;
+
+/**
+ * Il colore di una sede, dalla sua posizione nella pagina Sedi: nell'orario di chi insegna in più sedi ogni
+ * sede si riconosce a colpo d'occhio. Intensità «deciso» per le lezioni, «tenue» per le ore a disposizione.
+ */
+export function sedeColor(index: number, tone: 0 | 2 = 2): string {
+  return TEACHER_PALETTE[SEDE_HUES[index % SEDE_HUES.length]!]!.tones[tone];
+}
 export const VIVID_TONE = 3;
 
 /** In scuro: quanta tinta piena va sul fondo della card, per intensità. */

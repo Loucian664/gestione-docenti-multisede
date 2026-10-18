@@ -595,6 +595,7 @@ function overlaps(a: Period, b: Period): boolean {
 
 export type ElsewhereCell = {
   day: DayOfWeek;
+  sedeId: string;
   /** ora della campanella della sede in uso */
   periodId: string;
   sedeName: string;
@@ -630,7 +631,8 @@ export function elsewhereCells(data: PersistedData, t: Teacher): ElsewhereCell[]
       for (const pa of here) {
         if (!overlaps(pa, pb)) continue;
         const key = `${b.day}|${pa.id}`;
-        if (!out.has(key)) out.set(key, { day: b.day, periodId: pa.id, sedeName: name, label: b.label, subject: b.subject });
+        if (!out.has(key))
+          out.set(key, { day: b.day, sedeId: link.sedeId, periodId: pa.id, sedeName: name, label: b.label, subject: b.subject });
       }
     }
   }
