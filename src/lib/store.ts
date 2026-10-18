@@ -69,21 +69,24 @@ type Actions = {
   updateSettings: (patch: Partial<Settings>) => void;
   addTeacher: (t: Omit<Teacher, "id">) => string;
   updateTeacher: (id: string, patch: Partial<Teacher>) => void;
+  /** `drop`: lezioni del docente da togliere dall'orario (classi tolte dalla scheda). */
   saveTeacherCard: (
     id: string | null,
     patch: Omit<Teacher, "id">,
     rows: { classId: string; subject: string; hours: number }[],
+    drop?: string[],
   ) => string;
   /**
    * La scheda docente con le classi di tutte le sedi: `rows` per id della sede, `sedeIds` le sedi in cui
-   * insegna, `patch.weeklyHours` le ore cattedra di tutte le sedi. Restituisce l'id e le sedi da cui non si è
-   * potuto togliere.
+   * insegna, `patch.weeklyHours` le ore cattedra di tutte le sedi, `drop` le lezioni da togliere dall'orario
+   * di ogni sede. Restituisce l'id e le sedi da cui non si è potuto togliere.
    */
   saveTeacherCardSedi: (
     id: string | null,
     patch: Omit<Teacher, "id">,
     rows: Record<string, CardRow[]>,
     sedeIds: string[],
+    drop?: Record<string, string[]>,
   ) => { teacherId: string; blocked: string[] };
   removeTeacher: (id: string) => void;
   addClass: (c: Omit<SchoolClass, "id">) => void;
@@ -196,6 +199,17 @@ function putInSlotData(state: PersistedData, n: number, part: TimetablePart, nam
   };
 }
 
+/** Lezioni tolte dall'orario di ogni sede (id della sede → id delle lezioni). */
+function withoutSlots(data: PersistedData, drop: Record<string, string[]>): PersistedData {
+  let next = data;
+  for (const [sedeId, ids] of Object.entries(drop)) {
+    if (!ids.length) continue;
+    const gone = new Set(ids);
+    next = editSede(next, sedeId, (sede) => ({ ...sede, slots: sede.slots.filter((x) => !gone.has(x.id)) }));
+  }
+  return next;
+}
+
 /** La scheda docente salvata nella sede in uso: righe, cattedre e campi uguali nelle altre sedi. */
 function teacherCardData(
   state: PersistedData,
@@ -281,14 +295,16 @@ export const useAppStore = create<AppStore>()(
           id: string | null,
           patch: Omit<Teacher, "id">,
           rows: { classId: string; subject: string; hours: number }[],
+          drop?: string[],
         ) => {
-          const { teacherId, data } = teacherCardData(snapshot(get()), id, patch, rows);
+          const start = snapshot(get());
+          const { teacherId, data } = teacherCardData(withoutSlots(start, { [sedeIdOf(start)]: drop ?? [] }), id, patch, rows);
           save(data);
           return teacherId;
         },
 
-        saveTeacherCardSedi: (id, patch, rows, sedeIds) => {
-          const before = snapshot(get());
+        saveTeacherCardSedi: (id, patch, rows, sedeIds, drop) => {
+          const before = withoutSlots(snapshot(get()), drop ?? {});
           const own = rows[sedeIdOf(before)] ?? [];
           const { teacherId, data } = teacherCardData(before, id, patch, own);
           const out = saveTeacherSediIn(data, teacherId, sedeIds, rows, patch.weeklyHours);

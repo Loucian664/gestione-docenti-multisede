@@ -21,8 +21,9 @@ import {
   sedeIdOf,
   sedeName,
   type CardRow,
+  type SedeEntry,
 } from "@/lib/sedi";
-import { DAY_SHORT, ROLE_LABELS, ACTIVITY_SUBJECTS, CURRICULAR_SUBJECTS, SUBJECTS, type DayOfWeek, type Teacher, type TeacherRole } from "@/lib/types";
+import { DAY_SHORT, ROLE_LABELS, ACTIVITY_SUBJECTS, CURRICULAR_SUBJECTS, SUBJECTS, type DayOfWeek, type Teacher, type TeacherRole, type TimetableSlot } from "@/lib/types";
 import { Plus, Search, LayoutGrid } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -429,6 +430,42 @@ function TeacherDialog({ value, onClose }: { value: Teacher | "new"; onClose: ()
       .join(" · ");
   }
 
+  // le lezioni nell'orario delle classi tolte dalla scheda (di tutta la sede, se la si toglie): senza toglierle,
+  // Costruisci continua a considerarle sue
+  const [keepLessons, setKeepLessons] = useState<string[]>([]);
+  const recordIn = (sedeId: string) =>
+    sedeId === activeId ? current?.id : elsewhere.find((e) => e.sede.id === sedeId)?.teacher.id;
+  function lessonsOf(x: SedeEntry): TimetableSlot[] {
+    const id = recordIn(x.id);
+    return id ? x.data.slots.filter((s) => s.teacherId === id) : [];
+  }
+  function lessonsGone(x: SedeEntry): TimetableSlot[] {
+    const mine = lessonsOf(x);
+    if (!sediSel.includes(x.id)) return mine;
+    const now = rows.filter((r) => r.sedeId === x.id && r.classId);
+    const gone = initialRows.filter(
+      (r) => r.sedeId === x.id && !now.some((n) => n.classId === r.classId && n.subject === r.subject),
+    );
+    return mine.filter((s) =>
+      gone.some(
+        (g) => g.classId === s.classId && (g.subject === s.subject || !now.some((n) => n.classId === s.classId)),
+      ),
+    );
+  }
+  /** Le lezioni che escono dall'orario salvando: quelle delle classi tolte, se non si è scelto di tenerle. */
+  function lessonsToDrop(x: SedeEntry): TimetableSlot[] {
+    if (sediSel.includes(x.id) && keepLessons.includes(x.id)) return [];
+    return lessonsGone(x);
+  }
+  function lessonsText(x: SedeEntry, list: TimetableSlot[]): string {
+    const count = new Map<string, number>();
+    for (const s of list) {
+      const key = `${x.data.classes.find((c) => c.id === s.classId)?.name ?? "classe"} ${s.subject}`;
+      count.set(key, (count.get(key) ?? 0) + 1);
+    }
+    return [...count].map(([k, n]) => (n > 1 ? `${k} (${n} ore)` : k)).join(", ");
+  }
+
   function save() {
     const payload = {
       lastName: lastName.trim(),
@@ -453,6 +490,12 @@ function TeacherDialog({ value, onClose }: { value: Teacher | "new"; onClose: ()
     if (!payload.lastName) return;
     let blocked: string[] = [];
     let elsewhereNote = "";
+    const drop: Record<string, string[]> = {};
+    for (const x of sedi) {
+      const list = role === "potenziamento" ? [] : lessonsToDrop(x);
+      if (list.length) drop[x.id] = list.map((s) => s.id);
+    }
+    const dropped = Object.values(drop).reduce((n, l) => n + l.length, 0);
     if (payload.role === "potenziamento") {
       const savedId = store.saveTeacherCard(isNew ? null : current!.id, payload, []);
       const before = [activeId, ...elsewhere.map((e) => e.sede.id)].sort().join("|");
@@ -464,9 +507,9 @@ function TeacherDialog({ value, onClose }: { value: Teacher | "new"; onClose: ()
       payload.subjects = [...new Set([...payload.subjects, ...all.map((r) => r.subject)])];
       if (several) {
         elsewhereNote = changedElsewhere(bySede);
-        blocked = store.saveTeacherCardSedi(isNew ? null : current!.id, payload, bySede, sediSel).blocked;
+        blocked = store.saveTeacherCardSedi(isNew ? null : current!.id, payload, bySede, sediSel, drop).blocked;
       } else {
-        store.saveTeacherCard(isNew ? null : current!.id, payload, bySede[activeId] ?? []);
+        store.saveTeacherCard(isNew ? null : current!.id, payload, bySede[activeId] ?? [], drop[activeId]);
       }
     }
     if (blocked.length) toast.error(`Resta anche a ${blocked.join(", ")}: lì ha lezioni o cattedre.`);
@@ -476,7 +519,25 @@ function TeacherDialog({ value, onClose }: { value: Teacher | "new"; onClose: ()
         : payload.role === "sostegno"
           ? "Docente salvato. Ora inserisci le sue ore in Orario → Docente."
           : "Docente salvato",
-      elsewhereNote ? { description: `Classi aggiornate anche a ${elsewhereNote}.` } : undefined,
+      elsewhereNote || dropped
+        ? {
+            description: [
+              elsewhereNote ? `Classi aggiornate anche a ${elsewhereNote}.` : "",
+              dropped
+                ? `${dropped === 1 ? "Tolta 1 lezione" : `Tolte ${dropped} lezioni`} dall’orario${
+                    several
+                      ? ` di ${sedi
+                          .filter((x) => drop[x.id])
+                          .map((x) => sedeName(x.data.settings))
+                          .join(", ")}`
+                      : ""
+                  }.`
+                : "",
+            ]
+              .filter(Boolean)
+              .join(" "),
+          }
+        : undefined,
     );
     onClose();
   }
@@ -558,14 +619,15 @@ function TeacherDialog({ value, onClose }: { value: Teacher | "new"; onClose: ()
               <div className="flex flex-col gap-1">
                 {sedi.map((x) => {
                   const rec = elsewhere.find((e) => e.sede.id === x.id);
-                  const lessons = Boolean(rec && x.data.slots.some((s) => s.teacherId === rec.teacher.id));
                   const rowsHere = rows.filter((r) => r.sedeId === x.id);
+                  // lezioni che restano nell'orario di lì, salvando
+                  const left = lessonsOf(x).length - lessonsToDrop(x).length;
                   // una sede si toglie quando lì non ha più classi né lezioni in orario
                   const locked =
                     x.active ||
                     (role === "potenziamento"
                       ? Boolean(rec && !canRemoveRecord(x.data, rec.teacher.id))
-                      : lessons || rowsHere.length > 0);
+                      : left > 0 || rowsHere.length > 0);
                   const on = sediSel.includes(x.id);
                   const hours =
                     role === "potenziamento" ? (rec ? hoursIn(data, x.data, rec.teacher.id) : 0) : hoursOf(x.id);
@@ -585,8 +647,10 @@ function TeacherDialog({ value, onClose }: { value: Teacher | "new"; onClose: ()
                         {x.active
                           ? "· sede in uso"
                           : on
-                            ? `· ${hours} h${lessons ? " · ha lezioni in orario" : ""}`
-                            : ""}
+                            ? `· ${hours} h${left > 0 ? ` · ${left === 1 ? "1 lezione" : `${left} lezioni`} in orario` : ""}`
+                            : rec
+                              ? "· si toglie salvando"
+                              : ""}
                       </span>
                     </label>
                   );
@@ -596,8 +660,19 @@ function TeacherDialog({ value, onClose }: { value: Teacher | "new"; onClose: ()
                 Nome, materie, ruolo e colore sono uguali in tutte le sedi.
                 {role === "potenziamento"
                   ? " Le ore di un’altra sede si inseriscono passando a quella sede."
-                  : " Spuntando una sede, qui sotto compaiono le sue classi; una sede si toglie quando non ha più classi né lezioni in orario."}
+                  : " Spuntando una sede, qui sotto compaiono le sue classi. Una sede si toglie quando non ha più classi qui sotto né lezioni nel suo orario; dalla sede in uso si toglie con «Elimina»."}
               </p>
+              {sedi
+                .filter((x) => !x.active && !sediSel.includes(x.id) && elsewhere.some((e) => e.sede.id === x.id))
+                .map((x) => {
+                  const n = lessonsToDrop(x).length;
+                  return (
+                    <p key={x.id} className="text-[12px] text-warning">
+                      Salvando, il docente viene tolto da {sedeName(x.data.settings)}
+                      {n ? ` e ${n === 1 ? "la sua lezione lì esce" : `le sue ${n} lezioni lì escono`} dall’orario` : ""}.
+                    </p>
+                  );
+                })}
             </Field>
           )}
           {role !== "potenziamento" && (
@@ -688,6 +763,38 @@ function TeacherDialog({ value, onClose }: { value: Teacher | "new"; onClose: ()
                     </div>
                   ),
                 )}
+                {(() => {
+                  const gone = lessonsGone(x);
+                  if (!gone.length) return null;
+                  const keep = keepLessons.includes(x.id);
+                  return (
+                    <div className="rounded-md bg-warning-soft px-2.5 py-2 text-[12px] leading-snug">
+                      <p>
+                        Nell’orario{several ? ` di ${sedeName(x.data.settings)}` : ""} restano{" "}
+                        {gone.length === 1 ? "1 sua lezione" : `${gone.length} sue lezioni`} delle classi tolte:{" "}
+                        {lessonsText(x, gone)}.
+                      </p>
+                      <label className="mt-1 flex min-h-8 items-center gap-2 font-medium">
+                        <input
+                          type="checkbox"
+                          className="size-4 accent-primary"
+                          checked={!keep}
+                          onChange={(e) =>
+                            setKeepLessons((all) =>
+                              e.target.checked ? all.filter((y) => y !== x.id) : [...all, x.id],
+                            )
+                          }
+                        />
+                        Toglile dall’orario quando salvi
+                      </label>
+                      {keep && (
+                        <p className="text-muted-foreground">
+                          Se restano nell’orario, Costruisci continua a considerarle sue.
+                        </p>
+                      )}
+                    </div>
+                  );
+                })()}
                 <div className="flex flex-wrap gap-2">
                   <Button type="button" variant="outline" onClick={() => addRow(x.id)}>
                     Aggiungi classe
@@ -723,7 +830,11 @@ function TeacherDialog({ value, onClose }: { value: Teacher | "new"; onClose: ()
                 variant="outline"
                 onClick={() => {
                   store.removeTeacher(current.id);
-                  toast.message("Docente rimosso");
+                  toast.message(
+                    elsewhere.length
+                      ? `Docente tolto da ${here}: resta a ${elsewhere.map((e) => sedeName(e.sede.data.settings)).join(", ")}.`
+                      : "Docente rimosso",
+                  );
                   onClose();
                 }}
               >

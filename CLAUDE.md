@@ -62,7 +62,7 @@
 
 - Test di `src/lib`: per ogni `src/lib/*.test.ts`
   `node_modules/.bin/rolldown <file> --platform node --format esm --file <cartella>/<nome>.mjs`,
-  poi `node --test <cartella>/*.mjs` (153 test al 18/10/2026). `npm test` non li esegue.
+  poi `node --test <cartella>/*.mjs` (155 test al 18/10/2026). `npm test` non li esegue.
 - `npx tsc --noEmit`: 10 errori già presenti; non devono aumentare.
 - `GITHUB_PAGES=true BASE_PATH=/gestione-docenti-multisede/ npm run build:pages` deve riuscire.
 - Nei test del motore usa l'orologio finto (`now: ticks()` in `src/lib/timetable-solver.test.ts`), così
@@ -137,6 +137,12 @@ salvando, ogni riga va nella scheda della persona in quella sede (`saveTeacherSe
 store) e un avviso dice cosa è cambiato nelle altre sedi. «Ore cattedra» è il totale di tutte le sedi
 (`cattedraTotal`): nelle altre sedi valgono le ore delle righe, alla sede in uso va il resto. Una sede si toglie
 quando non ha più righe né lezioni in orario. Il potenziamento resta per sede.
+Classi tolte dalla scheda: se le sue lezioni sono ancora nell'orario di quella sede, il riquadro lo dice e
+«Toglile dall'orario quando salvi» (spuntata) le toglie (`drop` in `saveTeacherCard`/`saveTeacherCardSedi`);
+tolte quelle, la sede si può togliere. Una cattedra salvata senza docente resta senza docente: il docente si
+ricava solo da chi la insegna già nell'orario (`inferTeacherId` con `fromSlotsOnly` in `resolveCattedre`), non
+da chiunque abbia quella materia. Con «Tutte le sedi insieme» Costruisci elenca prima le materie senza
+docente di ogni sede. «Elimina» nella scheda toglie il docente solo dalla sede in uso.
 
 ## Più sedi: decisioni dell'utente (17/10/2026)
 
