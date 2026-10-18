@@ -11,9 +11,19 @@
  */
 import type { Cattedra, DayOfWeek, Period, PersistedData, SchoolClass, Teacher, TimetableSlot } from "./types";
 import { resolveCattedre } from "./build-timetable";
-import { allSedi, sedeAsData, sedeIdOf, sedeName, type SedeEntry } from "./sedi";
+import {
+  allSedi,
+  autoAwayCells,
+  editSede,
+  sedeAsData,
+  sedeIdOf,
+  sedeName,
+  switchSede,
+  withOtherSedi,
+  type SedeEntry,
+} from "./sedi";
 import { dispIntoGaps, dispOutcome, type InsiemeInfo, type SolveMode } from "./timetable-solver";
-import { slotsWithLessons, timetablePart, type TimetablePart } from "./saved-timetables";
+import { slotPart, slotsWithLessons, timetablePart, withPart, type TimetablePart } from "./saved-timetables";
 
 export type InsiemeData = PersistedData & { insieme: InsiemeInfo };
 
@@ -80,6 +90,7 @@ export function buildInsieme(data: PersistedData): { joint: InsiemeData; map: In
   };
   const classSede: Record<string, number> = {};
   const sedeAway: InsiemeInfo["sedeAway"] = {};
+  const sedeDisp: NonNullable<InsiemeInfo["sedeDisp"]> = {};
   const classes: SchoolClass[] = [];
   const slots: TimetableSlot[] = [];
   const cattedre: Cattedra[] = [];
@@ -185,6 +196,12 @@ export function buildInsieme(data: PersistedData): { joint: InsiemeData; map: In
     };
     if (multi) {
       sedeAway[key] = recs.flatMap((r) => cells(r, r.t.awaySlots).map((a) => ({ s: r.si, day: a.day, periodId: a.periodId })));
+      // ore a disposizione di ogni sede: lì il docente è a scuola (la giornata si conta come nell'app di quella sede)
+      sedeDisp[key] = recs.map((r) => ({
+        s: r.si,
+        hours: Math.max(0, Math.round(r.t.dispHours ?? 0), r.t.dispSlots?.length ?? 0),
+        slots: cells(r, r.t.dispSlots).map((a) => ({ day: a.day, periodId: a.periodId })),
+      }));
       if (recs.some((r) => (r.t.dayPatterns?.length ?? 0) > 0 || r.t.dayPattern))
         notes.push(
           `${first.t.lastName} ${first.t.firstName}: le ore al giorno scelte valgono per una sede; con tutte le sedi insieme non si usano.`,
@@ -210,7 +227,7 @@ export function buildInsieme(data: PersistedData): { joint: InsiemeData; map: In
     selectedDate: data.selectedDate,
     savedAt: 0,
     origin: "user",
-    insieme: { sedi: map.sedi.map((s) => s.name), classSede, sedeAway },
+    insieme: { sedi: map.sedi.map((s) => s.name), classSede, sedeAway, sedeDisp },
   };
   return { joint, map, notes };
 }
@@ -239,7 +256,9 @@ export function splitInsieme(map: InsiemeMap, slots: TimetableSlot[]): Record<st
 
 /**
  * Per ogni sede, l'orario da salvare: le lezioni nuove e le ore a disposizione (con «Da zero» nelle buche,
- * come in una sede sola; quelle che cadono su una lezione si tolgono).
+ * come in una sede sola; quelle che cadono su una lezione si tolgono). Una sede alla volta, con le lezioni nuove
+ * di tutte le sedi: chi insegna in più sedi ha come × le ore nelle altre sedi (e le loro ore a disposizione già
+ * sistemate), così un'ora a disposizione non va dove è in un'altra sede né senza l'ora di spostamento.
  */
 export function insiemeParts(
   data: PersistedData,
@@ -247,21 +266,80 @@ export function insiemeParts(
   mode: SolveMode,
 ): Record<string, TimetablePart> {
   const out: Record<string, TimetablePart> = {};
+  let next = data;
   for (const sede of allSedi(data)) {
-    const base = sedeAsData(data, sede.data);
+    next = editSede(next, sede.id, (s) => ({ ...s, slots: slotsWithLessons(sedeAsData(next, s), lessons[sede.id] ?? []) }));
+  }
+  for (const sede of allSedi(data)) {
+    const here = switchSede(next, sede.id);
+    const base = withOtherSedi(here);
     const list = lessons[sede.id] ?? [];
     let propBase = base;
     if (mode === "scratch") {
-      const plan = dispIntoGaps({ ...base, slots: slotsWithLessons(base, list) }, { replace: true });
+      // le ore a disposizione rimaste dove ora il docente è in un'altra sede, o vi arriva o ne parte: da rimettere
+      const index = new Map(here.settings.periods.map((x) => [x.id, x.index]));
+      const elsewhere = new Map<string, Set<string>>();
+      for (const t of here.teachers) {
+        const cells = autoAwayCells(here, t);
+        if (!cells.length) continue;
+        const set = new Set<string>();
+        for (const c of cells) {
+          const i = index.get(c.periodId) ?? -9;
+          for (const x of here.settings.periods) if (Math.abs(x.index - i) <= 1) set.add(`${c.day}|${x.id}`);
+        }
+        elsewhere.set(t.id, set);
+      }
+      const relocate = (id: string, day: DayOfWeek, periodId: string) => elsewhere.get(id)?.has(`${day}|${periodId}`) ?? false;
+      const plan = dispIntoGaps({ ...base, slots: slotsWithLessons(base, list) }, { replace: true, relocate });
       if (plan.moves.length)
         propBase = {
           ...base,
           teachers: base.teachers.map((t) => (plan.dispSlots[t.id] ? { ...t, dispSlots: plan.dispSlots[t.id] } : t)),
         };
     }
-    out[sede.id] = timetablePart(propBase, list, dispOutcome(propBase, list, null).dispSlots);
+    const part = timetablePart(propBase, list, dispOutcome(propBase, list, null).dispSlots);
+    out[sede.id] = part;
+    // per le sedi dopo: le ore a disposizione di questa sede dove sono adesso
+    next = editSede(next, sede.id, (s) => ({ ...s, teachers: withPart(sedeAsData(next, s), part).teachers }));
   }
   return out;
+}
+
+/** Ogni sede con il suo orario nuovo: lezioni e ore a disposizione del mattino dei docenti di materia. */
+export function withInsiemeParts(data: PersistedData, parts: Record<string, TimetablePart>): PersistedData {
+  let next = data;
+  for (const s of allSedi(data)) {
+    const part = parts[s.id];
+    if (!part) continue;
+    next = editSede(next, s.id, (sede) => {
+      const { slots, teachers } = withPart(sedeAsData(next, sede), part);
+      return { ...sede, slots, teachers };
+    });
+  }
+  return next;
+}
+
+/**
+ * Lo slot `n` (1–5) salvato con «Tutte le sedi insieme»: c'è in ogni sede, con lo stesso codice. Il suo nome
+ * (quello della sede in uso), o null se non lo è.
+ */
+export function insiemeSlot(data: PersistedData, n: number): { name: string } | null {
+  const sedi = allSedi(data);
+  if (n < 1 || sedi.length < 2) return null;
+  const entries = sedi.map((s) => (s.data.savedTimetables ?? []).find((x) => x.n === n));
+  const code = entries[0]?.insieme;
+  if (!code || entries.some((e) => e?.insieme !== code)) return null;
+  return { name: entries[sedi.findIndex((s) => s.active)]?.name ?? entries[0]!.name };
+}
+
+/** Lo slot `n` di ogni sede al posto del suo orario in uso (per aprirlo con tutte le sedi insieme). */
+export function insiemeSlotData(data: PersistedData, n: number): PersistedData {
+  const parts: Record<string, TimetablePart> = {};
+  for (const s of allSedi(data)) {
+    const part = slotPart(sedeAsData(data, s.data), n);
+    if (part) parts[s.id] = part;
+  }
+  return withInsiemeParts(data, parts);
 }
 
 /** Vista generale: ogni sede come archivio di un plesso, con le lezioni nuove al posto di quelle del mattino (se date). */

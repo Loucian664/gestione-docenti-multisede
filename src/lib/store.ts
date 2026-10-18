@@ -122,8 +122,16 @@ type Actions = {
   saveTimetableAll: (n: number, parts: Record<string, TimetablePart>, name: string) => void;
   /** «Rendi in vigore»: lo slot `n` diventa l’orario in vigore (slot 0) e quello in uso. */
   makeOfficial: (n: number) => void;
-  /** Annulla l’ultimo «Rendi in vigore». */
+  /** Annulla l’ultimo «Rendi in vigore» (in tutte le sedi, se era per tutte le sedi insieme). */
   undoMakeOfficial: () => void;
+  /** Slot salvato per tutte le sedi insieme: lo usa in tutte le sedi. */
+  activateSlotAll: (n: number) => void;
+  /** Slot salvato per tutte le sedi insieme: diventa l’orario in vigore in tutte le sedi. */
+  makeOfficialAll: (n: number) => void;
+  /** Slot salvato per tutte le sedi insieme: lo svuota in tutte le sedi (dove non è in uso). */
+  clearSavedTimetableAll: (n: number) => void;
+  /** Slot salvato per tutte le sedi insieme: gli cambia nome in tutte le sedi. */
+  renameSavedTimetableAll: (n: number, name: string) => void;
   setCattedre: (cattedre: Cattedra[]) => void;
   /** La sede `id` diventa quella in uso in tutte le pagine. */
   switchSede: (id: string) => void;
@@ -185,9 +193,18 @@ function fixAllSedi(data: PersistedData): PersistedData {
   };
 }
 
-/** «Usa…»: l'orario va nello slot di prova `n` e diventa quello in uso; l'orario in vigore (0) resta. */
-function putInSlotData(state: PersistedData, n: number, part: TimetablePart, name: string): PersistedData {
-  const entry: SavedTimetable = { n, name, savedAt: Date.now(), ...part };
+/**
+ * «Usa…»: l'orario va nello slot di prova `n` e diventa quello in uso; l'orario in vigore (0) resta.
+ * `insieme`: il codice dello slot di tutte le sedi insieme.
+ */
+function putInSlotData(
+  state: PersistedData,
+  n: number,
+  part: TimetablePart,
+  name: string,
+  insieme?: string,
+): PersistedData {
+  const entry: SavedTimetable = { n, name, savedAt: Date.now(), ...part, ...(insieme ? { insieme } : {}) };
   const kept = activeSlotOf(state) === n ? (state.savedTimetables ?? []) : keepActive(state);
   const { slots, teachers } = withPart(state, part);
   return {
@@ -252,8 +269,67 @@ function keepActive(state: PersistedData): SavedTimetable[] {
     name: old?.name ?? (n === 0 ? OFFICIAL_NAME : `Slot ${n}`),
     savedAt: same ? old.savedAt : Date.now(),
     ...part,
+    // salvato per tutte le sedi insieme: lo resta
+    ...(old?.insieme && n !== 0 ? { insieme: old.insieme } : {}),
   };
   return [...list.filter((x) => x.n !== n), entry].sort((a, b) => a.n - b.n);
+}
+
+/** Usa lo slot `n` (0–5): l’orario in uso resta salvato nel suo slot e al suo posto va quello di `n`. */
+function activateSlotData(state: PersistedData, n: number): PersistedData | null {
+  if (n === activeSlotOf(state)) return null;
+  const kept = keepActive(state);
+  const target = kept.find((x) => x.n === n);
+  if (!target) return null;
+  const { slots, teachers } = withPart(state, target);
+  // lo slot in uso è l’orario dell’app: la sua copia salvata non serve (per lo 0 si toglie)
+  return { ...state, slots, teachers, activeSlot: n, savedTimetables: n === 0 ? kept.filter((x) => x.n !== 0) : kept };
+}
+
+/** «Rendi in vigore»: lo slot `n` diventa l’orario in vigore e quello in uso; `insieme`: per tutte le sedi. */
+function makeOfficialData(state: PersistedData, n: number, insieme?: string): PersistedData | null {
+  const target = slotPart(state, n);
+  const official = slotPart(state, 0);
+  if (n === 0 || !target) return null;
+  const kept = activeSlotOf(state) === 0 ? (state.savedTimetables ?? []) : keepActive(state);
+  const { slots, teachers } = withPart(state, target);
+  return {
+    ...state,
+    slots,
+    teachers,
+    activeSlot: 0,
+    savedTimetables: kept.filter((x) => x.n !== 0),
+    officialBackup: official
+      ? { n: 0, name: OFFICIAL_NAME, savedAt: Date.now(), ...official, ...(insieme ? { insieme } : {}) }
+      : undefined,
+  };
+}
+
+/** Annulla «Rendi in vigore» in una sede. */
+function undoOfficialData(state: PersistedData): PersistedData | null {
+  const backup = state.officialBackup;
+  if (!backup) return null;
+  const clean: SavedTimetable = { ...backup };
+  delete clean.insieme;
+  if (activeSlotOf(state) === 0) {
+    const { slots, teachers } = withPart(state, clean);
+    return { ...state, slots, teachers, officialBackup: undefined };
+  }
+  return {
+    ...state,
+    savedTimetables: [...(state.savedTimetables ?? []).filter((x) => x.n !== 0), clean].sort((a, b) => a.n - b.n),
+    officialBackup: undefined,
+  };
+}
+
+/** Lo stesso cambio in ogni sede (le sedi dove non si può restano come sono). */
+function inAllSedi(state: PersistedData, fn: (data: PersistedData) => PersistedData | null): PersistedData {
+  let next = state;
+  for (const sede of allSedi(state)) {
+    const changed = fn(sedeAsData(next, allSedi(next).find((x) => x.id === sede.id)!.data));
+    if (changed) next = editSede(next, sede.id, () => pickSede(changed));
+  }
+  return next;
 }
 
 const seed = buildSeed();
@@ -481,15 +557,33 @@ export const useAppStore = create<AppStore>()(
         },
 
         activateSlot: (n) => {
-          const state = snapshot(get());
-          if (n === activeSlotOf(state)) return;
-          const kept = keepActive(state);
-          const target = kept.find((x) => x.n === n);
-          if (!target) return;
-          const { slots, teachers } = withPart(state, target);
-          // lo slot in uso è l’orario dell’app: la sua copia salvata non serve (per lo 0 si toglie)
-          save({ slots, teachers, activeSlot: n, savedTimetables: n === 0 ? kept.filter((x) => x.n !== 0) : kept });
+          const next = activateSlotData(snapshot(get()), n);
+          if (next) save(next);
         },
+
+        activateSlotAll: (n) => save(inAllSedi(snapshot(get()), (d) => activateSlotData(d, n))),
+
+        makeOfficialAll: (n) => {
+          const code = uid("ins");
+          save(inAllSedi(snapshot(get()), (d) => makeOfficialData(d, n, code)));
+        },
+
+        clearSavedTimetableAll: (n) => {
+          if (n === 0) return;
+          save(
+            inAllSedi(snapshot(get()), (d) =>
+              n === activeSlotOf(d) ? null : { ...d, savedTimetables: (d.savedTimetables ?? []).filter((x) => x.n !== n) },
+            ),
+          );
+        },
+
+        renameSavedTimetableAll: (n, name) =>
+          save(
+            inAllSedi(snapshot(get()), (d) => ({
+              ...d,
+              savedTimetables: (d.savedTimetables ?? []).map((x) => (x.n === n ? { ...x, name } : x)),
+            })),
+          ),
 
         putInSlot: (n, part, name) => {
           if (n < 1) return;
@@ -499,10 +593,11 @@ export const useAppStore = create<AppStore>()(
         putInSlotAll: (n, parts, name) => {
           if (n < 1) return;
           let next = snapshot(get());
+          const code = uid("ins");
           for (const sede of allSedi(next)) {
             const part = parts[sede.id];
             if (!part) continue;
-            next = editSede(next, sede.id, (data) => pickSede(putInSlotData(sedeAsData(next, data), n, part, name)));
+            next = editSede(next, sede.id, (data) => pickSede(putInSlotData(sedeAsData(next, data), n, part, name, code)));
           }
           save(next);
         },
@@ -511,52 +606,36 @@ export const useAppStore = create<AppStore>()(
           if (n < 1) return;
           let next = snapshot(get());
           const savedAt = Date.now();
+          const insieme = uid("ins");
           for (const sede of allSedi(next)) {
             const part = parts[sede.id];
             if (!part) continue;
             next = editSede(next, sede.id, (data) => ({
               ...data,
-              savedTimetables: [...(data.savedTimetables ?? []).filter((x) => x.n !== n), { n, name, savedAt, ...part }].sort(
-                (a, b) => a.n - b.n,
-              ),
+              savedTimetables: [
+                ...(data.savedTimetables ?? []).filter((x) => x.n !== n),
+                { n, name, savedAt, ...part, insieme },
+              ].sort((a, b) => a.n - b.n),
             }));
           }
           save(next);
         },
 
         makeOfficial: (n) => {
-          const state = snapshot(get());
-          const target = slotPart(state, n);
-          const official = slotPart(state, 0);
-          if (n === 0 || !target) return;
-          const kept = activeSlotOf(state) === 0 ? (state.savedTimetables ?? []) : keepActive(state);
-          const { slots, teachers } = withPart(state, target);
-          save({
-            slots,
-            teachers,
-            activeSlot: 0,
-            savedTimetables: kept.filter((x) => x.n !== 0),
-            officialBackup: official
-              ? { n: 0, name: OFFICIAL_NAME, savedAt: Date.now(), ...official }
-              : undefined,
-          });
+          const next = makeOfficialData(snapshot(get()), n);
+          if (next) save(next);
         },
 
         undoMakeOfficial: () => {
           const state = snapshot(get());
-          const backup = state.officialBackup;
-          if (!backup) return;
-          if (activeSlotOf(state) === 0) {
-            const { slots, teachers } = withPart(state, backup);
-            save({ slots, teachers, officialBackup: undefined });
-            return;
+          const code = state.officialBackup?.insieme;
+          // fatto per tutte le sedi insieme: si annulla in tutte
+          if (code)
+            save(inAllSedi(state, (d) => (d.officialBackup?.insieme === code ? undoOfficialData(d) : null)));
+          else {
+            const next = undoOfficialData(state);
+            if (next) save(next);
           }
-          save({
-            savedTimetables: [...(state.savedTimetables ?? []).filter((x) => x.n !== 0), backup].sort(
-              (a, b) => a.n - b.n,
-            ),
-            officialBackup: undefined,
-          });
         },
 
         setCattedre: (cattedre) => save({ cattedre }),

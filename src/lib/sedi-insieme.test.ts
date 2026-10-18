@@ -2,9 +2,27 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { isTimetableTeacher } from "./build-timetable.ts";
 import { buildSeed } from "./seed.ts";
-import { allSedi, editSede, sedeIdOf } from "./sedi.ts";
-import { buildInsieme, canBuildTogether, insiemeParts, righeSedi, splitInsieme } from "./sedi-insieme.ts";
-import { prepare, solveTimetable, TimetableEditor } from "./timetable-solver.ts";
+import { allSedi, editSede, sedeIdOf, switchSede, withOtherSedi } from "./sedi.ts";
+import {
+  buildInsieme,
+  canBuildTogether,
+  insiemeParts,
+  insiemeSlot,
+  insiemeSlotData,
+  righeSedi,
+  splitInsieme,
+  withInsiemeParts,
+} from "./sedi-insieme.ts";
+import { snapshot, useAppStore } from "./store.ts";
+import {
+  evaluateCurrent,
+  finishResult,
+  prepare,
+  solveTimetable,
+  TimetableEditor,
+  TimetableSolver,
+  type TimetableReport,
+} from "./timetable-solver.ts";
 import type { PersistedData, TimetableSlot } from "./types.ts";
 
 function ticks(): () => number {
@@ -58,6 +76,31 @@ function morningLessons(d: PersistedData): Record<string, TimetableSlot[]> {
     const morning = new Set(s.data.settings.periods.filter((p) => !p.tpOnly).map((p) => p.id));
     const pool = new Set(s.data.teachers.filter(isTimetableTeacher).map((t) => t.id));
     out[s.id] = s.data.slots.filter((x) => pool.has(x.teacherId) && morning.has(x.periodId));
+  }
+  return out;
+}
+
+/** Le voci dei docenti e delle classi (quelle che si sommano sede per sede) e i vincoli rigidi. */
+function voci(r: TimetableReport) {
+  return {
+    buche: r.gapsTotal,
+    span6: r.docenti.span6.length,
+    sei: r.docenti.six.length,
+    cinque: r.docenti.five.length,
+    dueBuche: r.docenti.multiGap.length,
+    unOra: r.docenti.single.length,
+    pesanti: r.didattica.heavy.length,
+    vincoli: Object.values(r.hard).reduce((n, l) => n + l.length, 0),
+  };
+}
+
+/** Ogni sede contata come la conta la sua app (le ore nelle altre sedi sono ×), sommata. */
+function sommaSedi(d: PersistedData) {
+  const out = voci(evaluateCurrent(withOtherSedi(d)));
+  for (const k of Object.keys(out) as (keyof typeof out)[]) out[k] = 0;
+  for (const s of allSedi(d)) {
+    const v = voci(evaluateCurrent(withOtherSedi(switchSede(d, s.id))));
+    for (const k of Object.keys(out) as (keyof typeof out)[]) out[k] += v[k];
   }
   return out;
 }
@@ -173,6 +216,155 @@ describe("tutte le sedi insieme", () => {
     }
     assert.ok(options > 0);
     assert.ok(cross > 0, "nessuna proposta con mosse in due sedi");
+  });
+
+  it("tutte le sedi insieme contano come la somma delle sedi, ognuna come nella sua app", () => {
+    const d = buildSeed();
+    assert.deepEqual(voci(evaluateCurrent(buildInsieme(d).joint)), sommaSedi(d));
+    // anche la proposta, con le ore a disposizione sistemate sede per sede
+    const { joint, map } = buildInsieme(d);
+    const res = solveTimetable(joint, { timeMs: 3000, seed: 5, now: ticks() });
+    const after = withInsiemeParts(d, insiemeParts(d, splitInsieme(map, res.slots), "scratch"));
+    assert.deepEqual(voci(evaluateCurrent(buildInsieme(after).joint)), sommaSedi(after));
+  });
+
+  it("l'ora per spostarsi tra due sedi non è un'ora buca; senza, è un vincolo non rispettato", () => {
+    const d = buildSeed();
+    const { joint } = buildInsieme(d);
+    const fra = "P~p-esempio-fra";
+    const [idA, idB] = allSedi(d).map((s) => s.id) as [string, string];
+    const clsA = joint.slots.find((s) => s.teacherId === fra && s.classId.startsWith(`${idA}~`))!.classId;
+    const clsB = joint.slots.find((s) => s.teacherId === fra && s.classId.startsWith(`${idB}~`))!.classId;
+    // lunedì: 1ª e 2ª nella prima sede, 4ª nella seconda (la 3ª per spostarsi)
+    const day = d.settings.days[0]!;
+    const busy = (cls: string, p: string) => (s: TimetableSlot) => s.day === day && s.classId === cls && s.periodId === p;
+    const monday = (pB: string): PersistedData => {
+      const free = [busy(clsA, "j1"), busy(clsA, "j2"), busy(clsB, pB)];
+      const slots = joint.slots.filter((s) => !(s.teacherId === fra && s.day === day) && !free.some((f) => f(s)));
+      const add = (classId: string, periodId: string) => ({ id: `x-${classId}-${periodId}`, day, periodId, classId, teacherId: fra, subject: "Francese" });
+      return { ...joint, slots: [...slots, add(clsA, "j1"), add(clsA, "j2"), add(clsB, pB)] };
+    };
+    const ok = evaluateCurrent(monday("j4"));
+    const g = ok.gapsByTeacher.find((x) => x.id === fra);
+    assert.ok(!g?.cells.some((c) => c.day === day && c.periodId === "j3"), "la 3ª è l'ora di spostamento, non una buca");
+    assert.ok(!ok.hard.travel.some((x) => x.text.includes("senza un'ora libera")));
+    const ko = evaluateCurrent(monday("j3"));
+    const travel = ko.hard.travel.find((x) => x.text.includes("senza un'ora libera"));
+    assert.ok(travel, "dalla 2ª alla 3ª in un'altra sede manca l'ora per spostarsi");
+    // il vincolo dice di chi è e in quali ore
+    assert.ok(travel.cells?.some((c) => c.teacherId === fra && c.periodId === "j3"));
+  });
+
+  it("le ore a disposizione di chi è in più sedi restano nella loro sede, mai dove insegna altrove", () => {
+    const base = buildSeed();
+    const idB = allSedi(base)[1]!.id;
+    // francese: 2 ore a disposizione nella seconda sede, lunedì 1ª e 2ª
+    const d = editSede(base, idB, (s) => ({
+      ...s,
+      teachers: s.teachers.map((t) =>
+        t.id === "tb-fra-1"
+          ? { ...t, dispHours: 2, dispSlots: [{ day: 1 as const, periodId: "p1" }, { day: 1 as const, periodId: "p2" }] }
+          : t,
+      ),
+    }));
+    const { joint, map } = buildInsieme(d);
+    const res = solveTimetable(joint, { timeMs: 3000, seed: 9, now: ticks() });
+    const after = withInsiemeParts(d, insiemeParts(d, splitInsieme(map, res.slots), "scratch"));
+    for (const s of allSedi(after)) {
+      const r = evaluateCurrent(withOtherSedi(switchSede(after, s.id)));
+      const bad = [...r.hard.away, ...r.hard.travel, ...r.hard.conflicts].filter((x) => x.text.startsWith("Marino"));
+      assert.deepEqual(bad, [], `${s.data.settings.schoolName}: ${bad.map((x) => x.text).join("; ")}`);
+    }
+    const tb = allSedi(after)[1]!.data.teachers.find((t) => t.id === "tb-fra-1")!;
+    assert.equal(tb.dispSlots?.length, 2);
+  });
+
+  it("ricerca in parallelo: a fine giro si riparte dalla migliore di tutte", () => {
+    const d = buildSeed();
+    const { joint } = buildInsieme(d);
+    const prep = prepare(joint, "demand");
+    const clock = ticks();
+    const solvers = [3, 4].map((seed) => {
+      const x = new TimetableSolver(prep, seed);
+      x.syncCycles = true;
+      x.startRun(6000, "scratch");
+      return x;
+    });
+    let syncs = 0;
+    const done = [false, false];
+    while (done.some((x) => !x)) {
+      solvers.forEach((x, i) => {
+        if (!done[i] && !x.waiting) done[i] = x.step(100, clock);
+      });
+      if (solvers.every((x, i) => done[i] || x.waiting) && solvers.some((x) => x.waiting)) {
+        const [a, b] = solvers.map((x) => x.bestScore());
+        const best = a!.hard < b!.hard || (a!.hard === b!.hard && a!.soft <= b!.soft) ? solvers[0]! : solvers[1]!;
+        const cells = best.bestCells();
+        const score = best.bestScore();
+        for (const x of solvers) {
+          if (!x.waiting) continue;
+          x.adopt(cells);
+          // la migliore di tutte è anche la sua (il punteggio rifatto da capo può differire negli ultimi decimali)
+          const mine = x.bestScore();
+          assert.equal(mine.hard, score.hard);
+          assert.equal(mine.pen, score.pen);
+          assert.ok(Math.abs(mine.soft - score.soft) < 1e-6);
+        }
+        syncs += 1;
+      }
+    }
+    assert.ok(syncs >= 2, `giri ${syncs}`);
+    for (const x of solvers) assert.equal(finishResult(x, prep).slots.length, prep.U);
+  });
+
+  it("slot salvato per tutte le sedi: si riconosce, si riapre con tutte le sedi, si usa e si svuota in tutte", () => {
+    useAppStore.getState().resetDemo();
+    const st = () => useAppStore.getState();
+    const d = snapshot(st());
+    const parts = insiemeParts(d, splitInsieme(buildInsieme(d).map, buildInsieme(d).joint.slots), "improve");
+    st().saveTimetableAll(2, parts, "Prova insieme");
+    let now = snapshot(st());
+    assert.deepEqual(insiemeSlot(now, 2), { name: "Prova insieme" });
+    const codes = allSedi(now).map((s) => s.data.savedTimetables?.find((x) => x.n === 2)?.insieme);
+    assert.ok(codes[0] && codes.every((c) => c === codes[0]));
+    // riaperto: ogni sede ha il suo slot 2
+    const opened = insiemeSlotData(now, 2);
+    for (const s of allSedi(opened)) assert.ok(s.data.slots.length > 0);
+    // il nome cambia in tutte le sedi
+    st().renameSavedTimetableAll(2, "Rinominato");
+    now = snapshot(st());
+    assert.deepEqual(insiemeSlot(now, 2), { name: "Rinominato" });
+    st().activateSlotAll(2);
+    now = snapshot(st());
+    assert.deepEqual(allSedi(now).map((s) => s.data.activeSlot), [2, 2]);
+    // rimane di tutte le sedi anche in uso
+    assert.ok(insiemeSlot(now, 2));
+    st().activateSlotAll(0);
+    st().clearSavedTimetableAll(2);
+    now = snapshot(st());
+    assert.ok(allSedi(now).every((s) => !s.data.savedTimetables?.some((x) => x.n === 2)));
+    // uno slot salvato in una sede sola non è di tutte le sedi
+    st().saveTimetableAll(3, parts, "Insieme");
+    st().saveTimetable({ n: 3, name: "Solo qui", savedAt: Date.now(), ...parts[sedeIdOf(snapshot(st()))]! });
+    assert.equal(insiemeSlot(snapshot(st()), 3), null);
+    st().resetDemo();
+  });
+
+  it("«Rendi in vigore» per tutte le sedi si annulla in tutte le sedi", () => {
+    useAppStore.getState().resetDemo();
+    const st = () => useAppStore.getState();
+    const d = snapshot(st());
+    const before = allSedi(d).map((s) => s.data.slots.length);
+    const parts = insiemeParts(d, splitInsieme(buildInsieme(d).map, buildInsieme(d).joint.slots), "improve");
+    st().saveTimetableAll(4, parts, "Da usare");
+    st().makeOfficialAll(4);
+    let now = snapshot(st());
+    assert.ok(allSedi(now).every((s) => s.data.officialBackup?.insieme));
+    st().undoMakeOfficial();
+    now = snapshot(st());
+    assert.ok(allSedi(now).every((s) => !s.data.officialBackup));
+    assert.deepEqual(allSedi(now).map((s) => s.data.slots.length), before);
+    st().resetDemo();
   });
 
   it("vista Giorno: le sedi in file, in ordine, meno file possibile e il più pari possibile", () => {
