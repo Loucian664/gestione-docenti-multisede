@@ -148,6 +148,9 @@ Materie senza docente (decisione dell'utente: mai senza avviso): `missingTeacher
 in una classe a tempo normale (es. una riga rimasta nella 1ª A di Rombiolo). Compaiono nel riquadro «Materie senza
 docente» (`MissingTeachersBox`) in Costruisci e in Docenti, accanto alla classe in Classi, nella scheda della
 sede in Sedi e, salvando o eliminando un docente, in un avviso «Restano senza docente: …».
+Nella scheda docente «+ Mensa» e «+ Laboratorio» propongono una classe a tempo prolungato della sede (quella
+delle sue righe, se c'è; senza classi a T.P. la classe resta da scegliere); su una classe a tempo normale la
+riga mostra un avviso.
 
 ## Più sedi: decisioni dell'utente (17/10/2026)
 
