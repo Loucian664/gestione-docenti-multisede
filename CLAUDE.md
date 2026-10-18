@@ -60,7 +60,7 @@
 
 - Test di `src/lib`: per ogni `src/lib/*.test.ts`
   `node_modules/.bin/rolldown <file> --platform node --format esm --file <cartella>/<nome>.mjs`,
-  poi `node --test <cartella>/*.mjs` (147 test al 18/10/2026). `npm test` non li esegue.
+  poi `node --test <cartella>/*.mjs` (148 test al 18/10/2026). `npm test` non li esegue.
 - `npx tsc --noEmit`: 10 errori già presenti; non devono aumentare.
 - `GITHUB_PAGES=true BASE_PATH=/gestione-docenti-multisede/ npm run build:pages` deve riuscire.
 - Nei test del motore usa l'orologio finto (`now: ticks()` in `src/lib/timetable-solver.test.ts`), così
@@ -117,7 +117,8 @@ due sedi alla stessa ora, un'ora libera tra lezioni in sedi diverse, al massimo 
 × valide solo nella loro sede; le giornate in due sedi pesano come «qui e nell'altro plesso». Le ore a
 disposizione restano ferme durante la ricerca e si sistemano dopo, sede per sede. «Salva nello slot…» e
 «Usa questa proposta» valgono per tutte le sedi con lo stesso numero di slot. In Orario, Quadro e
-Settimana hanno «Tutte le sedi» (sola lettura). Da costruire: «Esporta sede» e «Riporta sede» (tappa 3).
+Settimana hanno «Tutte le sedi» (sola lettura); nella vista Giorno le sedi vanno a capo su più file, in ordine, quante ne
+servono per la larghezza dello schermo (`righeSedi`). Da costruire: «Esporta sede» e «Riporta sede» (tappa 3).
 
 ## Più sedi: decisioni dell'utente (17/10/2026)
 

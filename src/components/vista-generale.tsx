@@ -1,10 +1,10 @@
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { ScrollGrid } from "@/components/scroll-grid";
 import { NativeSelect } from "@/components/ui/native-select";
 import { classCellSlots, teacherName, teacherShort } from "@/lib/coverage";
 import { isTimetableTeacher } from "@/lib/build-timetable";
 import { isRestrictedTpPeriod, visiblePeriods } from "@/lib/periods";
-import type { VistaSede } from "@/lib/sedi-insieme";
+import { righeSedi, type VistaSede } from "@/lib/sedi-insieme";
 import { weekCellLines } from "@/lib/sheet-image";
 import { teacherCell, teacherDotColor } from "@/lib/teacher-palette";
 import { DAY_SHORT, type DayOfWeek, type SchoolClass } from "@/lib/types";
@@ -26,94 +26,139 @@ function rowPeriods(sedi: VistaSede[]) {
   return first ? visiblePeriods(first.data.settings) : [];
 }
 
-/** Un giorno, tutte le classi di tutte le sedi affiancate. */
+/** Vista Giorno: larghezza minima di una classe e della colonna delle ore, in px. */
+const DAY_COL_W = 100;
+const DAY_HOUR_W = 96;
+
+/** La larghezza del contenitore, aggiornata quando cambia (finestra, telefono girato). */
+function useWidth(ref: RefObject<HTMLDivElement | null>) {
+  const [width, setWidth] = useState(() => (typeof window === "undefined" ? 1100 : Math.max(320, window.innerWidth - 64)));
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const update = () => setWidth(Math.max(1, Math.floor(el.clientWidth)));
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ref]);
+  return width;
+}
+
+/**
+ * Un giorno, tutte le classi di tutte le sedi: le sedi affiancate su più file, quante ne servono perché ogni
+ * fila stia nello schermo (una sede troppo larga sta da sola nella sua fila e scorre di lato).
+ */
 export function GiornoGenerale({ sedi, day }: { sedi: VistaSede[]; day: DayOfWeek }) {
+  const box = useRef<HTMLDivElement>(null);
+  const width = useWidth(box);
   const periods = rowPeriods(sedi);
   const cols = sedi.map((s) => ({ s, classes: [...s.data.classes].sort(classSort) }));
-  const total = cols.reduce((n, c) => n + c.classes.length, 0);
+  const sizes = cols.map((c) => Math.max(1, c.classes.length));
+  const cap = Math.max(1, Math.floor((width - DAY_HOUR_W) / DAY_COL_W));
+  const rows = righeSedi(sizes, cap);
+  // la stessa larghezza delle classi in tutte le file: la fila più larga occupa lo schermo
+  const widest = Math.max(1, ...rows.map((r) => r.reduce((n, i) => n + sizes[i]!, 0)));
+  const colW = Math.max(DAY_COL_W, Math.floor((width - DAY_HOUR_W) / Math.min(widest, cap)));
   return (
-    <ScrollGrid unit={["Classe", "Classi"]}>
-      <table className="w-full border-collapse text-sm" style={{ minWidth: `${Math.max(820, 96 + total * 112)}px` }}>
-        <thead>
-          <tr className="text-left text-[12px] text-muted-foreground">
-            <th className={cn(STICKY_COL, "w-24 px-3 pt-2 font-medium")} rowSpan={2}>
-              Ora
-            </th>
-            {cols.map(({ s, classes }) => (
-              <th key={s.id} colSpan={Math.max(1, classes.length)} className="border-l border-border px-2 pt-2 font-display text-[14px] font-medium text-foreground">
-                {s.name}
-              </th>
-            ))}
-          </tr>
-          <tr className="border-b border-border text-left text-[12px] text-muted-foreground">
-            {cols.map(({ s, classes }) =>
-              classes.length ? (
-                classes.map((c, i) => (
-                  <th key={`${s.id}-${c.id}`} className={cn("px-2 py-1.5 font-medium", i === 0 && "border-l border-border")}>
-                    {c.name}
-                  </th>
-                ))
-              ) : (
-                <th key={`${s.id}-vuota`} className="border-l border-border px-2 py-1.5 font-normal">
-                  nessuna classe
-                </th>
-              ),
-            )}
-          </tr>
-        </thead>
-        <tbody>
-          {periods.map((p) => (
-            <tr key={p.id} className="border-b border-border last:border-0">
-              <td className={cn(STICKY_COL, "px-3 py-2 align-top")}>
-                <div className="text-[13px] font-medium">{p.label}</div>
-                <div className="text-[11px] text-ink-faint">
-                  {p.start}–{p.end}
-                </div>
-              </td>
-              {cols.map(({ s, classes }) => {
-                const sp = s.data.settings.periods.find((x) => x.index === p.index);
-                if (!classes.length) return <td key={`${s.id}-vuota`} className="border-l border-border" />;
-                return classes.map((c, i) => {
-                  const allowed = sp && (!isRestrictedTpPeriod(sp) || c.tempo === "TP");
-                  const first = i === 0 && "border-l border-border";
-                  if (!sp || !allowed) return <td key={`${s.id}-${c.id}`} className={cn("bg-muted/40 p-1 align-top", first)} />;
-                  const occupants = classCellSlots(s.data, c.id, day, sp.id);
-                  const t = occupants[0] ? s.data.teachers.find((x) => x.id === occupants[0]!.teacherId) : null;
-                  const tc = teacherCell(t?.color);
-                  return (
-                    <td key={`${s.id}-${c.id}`} className={cn("p-1 align-top", first)}>
-                      <div
-                        className={cn("flex min-h-[4.25rem] w-full flex-col rounded-md px-2 py-1.5", tc.className)}
-                        style={tc.style}
+    <div ref={box} className="flex w-full min-w-0 flex-col gap-4">
+      {rows.map((row) => {
+        const band = row.map((i) => cols[i]!);
+        const total = row.reduce((n, i) => n + sizes[i]!, 0);
+        const tableW = DAY_HOUR_W + total * colW;
+        return (
+          <div key={band.map((c) => c.s.id).join("|")} style={{ maxWidth: `${tableW}px` }}>
+            <ScrollGrid unit={["Classe", "Classi"]} columns="thead tr:nth-child(2) > th">
+              <table className="w-full table-fixed border-collapse text-sm" style={{ minWidth: `${DAY_HOUR_W + total * DAY_COL_W}px` }}>
+                <thead>
+                  <tr className="text-left text-[12px] text-muted-foreground">
+                    <th className={cn(STICKY_COL, "w-24 px-3 pt-2 font-medium")} rowSpan={2}>
+                      Ora
+                    </th>
+                    {band.map(({ s, classes }) => (
+                      <th
+                        key={s.id}
+                        colSpan={Math.max(1, classes.length)}
+                        className="border-l border-border px-2 pt-2 font-display text-[14px] font-medium text-foreground"
                       >
-                        {occupants.length === 0 ? (
-                          <span className="text-[11px] text-ink-faint">—</span>
-                        ) : (
-                          occupants.map((x, k) => {
-                            const doc = s.data.teachers.find((y) => y.id === x.teacherId);
-                            return (
-                              <span key={x.id} className={cn("flex flex-col leading-tight", k > 0 && "mt-1")}>
-                                <span className="text-[12px] font-medium">
-                                  {doc ? teacherShort(doc, s.data.teachers) : ""}
-                                </span>
-                                <span className={cn("text-[11px]", tc.text2)}>
-                                  {x.subject}
-                                  {k > 0 ? " · compr." : ""}
-                                </span>
-                              </span>
-                            );
-                          })
-                        )}
-                      </div>
-                    </td>
-                  );
-                });
-              })}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </ScrollGrid>
+                        {s.name}
+                      </th>
+                    ))}
+                  </tr>
+                  <tr className="border-b border-border text-left text-[12px] text-muted-foreground">
+                    {band.map(({ s, classes }) =>
+                      classes.length ? (
+                        classes.map((c, i) => (
+                          <th key={`${s.id}-${c.id}`} className={cn("px-2 py-1.5 font-medium", i === 0 && "border-l border-border")}>
+                            {c.name}
+                          </th>
+                        ))
+                      ) : (
+                        <th key={`${s.id}-vuota`} className="border-l border-border px-2 py-1.5 font-normal">
+                          nessuna classe
+                        </th>
+                      ),
+                    )}
+                  </tr>
+                </thead>
+                <tbody>
+                  {periods.map((p) => (
+                    <tr key={p.id} className="border-b border-border last:border-0">
+                      <td className={cn(STICKY_COL, "px-3 py-2 align-top")}>
+                        <div className="text-[13px] font-medium">{p.label}</div>
+                        <div className="text-[11px] text-ink-faint">
+                          {p.start}–{p.end}
+                        </div>
+                      </td>
+                      {band.map(({ s, classes }) => {
+                        const sp = s.data.settings.periods.find((x) => x.index === p.index);
+                        if (!classes.length) return <td key={`${s.id}-vuota`} className="border-l border-border" />;
+                        return classes.map((c, i) => {
+                          const allowed = sp && (!isRestrictedTpPeriod(sp) || c.tempo === "TP");
+                          const first = i === 0 && "border-l border-border";
+                          if (!sp || !allowed)
+                            return <td key={`${s.id}-${c.id}`} className={cn("bg-muted/40 p-1 align-top", first)} />;
+                          const occupants = classCellSlots(s.data, c.id, day, sp.id);
+                          const t = occupants[0] ? s.data.teachers.find((x) => x.id === occupants[0]!.teacherId) : null;
+                          const tc = teacherCell(t?.color);
+                          return (
+                            <td key={`${s.id}-${c.id}`} className={cn("p-1 align-top", first)}>
+                              <div
+                                className={cn("flex min-h-[4.25rem] w-full flex-col rounded-md px-2 py-1.5", tc.className)}
+                                style={tc.style}
+                              >
+                                {occupants.length === 0 ? (
+                                  <span className="text-[11px] text-ink-faint">—</span>
+                                ) : (
+                                  occupants.map((x, k) => {
+                                    const doc = s.data.teachers.find((y) => y.id === x.teacherId);
+                                    return (
+                                      <span key={x.id} className={cn("flex flex-col leading-tight", k > 0 && "mt-1")}>
+                                        <span className="text-[12px] font-medium">
+                                          {doc ? teacherShort(doc, s.data.teachers) : ""}
+                                        </span>
+                                        <span className={cn("text-[11px]", tc.text2)}>
+                                          {x.subject}
+                                          {k > 0 ? " · compr." : ""}
+                                        </span>
+                                      </span>
+                                    );
+                                  })
+                                )}
+                              </div>
+                            </td>
+                          );
+                        });
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </ScrollGrid>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
