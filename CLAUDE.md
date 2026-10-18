@@ -11,8 +11,8 @@
 - Nome dell'app: «Orario Generale» (titolo, scritta in alto, nome sotto l'icona). Icona scelta
   dall'utente: solo un calendario color crema, centrato, sullo stesso identico sfondo dell'icona di
   Rombiolo (verde scuro con la sua grana); nella scheda del browser, lo stesso calendario.
-- I test copiati dall'app di Rombiolo contengono cognomi veri: per ora restano (decisione dell'utente,
-  se ne riparla alla fine del lavoro). Nei test nuovi solo nomi inventati.
+- I test copiati dall'app di Rombiolo contengono cognomi veri: restano così (decisione dell'utente del
+  18/10/2026). Nei test nuovi solo nomi inventati.
 - Punto di partenza: copia, al 17/10/2026, dell'app di Rombiolo (repository `Loucian664/gestione-docenti`,
   sito https://loucian664.github.io/gestione-docenti/). Quella repository e quel sito restano separati:
   da qui non vanno toccati.
@@ -172,9 +172,17 @@ riga mostra un avviso.
 - Laboratori del T.P.: come a Rombiolo. Ogni rientro è Mensa + 2 ore di Laboratorio (7ª e 8ª) con lo stesso
   docente, segnate come materie «Mensa» e «Laboratorio» nella sua scheda; chi fa solo quelle ore ha le × su
   tutte le mattine.
-- Dati delle altre sedi: arriveranno i PDF delle assegnazioni dei docenti alle classi (con i nomi delle
-  sedi) e degli orari in vigore (solo materia e cognome). Usarli solo in locale; se sedi, omonimie o
-  cognomi non sono chiari, chiedere all'utente.
+- Dati delle altre sedi: PDF delle assegnazioni dei docenti alle classi arrivato il 18/10/2026; gli orari in
+  vigore (solo materia e cognome) devono ancora arrivare. Usarli solo in locale; se sedi, omonimie o cognomi
+  non sono chiari, chiedere all'utente. Sedi reali (dal PDF): Rombiolo (6 classi, 3ª B a T.P.), San Calogero
+  (6, T.N.), Cessaniti (5, T.P.), Zungri (3, T.N.), Zaccanopoli (una pluriclasse 1ª-2ª-3ª, T.P.), Nicotera
+  (7, T.P.).
+- Come leggere il PDF (regole dell'utente, già usate per Rombiolo): nelle classi a tempo normale l'ora di
+  «Laboratorio storico-sociale» è Geografia (Geografia 2 ore); nel tempo prolungato «Laboratorio della
+  comunicazione» + «Laboratorio storico-sociale» sono le 2 ore di Laboratorio del rientro di lettere (con
+  Mensa) e «Laboratorio scientifico» + Mensa il rientro di matematica; «Progetto LEL (Latino)» è la materia
+  «Latino», 1 ora; le righe con gli asterischi non ci sono.
+- Le lettere delle sedi non servono: si usano i nomi reali. La sede «ferma» per ora non serve.
 - Strumento (chitarra, pianoforte, flauto): resta nell'elenco docenti senza orario (lezioni individuali
   al pomeriggio); serve per le sostituzioni.
 - Le sostituzioni di ogni giorno restano nell'app di Rombiolo: qui Oggi, Assenze e Report restano come
