@@ -9,7 +9,7 @@
  * ruolo e colore restano uguali in tutte; classi, ore, × e disposizioni sono di ogni sede.
  */
 import type { DayOfWeek, Period, PersistedData, RemovedSede, SedeData, Settings, Teacher } from "./types";
-import { cattedreOfTeacher } from "./build-timetable";
+import { applyTeacherCattedre, cattedreOfTeacher } from "./build-timetable";
 import { todayIso } from "./dates";
 import { uid } from "./utils";
 
@@ -406,6 +406,89 @@ export function setTeacherSedi(
     }
   }
   return { data: next, blocked };
+}
+
+export type CardRow = { classId: string; subject: string; hours: number };
+
+/**
+ * Ore cattedra di tutte le sedi, per la scheda docente: quelle della scheda in uso più, per ogni altra sede, le
+ * ore delle sue righe (senza righe, le ore cattedra di lì).
+ */
+export function cattedraTotal(data: PersistedData, t: Teacher): number {
+  return linkedElsewhere(data, t).reduce((n, r) => {
+    const rows = cattedreOfTeacher(sedeAsData(data, r.sede), r.teacher.id);
+    return n + (rows.length ? rows.reduce((m, c) => m + c.hours, 0) : (r.teacher.weeklyHours ?? 0));
+  }, t.weeklyHours ?? 0);
+}
+
+const rowsKey = (rows: CardRow[]) =>
+  rows
+    .map((r) => `${r.classId}|${r.subject}|${r.hours}`)
+    .sort()
+    .join("#");
+
+/**
+ * Le classi di una scheda in una sede non in uso, scelte dalla scheda docente: righe e cattedre cambiano solo
+ * se cambiano le righe; le ore di lezione lì sono quelle delle righe (senza righe restano quelle di prima).
+ */
+function setRowsIn(data: PersistedData, sedeId: string, teacherId: string, rows: CardRow[]): PersistedData {
+  return editSede(data, sedeId, (sede) => {
+    const rec = sede.teachers.find((x) => x.id === teacherId);
+    if (!rec) return sede;
+    const before = cattedreOfTeacher(sedeAsData(data, sede), teacherId);
+    const same = rowsKey(before) === rowsKey(rows);
+    const hours = rows.length ? rows.reduce((n, r) => n + r.hours, 0) : rec.weeklyHours;
+    if (same && hours === rec.weeklyHours) return sede;
+    const teachers = sede.teachers.map((x) =>
+      x.id !== teacherId
+        ? x
+        : same
+          ? { ...x, weeklyHours: hours }
+          : { ...x, weeklyHours: hours, cardRows: rows, assignedClassIds: [...new Set(rows.map((r) => r.classId))] },
+    );
+    if (same) return { ...sede, teachers };
+    const cattedre = applyTeacherCattedre(sedeAsData(data, { ...sede, teachers }), teacherId, rows);
+    return { ...sede, teachers, cattedre };
+  });
+}
+
+/**
+ * La scheda docente con le classi di tutte le sedi, dopo aver salvato quella della sede in uso: le sedi in cui
+ * insegna (come `setTeacherSedi`), in ogni altra sede le sue righe (`rows` per id della sede) e, se c'è `total`,
+ * le ore cattedra di tutte le sedi: alla sede in uso va quello che resta tolte le ore delle altre.
+ */
+export function saveTeacherSedi(
+  data: PersistedData,
+  teacherId: string,
+  sedeIds: string[],
+  rows: Record<string, CardRow[]>,
+  total?: number,
+): { data: PersistedData; blocked: string[] } {
+  const activeId = sedeIdOf(data);
+  const wanted = new Set(sedeIds);
+  const withRows = (d: PersistedData) => {
+    const t = d.teachers.find((x) => x.id === teacherId);
+    if (!t?.personId) return d;
+    let next = d;
+    for (const s of allSedi(d)) {
+      if (s.id === activeId) continue;
+      const rec = s.data.teachers.find((x) => x.personId === t.personId);
+      if (rec) next = setRowsIn(next, s.id, rec.id, wanted.has(s.id) ? (rows[s.id] ?? []) : []);
+    }
+    return next;
+  };
+  // prima le righe (una sede senza più classi si può togliere), poi le schede nuove e di nuovo le righe
+  const { data: linked, blocked } = setTeacherSedi(withRows(data), teacherId, sedeIds);
+  let out = withRows(linked);
+  const t = out.teachers.find((x) => x.id === teacherId);
+  if (total !== undefined && t) {
+    const others = linkedElsewhere(out, t).reduce((n, r) => n + (r.teacher.weeklyHours ?? 0), 0);
+    const own = Math.max(0, total - others);
+    if (own !== t.weeklyHours) {
+      out = { ...out, teachers: out.teachers.map((x) => (x.id === teacherId ? { ...x, weeklyHours: own } : x)) };
+    }
+  }
+  return { data: out, blocked };
 }
 
 /** Per ogni docente del backup, le persone con lo stesso cognome e nome già presenti nelle sedi. */

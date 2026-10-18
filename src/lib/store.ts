@@ -39,7 +39,9 @@ import {
   sedeAsData,
   sedeIdOf,
   setSchoolYear as setSchoolYearIn,
+  saveTeacherSedi as saveTeacherSediIn,
   setTeacherSedi as setTeacherSediIn,
+  type CardRow,
   switchSede as switchSedeTo,
   syncPersonFields,
 } from "./sedi";
@@ -72,6 +74,17 @@ type Actions = {
     patch: Omit<Teacher, "id">,
     rows: { classId: string; subject: string; hours: number }[],
   ) => string;
+  /**
+   * La scheda docente con le classi di tutte le sedi: `rows` per id della sede, `sedeIds` le sedi in cui
+   * insegna, `patch.weeklyHours` le ore cattedra di tutte le sedi. Restituisce l'id e le sedi da cui non si è
+   * potuto togliere.
+   */
+  saveTeacherCardSedi: (
+    id: string | null,
+    patch: Omit<Teacher, "id">,
+    rows: Record<string, CardRow[]>,
+    sedeIds: string[],
+  ) => { teacherId: string; blocked: string[] };
   removeTeacher: (id: string) => void;
   addClass: (c: Omit<SchoolClass, "id">) => void;
   updateClass: (id: string, patch: Partial<SchoolClass>) => void;
@@ -183,6 +196,23 @@ function putInSlotData(state: PersistedData, n: number, part: TimetablePart, nam
   };
 }
 
+/** La scheda docente salvata nella sede in uso: righe, cattedre e campi uguali nelle altre sedi. */
+function teacherCardData(
+  state: PersistedData,
+  id: string | null,
+  patch: Omit<Teacher, "id">,
+  rows: CardRow[],
+): { teacherId: string; data: PersistedData } {
+  const teacherId = id ?? uid("t");
+  const nextPatch = { ...patch, cardRows: rows };
+  const teachers = id
+    ? state.teachers.map((t) => (t.id === id ? { ...t, ...nextPatch } : t))
+    : [...state.teachers, { ...nextPatch, id: teacherId }];
+  const cattedre = applyTeacherCattedre({ ...state, teachers }, teacherId, rows);
+  // nome, materie, ruolo e colore uguali nelle altre sedi in cui insegna
+  return { teacherId, data: syncPersonFields({ ...state, teachers, cattedre }, teacherId) };
+}
+
 /** Classe tolta da una sede, con le sue lezioni e cattedre. */
 function withoutClass(sede: SedeData, id: string): SedeData {
   return {
@@ -252,15 +282,18 @@ export const useAppStore = create<AppStore>()(
           patch: Omit<Teacher, "id">,
           rows: { classId: string; subject: string; hours: number }[],
         ) => {
-          const teacherId = id ?? uid("t");
-          const nextPatch = { ...patch, cardRows: rows };
-          const teachers = id
-            ? get().teachers.map((t) => (t.id === id ? { ...t, ...nextPatch } : t))
-            : [...get().teachers, { ...nextPatch, id: teacherId }];
-          const cattedre = applyTeacherCattedre({ ...snapshot(get()), teachers }, teacherId, rows);
-          // nome, materie, ruolo e colore uguali nelle altre sedi in cui insegna
-          save(syncPersonFields({ ...snapshot(get()), teachers, cattedre }, teacherId));
+          const { teacherId, data } = teacherCardData(snapshot(get()), id, patch, rows);
+          save(data);
           return teacherId;
+        },
+
+        saveTeacherCardSedi: (id, patch, rows, sedeIds) => {
+          const before = snapshot(get());
+          const own = rows[sedeIdOf(before)] ?? [];
+          const { teacherId, data } = teacherCardData(before, id, patch, own);
+          const out = saveTeacherSediIn(data, teacherId, sedeIds, rows, patch.weeklyHours);
+          save(out.data);
+          return { teacherId, blocked: out.blocked };
         },
 
         removeTeacher: (id) =>
