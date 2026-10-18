@@ -60,7 +60,7 @@
 
 - Test di `src/lib`: per ogni `src/lib/*.test.ts`
   `node_modules/.bin/rolldown <file> --platform node --format esm --file <cartella>/<nome>.mjs`,
-  poi `node --test <cartella>/*.mjs` (121 test al 17/10/2026). `npm test` non li esegue.
+  poi `node --test <cartella>/*.mjs` (141 test al 18/10/2026). `npm test` non li esegue.
 - `npx tsc --noEmit`: 10 errori già presenti; non devono aumentare.
 - `GITHUB_PAGES=true BASE_PATH=/gestione-docenti-multisede/ npm run build:pages` deve riuscire.
 - Nei test del motore usa l'orologio finto (`now: ticks()` in `src/lib/timetable-solver.test.ts`), così
@@ -84,20 +84,29 @@ Una copia di prova, non il codice vero:
 
 - `src/lib/types.ts`: modello dati (`Teacher`, `SchoolClass`, impostazioni con `plesso`, `PersistedData`).
 - `src/lib/store.ts`: stato dell'app e slot degli orari; `src/lib/persist-storage.ts`: salvataggio.
+- `src/lib/sedi.ts`: più sedi (cambio sede, sedi non in uso, docenti in comune con `personId`, × automatiche
+  dalle altre sedi con `withOtherSedi`); `src/routes/sedi.tsx`: pagina Sedi; `src/components/campanella-editor.tsx`:
+  orari di una sede.
 - `src/lib/timetable-solver.ts`: motore di Costruisci («Da zero», «Migliora l'attuale», Ritocchi, Trova,
   ore a disposizione nelle buche); `timetable-worker.ts` e `timetable-runner.ts` lo fanno girare in
   background.
 - `src/lib/saved-timetables.ts` e `src/components/save-slots.tsx`: slot (0 = orario in vigore, 1–5 prove).
 - `src/components/costruisci-orario.tsx`: scheda Costruisci.
 - `src/lib/export.ts`, `xlsx.ts`, `pdf.ts`, `sheet-image.ts`: backup, Excel, PDF, immagini.
-- `src/routes/`: pagine Oggi (`index`), Orario, Assenze, Docenti, Classi, Report, Impostazioni.
+- `src/routes/`: pagine Oggi (`index`), Orario, Assenze, Docenti, Classi, Sedi, Report, Impostazioni.
 
 ## Più sedi: com'è oggi
 
-L'app gestisce un plesso alla volta (`plesso` nelle impostazioni). Chi insegna anche altrove ha
-`otherPlesso` e le ore occupate nell'altra sede in `awaySlots` (le «×»), segnate a mano; il motore ne
-tiene conto e lascia un'ora libera di spostamento prima e dopo. Da costruire: più sedi nello stesso
-archivio e docenti condivisi coordinati dall'app.
+Più sedi nello stesso archivio (tappa 1). La sede in uso tiene i suoi dati in cima, come l'archivio di un
+plesso dell'app di Rombiolo: pagine, motore ed esportazioni lavorano su quelli. Le altre stanno in
+`altreSedi` (`sedeId`, `ordineSedi`); cambiare sede scambia i dati e fa ripartire la pagina. Un backup
+dell'app di Rombiolo diventa una sede sola; un backup di questa app aperto in quella mostra solo la sede in
+uso. Chi insegna in più sedi ha una scheda in ognuna con lo stesso `personId` (nome, materie, ruolo e colore
+sincronizzati); in Costruisci le sue ore nelle altre sedi diventano × automatiche (`withOtherSedi`), sulla
+campanella della sede in uso, e il motore lascia l'ora di spostamento. Le × a mano (`awaySlots`) restano
+per giornate intere e impegni; `otherPlesso` a mano vale per chi insegna in sedi fuori dall'app. Gli esempi
+hanno due sedi con nomi inventati. Da costruire: Costruisci per tutte le sedi insieme (tappa 2), «Esporta
+sede» e «Riporta sede» (tappa 3).
 
 ## Più sedi: decisioni dell'utente (17/10/2026)
 
