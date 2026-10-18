@@ -9,10 +9,13 @@ type View = { first: number; last: number; total: number; overflow: boolean; mor
  */
 export function ScrollGrid({
   unit,
+  columns,
   children,
 }: {
   /** singolare e plurale: ["Classe", "Classi"], ["Giorno", "Giorni"] */
   unit: [string, string];
+  /** le intestazioni delle colonne da contare, se non sono nella prima riga dopo la prima colonna */
+  columns?: string;
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -25,7 +28,7 @@ export function ScrollGrid({
       const heads = Array.from(el.querySelectorAll<HTMLElement>("thead tr:first-child > th"));
       const box = el.getBoundingClientRect();
       const left = box.left + (heads[0]?.getBoundingClientRect().width ?? 0);
-      const cols = heads.slice(1);
+      const cols = columns ? Array.from(el.querySelectorAll<HTMLElement>(columns)) : heads.slice(1);
       const seen = cols.flatMap((h, i) => {
         const r = h.getBoundingClientRect();
         const w = Math.min(r.right, box.right) - Math.max(r.left, left);
@@ -59,7 +62,7 @@ export function ScrollGrid({
       el.removeEventListener("scroll", update);
       ro.disconnect();
     };
-  }, []);
+  }, [columns]);
 
   return (
     <div>

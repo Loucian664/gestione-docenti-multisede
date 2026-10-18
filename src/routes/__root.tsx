@@ -7,7 +7,7 @@ import { Toaster } from "sonner";
 import { THEME_BOOT_SCRIPT } from "@/lib/theme";
 import appCss from "../styles.css?url";
 
-const APP_NAME = "Gestione Docenti";
+const APP_NAME = "Orario Generale";
 const asset = (path: string) => `${import.meta.env.BASE_URL}${path.replace(/^\//, "")}`;
 
 export const Route = createRootRoute({
@@ -22,7 +22,7 @@ export const Route = createRootRoute({
         {
           name: "description",
           content:
-            "Strumento personale per le sostituzioni — responsabile di plesso, scuola secondaria di I grado.",
+            "Orario delle sedi dell’istituto comprensivo — scuola secondaria di I grado.",
         },
       ],
       links: [

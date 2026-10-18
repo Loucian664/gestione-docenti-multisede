@@ -15,21 +15,28 @@ export type RunHandle = {
   result: Promise<SolveResult>;
 };
 
-function better(a: SolveResult, b: SolveResult | null): boolean {
-  if (!b) return true;
-  if (a.report.score.hard !== b.report.score.hard) return a.report.score.hard < b.report.score.hard;
-  if (a.report.score.pen !== b.report.score.pen) return a.report.score.pen < b.report.score.pen;
-  return a.report.score.soft < b.report.score.soft;
+type Score = { hard: number; pen: number; soft: number };
+
+function lessScore(a: Score, b: Score): boolean {
+  if (a.hard !== b.hard) return a.hard < b.hard;
+  if (a.pen !== b.pen) return a.pen < b.pen;
+  return a.soft < b.soft;
 }
 
+function better(a: SolveResult, b: SolveResult | null): boolean {
+  return !b || lessScore(a.report.score, b.report.score);
+}
+
+/** Quante ricerche in parallelo: una per processore, lasciandone uno alla pagina (al massimo 6). */
 function workerCount(): number {
   const cores = typeof navigator !== "undefined" ? navigator.hardwareConcurrency || 2 : 2;
-  return Math.max(1, Math.min(4, cores - 1));
+  return Math.max(1, Math.min(6, cores - 1));
 }
 
 /**
- * Avvia la ricerca. Con più processori lancia più ricerche in parallelo (semi diversi)
- * e tiene la migliore. Se i worker non partono, lavora nella pagina a piccoli passi.
+ * Avvia la ricerca. Con più processori lancia più ricerche in parallelo (semi diversi): alla fine di ogni
+ * giro tutte ripartono dalla migliore trovata finora, e alla fine si tiene la migliore. Se i worker non
+ * partono, lavora nella pagina a piccoli passi.
  */
 export function runTimetable(
   data: PersistedData,
@@ -61,6 +68,21 @@ export function runTimetable(
     let best: SolveResult | null = null;
     let finished = 0;
     let failed = 0;
+    // ricerca in parallelo: a fine giro ogni ricerca aspetta; quando aspettano tutte, ripartono dalla migliore
+    const sync = workers.length > 1;
+    const gone = workers.map(() => false);
+    const waiting: ({ cells: number[]; score: Score } | null)[] = workers.map(() => null);
+    const release = () => {
+      const alive = workers.map((_, i) => i).filter((i) => !gone[i]);
+      if (!alive.length || alive.some((i) => !waiting[i])) return;
+      let top = waiting[alive[0]!]!;
+      for (const i of alive) if (lessScore(waiting[i]!.score, top.score)) top = waiting[i]!;
+      const cells = stopped ? null : top.cells;
+      for (const i of alive) {
+        waiting[i] = null;
+        workers[i]!.postMessage({ type: "adopt", cells });
+      }
+    };
     const report = () => {
       const list = progress.filter((p): p is SolveProgress => Boolean(p));
       if (!list.length) return;
@@ -84,26 +106,44 @@ export function runTimetable(
       w.onmessage = (e: MessageEvent) => {
         const msg = e.data as
           | { type: "progress"; progress: SolveProgress }
+          | { type: "sync"; cells: number[]; score: Score }
           | { type: "done"; result: SolveResult }
           | { type: "error"; message: string };
         if (msg.type === "progress") {
           progress[i] = msg.progress;
           report();
+        } else if (msg.type === "sync") {
+          waiting[i] = { cells: msg.cells, score: msg.score };
+          release();
         } else if (msg.type === "done") {
           finished += 1;
+          gone[i] = true;
           if (better(msg.result, best)) best = msg.result;
+          release();
           settle();
         } else {
           failed += 1;
+          gone[i] = true;
+          release();
           settle();
         }
       };
       w.onerror = (ev) => {
         ev.preventDefault?.();
+        if (gone[i]) return;
         failed += 1;
+        gone[i] = true;
+        release();
         settle();
       };
-      w.postMessage({ type: "start", data, timeMs: opts.timeMs, seed: (baseSeed + i * 7919) >>> 0, mode: opts.mode });
+      w.postMessage({
+        type: "start",
+        data,
+        timeMs: opts.timeMs,
+        seed: (baseSeed + i * 7919) >>> 0,
+        mode: opts.mode,
+        sync,
+      });
     });
   });
 

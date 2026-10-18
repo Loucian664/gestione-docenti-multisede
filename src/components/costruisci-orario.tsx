@@ -41,6 +41,7 @@ import {
   type FindTarget,
   type FixOption,
   type FixStep,
+  type InsiemeInfo,
   type MoveEffect,
   type RowKey,
   type SolveMode,
@@ -67,6 +68,35 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { teacherCell } from "@/lib/teacher-palette";
 import { corePeriods, isTpPeriodId } from "@/lib/periods";
+import {
+  allSedi,
+  autoAwayCells,
+  linkedElsewhere,
+  blockingGroups,
+  missingBySede,
+  removedSediIssues,
+  sedeName,
+  switchSede,
+  withOtherSedi,
+  type ElsewhereCell,
+} from "@/lib/sedi";
+import { formatItDate } from "@/lib/dates";
+import {
+  buildInsieme,
+  canBuildTogether,
+  insiemeParts,
+  insiemeSlot,
+  insiemeSlotData,
+  splitInsieme,
+  vistaSedi,
+  withInsiemeParts,
+  type InsiemeData,
+  type InsiemeMap,
+} from "@/lib/sedi-insieme";
+import { ClasseGenerale, DocentiGenerale, GiornoGenerale, SettimanaGenerale } from "@/components/vista-generale";
+import { MissingTeachersBox, MissingTeachersDialog } from "@/components/missing-teachers";
+import { HardIssuesBox } from "@/components/vincoli-box";
+import { SAVE_SLOTS } from "@/lib/saved-timetables";
 
 type Cell = { day: DayOfWeek; periodId: string };
 type CellState = "empty" | "no" | "away" | "class";
@@ -134,7 +164,9 @@ export function CostruisciOrario({
   onSlotOpened?: () => void;
 } = {}) {
   const store = useAppStore();
-  const data = snapshot(store);
+  // i dati come li salva l'app; per il motore e i controlli, con le ore dei docenti nelle altre sedi come ×
+  const rawData = snapshot(store);
+  const data = withOtherSedi(rawData);
   const previewRef = useRef<HTMLElement>(null);
   const [mode, setMode] = useState<SolveMode>("scratch");
   const [speed, setSpeed] = useState<"rapida" | "accurata">("rapida");
@@ -163,11 +195,80 @@ export function CostruisciOrario({
   const [classPick, setClassPick] = useState<ClassPick | null>(null);
   const [patternFor, setPatternFor] = useState<string | null>(null);
   const [cattedraClassId, setCattedraClassId] = useState(data.classes[0]?.id ?? "");
+  // «Tutte le sedi insieme»: le classi di tutte le sedi in una proposta sola
+  const sediCount = allSedi(rawData).length;
+  const together = useMemo(
+    () => canBuildTogether(rawData),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rawData.settings, rawData.altreSedi],
+  );
+  const [scope, setScope] = useState<"sede" | "tutte">("sede");
+  const allTogether = scope === "tutte" && sediCount > 1;
+  // tutte le sedi insieme: 30 s o 90 s (più tempo non migliora in modo netto: misurato sulle 6 sedi vere)
+  const jointMs = (fast: boolean) => (fast ? 30000 : 90000);
+  // le materie senza docente della sede in uso o, con «Tutte le sedi insieme», di ogni sede: restano fuori
+  const missing = useMemo(
+    () => missingBySede(rawData).filter((x) => allTogether || x.active),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rawData.teachers, rawData.classes, rawData.slots, rawData.cattedre, rawData.altreSedi, allTogether],
+  );
+  // le materie che la proposta deve mettere: senza docente, «Proponi» si ferma con una finestra
+  const blocking = blockingGroups(missing);
+  const [missingOpen, setMissingOpen] = useState(false);
+  const [insieme, setInsieme] = useState<InsiemeResult | null>(null);
+  const insiemeRef = useRef<HTMLElement>(null);
+  // «Ritocca a mano» su tutte le sedi insieme: i dati uniti e le lezioni con i ritocchi
+  const [insiemeEdit, setInsiemeEdit] = useState<InsiemeEdit | null>(null);
+  const [insiemeEditDialog, setInsiemeEditDialog] = useState<"save" | "use" | null>(null);
+  const insiemeEditRef = useRef<HTMLElement>(null);
+  // docenti con ore in sedi eliminate dall'app e meno × di quelle ore: l'orario non si propone
+  const removedIssues = allSedi(rawData)
+    .filter((s) => allTogether || s.active)
+    .flatMap((s) =>
+      removedSediIssues(s.data.teachers.filter(isTimetableTeacher)).map((x) => ({
+        ...x,
+        sedeId: s.id,
+        sede: sedeName(s.data.settings),
+      })),
+    );
+  const removedPeople = new Set(removedIssues.map((x) => x.teacher.personId ?? x.teacher.id)).size;
   const morning = corePeriods(data.settings.periods);
 
   const byName = (a: Teacher, b: Teacher) =>
     a.lastName.localeCompare(b.lastName, "it") || a.firstName.localeCompare(b.firstName, "it");
   const included = useMemo(() => data.teachers.filter(isTimetableTeacher).sort(byName), [data.teachers]);
+  // ritocchi su tutte le sedi: i docenti di materia e le classi, sede per sede
+  const insiemeTeachers = useMemo(
+    () => (insiemeEdit ? insiemeEdit.joint.teachers.filter(isTimetableTeacher).sort(byName) : []),
+    [insiemeEdit],
+  );
+  const insiemeClasses = useMemo(() => {
+    if (!insiemeEdit) return [];
+    const { classes, insieme: info } = insiemeEdit.joint;
+    return [...classes]
+      .sort(
+        (a, b) =>
+          (info.classSede[a.id] ?? 0) - (info.classSede[b.id] ?? 0) ||
+          a.grade - b.grade ||
+          a.section.localeCompare(b.section, "it"),
+      )
+      .map((c) => ({ id: c.id, name: c.name, tempo: c.tempo }));
+  }, [insiemeEdit]);
+  // nelle schede «Quando ci sono i docenti» si cambiano solo i segni messi a mano
+  const rawIncluded = useMemo(() => rawData.teachers.filter(isTimetableTeacher).sort(byName), [rawData.teachers]);
+  const elsewhere = useMemo(() => {
+    const map = new Map<string, { cells: ElsewhereCell[]; sedi: string[] }>();
+    for (const t of rawData.teachers) {
+      const links = linkedElsewhere(rawData, t);
+      if (!links.length) continue;
+      map.set(t.id, {
+        cells: autoAwayCells(rawData, t),
+        sedi: [...new Set(links.map((l) => sedeName(l.sede.settings)))],
+      });
+    }
+    return map;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rawData.teachers, rawData.altreSedi, rawData.settings.periods]);
   const skipped = useMemo(() => data.teachers.filter((t) => !isTimetableTeacher(t)).sort(byName), [data.teachers]);
   const demand = useMemo(() => timetableDemand(data), [data]);
   const hoursHere = useMemo(() => teacherHoursHere(data), [data]);
@@ -236,6 +337,8 @@ export function CostruisciOrario({
     io.observe(el);
     return () => io.disconnect();
   }, [showHeader]);
+  // cambiando pagina o sede la ricerca in corso si ferma
+  useEffect(() => () => handleRef.current?.stop(), []);
   // lezioni del mattino dei docenti di materia: quelle che Costruisci e i ritocchi cambiano
   const pool = useMemo(() => new Set(included.map((t) => t.id)), [included]);
   const inUseDraft = useMemo(
@@ -308,8 +411,57 @@ export function CostruisciOrario({
     return m;
   }, [data.teachers, data.slots]);
 
-  function propose() {
+  function proposeTogether() {
     if (handleRef.current) return;
+    if (!together.ok) {
+      toast.error(`${together.reason} Per ora si costruisce una sede alla volta.`);
+      return;
+    }
+    const built = buildInsieme(rawData);
+    setInsiemeEdit(null);
+    if (timetableDemand(built.joint).lessons.length === 0) {
+      toast.message("Niente da piazzare: inserisci prima docenti, classi e ore in orario.");
+      return;
+    }
+    setResult(null);
+    setOpenSave(null);
+    setSavedIn(null);
+    setRunning({ fraction: 0, iterations: 0, bestHard: 0, bestSoft: 0, bestGaps: 0, workers: 0 });
+    const runMode = mode;
+    const handle = runTimetable(built.joint, {
+      timeMs: jointMs(speed === "rapida"),
+      mode: runMode,
+      onProgress: (p) => setRunning(p),
+    });
+    handleRef.current = handle;
+    handle.result
+      .then((res) => {
+        setInsieme({ result: res, joint: built.joint, map: built.map, notes: built.notes, mode: runMode, savedIn: null });
+        window.setTimeout(() => {
+          insiemeRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }, 50);
+      })
+      .catch((err: unknown) => {
+        toast.error(`La costruzione si è fermata: ${err instanceof Error ? err.message : String(err)}`);
+      })
+      .finally(() => {
+        handleRef.current = null;
+        setRunning(null);
+      });
+  }
+
+  function propose() {
+    if (blocking.length > 0) {
+      setMissingOpen(true);
+      return;
+    }
+    if (allTogether) {
+      proposeTogether();
+      return;
+    }
+    if (handleRef.current) return;
+    setInsieme(null);
+    setInsiemeEdit(null);
     if (timetableDemand(data).lessons.length === 0) {
       toast.message("Niente da piazzare: inserisci prima docenti, classi e ore in orario.");
       return;
@@ -380,13 +532,67 @@ export function CostruisciOrario({
   }
 
   function openEdit(from: EditState["from"]) {
+    setInsiemeEdit(null);
     setEdit({ draft: from === "proposta" && result ? result.slots : inUseDraft, history: [], from });
     window.setTimeout(() => editRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  }
+
+  /**
+   * «Ritocca a mano» su tutte le sedi insieme, dalla proposta o dagli orari in uso: le mosse e le catene
+   * possono passare da una sede all'altra, con le regole tra sedi.
+   */
+  function openInsiemeEdit(from: EditState["from"]) {
+    let next: InsiemeEdit;
+    if (from === "proposta" && insieme) {
+      next = {
+        edit: { draft: insieme.result.slots, history: [], from },
+        joint: insieme.joint,
+        map: insieme.map,
+        mode: insieme.mode,
+        base: insieme.slot?.base,
+      };
+    } else {
+      const built = buildInsieme(rawData);
+      const jointPool = new Set(built.joint.teachers.filter(isTimetableTeacher).map((t) => t.id));
+      const draft = built.joint.slots.filter(
+        (s) => jointPool.has(s.teacherId) && !isTpPeriodId(built.joint.settings.periods, s.periodId),
+      );
+      next = { edit: { draft, history: [], from: "uso" }, joint: built.joint, map: built.map, mode: "improve" };
+    }
+    setEdit(null);
+    setInsiemeEdit(next);
+    window.setTimeout(() => insiemeEditRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  }
+
+  /** I ritocchi su tutte le sedi nello slot `n` di ogni sede: salvati, o anche in uso. */
+  function pickInsiemeEdit(n: number, name: string) {
+    if (!insiemeEdit || !insiemeEditDialog) return;
+    const parts = insiemeParts(
+      insiemeEdit.base ?? rawData,
+      splitInsieme(insiemeEdit.map, insiemeEdit.edit.draft),
+      insiemeEdit.mode,
+    );
+    if (insiemeEditDialog === "use") {
+      store.putInSlotAll(n, parts, name);
+      toast.success(`Slot ${n} in uso in tutte le sedi. Gli orari in vigore restano nello slot 0.`);
+      setInsiemeEdit(null);
+      setInsieme(null);
+    } else {
+      store.saveTimetableAll(n, parts, name);
+      toast.success(`Salvato nello slot ${n} di tutte le sedi: «${name}».`);
+      setInsiemeEdit({
+        ...insiemeEdit,
+        edit: { ...insiemeEdit.edit, savedIn: n, savedLen: insiemeEdit.edit.history.length },
+      });
+    }
+    setInsiemeEditDialog(null);
   }
 
   /** Apre uno slot come proposta: si confronta con l’orario in vigore, si ritocca, si usa. */
   function showSaved(save: SavedTimetable, keepEdit = false) {
     const open = openSavedTimetable(data, save);
+    setInsieme(null);
+    setInsiemeEdit(null);
     setCurrentReport(evaluateCurrent(data));
     setResult({
       slots: open.lessons,
@@ -401,13 +607,43 @@ export function CostruisciOrario({
     return open.dropped;
   }
 
+  /** Uno slot salvato per tutte le sedi insieme: si apre con tutte le sedi, come la proposta. */
+  function openInsiemeSaved(n: number, name: string) {
+    const base = insiemeSlotData(rawData, n);
+    const built = buildInsieme(base);
+    const jointPool = new Set(built.joint.teachers.filter(isTimetableTeacher).map((t) => t.id));
+    const slots = built.joint.slots.filter(
+      (s) => jointPool.has(s.teacherId) && !isTpPeriodId(built.joint.settings.periods, s.periodId),
+    );
+    setResult(null);
+    setOpenSave(null);
+    setSavedIn(null);
+    setEdit(null);
+    setInsiemeEdit(null);
+    setInsieme({
+      result: { slots, report: evaluateCurrent(built.joint), iterations: 0, disp: null },
+      joint: built.joint,
+      map: built.map,
+      notes: built.notes,
+      mode: "improve",
+      savedIn: n,
+      slot: { n, name, base },
+    });
+    window.setTimeout(() => insiemeRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  }
+
   function openSaved(n: number) {
-    const save = (data.savedTimetables ?? []).find((s) => s.n === n);
-    if (!save) return;
     if (handleRef.current) {
       toast.message("Aspetta che finisca la ricerca, oppure fermala.");
       return;
     }
+    const all = insiemeSlot(rawData, n);
+    if (all) {
+      openInsiemeSaved(n, all.name);
+      return;
+    }
+    const save = (data.savedTimetables ?? []).find((s) => s.n === n);
+    if (!save) return;
     const dropped = showSaved(save);
     if (dropped) {
       toast.message(
@@ -533,6 +769,8 @@ export function CostruisciOrario({
             // è cambiato l'orario in uso: proposta e ritocchi aperti erano confrontati con l'altro
             setResult(null);
             setEdit(null);
+            setInsieme(null);
+            setInsiemeEdit(null);
             setOpenSave(null);
             setSavedIn(null);
           }}
@@ -542,7 +780,8 @@ export function CostruisciOrario({
       <HowItWorks />
 
       <AvailabilityPanel
-        teachers={included}
+        teachers={rawIncluded}
+        elsewhere={elsewhere}
         skipped={skipped}
         days={data.settings.days}
         morning={morning}
@@ -571,6 +810,18 @@ export function CostruisciOrario({
       <section className="paper-panel rounded-xl p-5">
         <StepTitle n={3} title="Proponi l’orario" />
         <div className="mt-4 flex flex-wrap items-center gap-3">
+          {sediCount > 1 && (
+            <Segmented
+              label="Sedi"
+              value={scope}
+              onChange={setScope}
+              disabled={Boolean(running)}
+              options={[
+                { value: "sede", label: "Questa sede" },
+                { value: "tutte", label: "Tutte le sedi insieme" },
+              ]}
+            />
+          )}
           <Segmented
             label="Punto di partenza"
             value={mode}
@@ -586,26 +837,100 @@ export function CostruisciOrario({
             value={speed}
             onChange={setSpeed}
             disabled={Boolean(running)}
-            options={[
-              { value: "rapida", label: "Rapida · 12 s" },
-              { value: "accurata", label: "Accurata · 35 s" },
-            ]}
+            options={
+              allTogether
+                ? [
+                    { value: "rapida", label: "Rapida · 30 s" },
+                    { value: "accurata", label: "Accurata · 90 s" },
+                  ]
+                : [
+                    { value: "rapida", label: "Rapida · 12 s" },
+                    { value: "accurata", label: "Accurata · 35 s" },
+                  ]
+            }
           />
         </div>
+        {allTogether && (
+          <p className={cn("mt-2 text-[13px]", together.ok ? "text-muted-foreground" : "text-warning")}>
+            {together.ok
+              ? "Costruisce insieme le classi di tutte le sedi. Chi insegna in più sedi non è mai in due sedi alla stessa ora, ha sempre un’ora libera per spostarsi (che non è un’ora buca), cambia sede al massimo una volta al giorno e, se possibile, passa giornate intere in una sede; le sue giornate si contano come nell’app di ogni sede. Le × segnate in una sede valgono solo lì, le ore «no» ovunque; le ore a disposizione restano nella loro sede."
+              : `${together.reason} Per ora si costruisce una sede alla volta.`}
+          </p>
+        )}
+        <MissingTeachersBox
+          className="mt-4"
+          groups={missing}
+          showSede={allTogether}
+          note={
+            blocking.length > 0
+              ? "L’orario si propone quando ogni materia ha il suo docente. Il docente si indica nella sua scheda, in Docenti, o in «Cattedre e ore»."
+              : "Mensa e Laboratorio non entrano nella proposta; il docente si indica comunque nella sua scheda, in Docenti."
+          }
+        />
+        {missingOpen && (
+          <MissingTeachersDialog groups={blocking} showSede={allTogether} onClose={() => setMissingOpen(false)} />
+        )}
         <p className="mt-2 text-[13px] text-muted-foreground">
           {mode === "scratch"
             ? "Genera un nuovo orario e poi mette le ore a disposizione nelle ore buche. Nella ricerca le ore buche colmabili con ore a disposizione non vengono conteggiate, ma al massimo una al giorno."
             : "Migliora l’orario in uso senza peggiorare nessuna voce. Le ore a disposizione si spostano solo nello stesso giorno, per chiudere un’ora buca."}
           {speed === "accurata" ? " Richiede più tempo, ma in genere trova soluzioni migliori." : ""}
         </p>
+        {removedIssues.length > 0 && (
+          <div className="mt-4 rounded-xl border border-destructive/25 bg-danger-soft px-4 py-3 text-sm">
+            <p className="font-medium">Ore in sedi fuori dall’app</p>
+            <ul className="mt-2 grid gap-3">
+              {removedIssues.map((x) => (
+                <li key={`${x.sedeId}-${x.teacher.id}`}>
+                  {x.sedi.map((r) => (
+                    <div key={r.name} className="flex flex-wrap items-start justify-between gap-2">
+                      <p className="min-w-0 flex-1">
+                        {teacherName(x.teacher)} ha {r.hours === 1 ? "1 ora" : `${r.hours} ore`} nella sede «{r.name}»,
+                        eliminata dall’app il {formatItDate(r.removedOn)}.
+                      </p>
+                      {x.teacher.personId && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          title="Toglie la sede dalla scheda del docente."
+                          onClick={() => store.dropRemovedSede(x.teacher.personId!, r.name)}
+                        >
+                          Non insegna più lì
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                  <p className="mt-1 text-muted-foreground">
+                    Per costruire l’orario occorre segnare con le × in «Quando ci sono i docenti»
+                    {allTogether ? ` della sede «${x.sede}»` : ""} i giorni o le ore di impegno in{" "}
+                    {x.sedi.length > 1 ? "quelle sedi" : "quella sede"}. × segnate: {x.marked} su {x.hours}.
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         <div className="mt-4 flex flex-wrap items-center gap-3">
-          <Button onClick={propose} disabled={Boolean(running)}>
-            {running ? "Sto cercando…" : "Proponi orario"}
+          <Button
+            onClick={propose}
+            disabled={Boolean(running) || (allTogether && !together.ok) || removedIssues.length > 0}
+          >
+            {running ? "Sto cercando…" : allTogether ? "Proponi l’orario di tutte le sedi" : "Proponi orario"}
           </Button>
-          <Button variant="outline" onClick={() => openEdit("uso")} disabled={Boolean(running) || !inUseDraft.length}>
+          <Button
+            variant="outline"
+            onClick={() => (allTogether ? openInsiemeEdit("uso") : openEdit("uso"))}
+            disabled={Boolean(running) || (allTogether ? !together.ok : !inUseDraft.length)}
+          >
             Ritocca a mano
           </Button>
         </div>
+        {removedIssues.length > 0 && (
+          <p className="mt-2 text-[13px] text-warning">
+            Prima di proporre l’orario, indica le ore nelle sedi fuori dall’app per{" "}
+            {removedPeople === 1 ? "1 docente" : `${removedPeople} docenti`}.
+          </p>
+        )}
         {running && <SearchProgress progress={running} onStop={() => handleRef.current?.stop()} />}
       </section>
 
@@ -627,6 +952,57 @@ export function CostruisciOrario({
           onApply={() => setConfirmFor("ritocchi")}
           onSave={() => setSaveFor("ritocchi")}
           onUpdateTeacher={(id, patch) => store.updateTeacher(id, patch)}
+        />
+      )}
+
+      {insiemeEdit && (
+        <Ritocchi
+          sectionRef={insiemeEditRef}
+          edit={insiemeEdit.edit}
+          settings={insiemeEdit.joint.settings}
+          teachersAll={insiemeEdit.joint.teachers}
+          classesAll={insiemeEdit.joint.classes}
+          slots={insiemeEdit.joint.slots}
+          cattedre={insiemeEdit.joint.cattedre}
+          teachers={insiemeTeachers}
+          classes={insiemeClasses}
+          morning={corePeriods(insiemeEdit.joint.settings.periods)}
+          insieme={insiemeEdit.joint.insieme}
+          canLock={false}
+          onChange={(next) => setInsiemeEdit((v) => (v ? { ...v, edit: next } : v))}
+          onClose={() => setInsiemeEdit(null)}
+          onApply={() => setInsiemeEditDialog("use")}
+          onSave={() => setInsiemeEditDialog("save")}
+          onUpdateTeacher={() => undefined}
+        />
+      )}
+      {insiemeEdit && (
+        <InsiemeSlotDialog
+          mode={insiemeEditDialog}
+          defaultName={
+            insiemeEdit.edit.from === "uso"
+              ? "Tutte le sedi · ritoccato"
+              : insiemeEdit.mode === "scratch"
+                ? "Tutte le sedi · da zero e ritoccato"
+                : "Tutte le sedi · migliorato e ritoccato"
+          }
+          data={rawData}
+          onClose={() => setInsiemeEditDialog(null)}
+          onPick={pickInsiemeEdit}
+        />
+      )}
+
+      {!edit && !insiemeEdit && insieme && (
+        <InsiemeProposta
+          sectionRef={insiemeRef}
+          data={rawData}
+          value={insieme}
+          running={running}
+          onStop={() => handleRef.current?.stop()}
+          onRetry={proposeTogether}
+          onEdit={() => openInsiemeEdit("proposta")}
+          onClose={() => setInsieme(null)}
+          onSaved={(n) => setInsieme((v) => (v ? { ...v, savedIn: n } : v))}
         />
       )}
 
@@ -696,6 +1072,12 @@ export function CostruisciOrario({
             proposal={proposalReport}
             mode={openSave ? "edit" : resultMode}
             label={openSave ? `Slot ${openSave.n}` : undefined}
+            data={previewData}
+            hint={
+              openSave
+                ? "Questo orario non rispetta queste regole: si sistemano con «Ritocca», anche con «Trova»."
+                : undefined
+            }
           />
           <div className="mt-4 flex flex-col gap-3">
             <Tabs
@@ -828,7 +1210,7 @@ export function CostruisciOrario({
         morning={morning}
         onChange={setClassPick}
         onSave={(pick, remove, all) => {
-          const t = data.teachers.find((x) => x.id === pick.teacherId);
+          const t = rawData.teachers.find((x) => x.id === pick.teacherId);
           if (!t) return;
           const cell = { day: pick.day, periodId: pick.periodId };
           const patch = withCells(t, [cell], "empty");
@@ -1124,6 +1506,8 @@ function Ritocchi({
   onApply,
   onSave,
   onUpdateTeacher,
+  insieme,
+  canLock = true,
 }: {
   sectionRef: React.RefObject<HTMLElement | null>;
   edit: EditState;
@@ -1143,6 +1527,10 @@ function Ritocchi({
   onApply: () => void;
   onSave: () => void;
   onUpdateTeacher: (id: string, patch: Partial<Teacher>) => void;
+  /** «Tutte le sedi insieme»: la sede di ogni classe e le × di ogni sede, per le regole tra sedi */
+  insieme?: InsiemeInfo;
+  /** con tutte le sedi insieme i lucchetti non si cambiano (valgono quelli messi in ogni sede) */
+  canLock?: boolean;
 }) {
   const days = useMemo(() => [...settings.days].sort((a, b) => a - b), [settings.days]);
   const rows = useMemo(() => [...morning].sort((a, b) => a.index - b.index), [morning]);
@@ -1157,8 +1545,9 @@ function Ritocchi({
       absences: [],
       substitutions: [],
       selectedDate: "",
+      ...(insieme ? { insieme } : {}),
     }),
-    [settings, teachersAll, classesAll, slots, cattedre],
+    [settings, teachersAll, classesAll, slots, cattedre, insieme],
   );
   // le altre ore (pomeriggio, sostegno…) restano; cambiano solo le lezioni del mattino dei docenti di materia
   const keep = useMemo(
@@ -1450,7 +1839,7 @@ function Ritocchi({
     );
   /** Blocca / sblocca la lezione scelta (con la settimana bloccata si sblocca la settimana). */
   const lockButton = () => {
-    if (!sel || !selLesson || selTeacher?.lockWeek) return null;
+    if (!canLock || !sel || !selLesson || selTeacher?.lockWeek) return null;
     return (
       <Button
         variant="outline"
@@ -1546,7 +1935,7 @@ function Ritocchi({
       className="mt-1 max-md:pb-16 xl:grid xl:grid-cols-[minmax(0,1fr)_22rem] xl:items-start xl:gap-x-4"
     >
       <div className="sticky top-0 z-20 -mx-1 flex flex-wrap items-center gap-2 border-b border-border bg-background px-1 py-2 md:bg-background/95 md:backdrop-blur-sm xl:col-span-2">
-        <h2 className="mr-auto font-display text-lg">Ritocchi</h2>
+        <h2 className="mr-auto font-display text-lg">{insieme ? "Ritocchi · tutte le sedi" : "Ritocchi"}</h2>
         <span className="hidden text-[13px] text-muted-foreground sm:inline">
           {edit.savedIn && edit.history.length === edit.savedLen
             ? `Salvato nello slot ${edit.savedIn}`
@@ -1611,7 +2000,7 @@ function Ritocchi({
       </div>
 
       <div className="xl:col-span-2">
-        <ReportPanel current={current} proposal={report} mode="edit" />
+        <ReportPanel current={current} proposal={report} mode="edit" data={draftData} />
       </div>
 
       <div className="paper-panel mt-3 rounded-xl p-4 sm:p-5">
@@ -1681,7 +2070,7 @@ function Ritocchi({
                 ))}
             </NativeSelect>
           )}
-          {view === "teacher" && shownTeacher && (
+          {view === "teacher" && shownTeacher && canLock && (
             <button
               type="button"
               role="switch"
@@ -2117,6 +2506,7 @@ function BrushSwatch({ brush }: { brush: Brush }) {
 
 function AvailabilityPanel({
   teachers,
+  elsewhere,
   skipped,
   days,
   morning,
@@ -2128,6 +2518,8 @@ function AvailabilityPanel({
   onPattern,
 }: {
   teachers: Teacher[];
+  /** docenti che insegnano anche in altre sedi dell'app: le loro ore là e i nomi delle sedi */
+  elsewhere: Map<string, { cells: ElsewhereCell[]; sedi: string[] }>;
   skipped: Teacher[];
   days: DayOfWeek[];
   morning: MorningPeriod[];
@@ -2171,6 +2563,11 @@ function AvailabilityPanel({
   }
 
   function paintCell(t: Teacher, day: DayOfWeek, periodId: string) {
+    const there = elsewhere.get(t.id)?.cells.find((c) => sameCell(c, day, periodId));
+    if (there) {
+      toast.message(`A quell’ora è a ${there.sedeName} (${there.label}): si cambia dall’orario di quella sede.`);
+      return;
+    }
     if (brush === "class") {
       onClassPick(t, day, periodId);
       return;
@@ -2273,6 +2670,7 @@ function AvailabilityPanel({
               })
             }
             t={t}
+            elsewhere={elsewhere.get(t.id)}
             days={days}
             morning={morning}
             classes={classes}
@@ -2299,6 +2697,7 @@ function TeacherCard({
   open,
   onToggle,
   t,
+  elsewhere,
   days,
   morning,
   classes,
@@ -2313,6 +2712,7 @@ function TeacherCard({
   open: boolean;
   onToggle: () => void;
   t: Teacher;
+  elsewhere?: { cells: ElsewhereCell[]; sedi: string[] };
   days: DayOfWeek[];
   morning: MorningPeriod[];
   classes: PersistedData["classes"];
@@ -2375,6 +2775,14 @@ function TeacherCard({
             </span>
           </button>
         </div>
+        {elsewhere ? (
+          <span
+            className="shrink-0 rounded-full border border-primary bg-primary px-2.5 py-1 text-[12px] font-medium text-primary-foreground"
+            title={`Insegna anche a ${elsewhere.sedi.join(", ")}`}
+          >
+            Su più sedi
+          </span>
+        ) : (
         <button
           type="button"
           role="switch"
@@ -2389,6 +2797,7 @@ function TeacherCard({
         >
           {t.otherPlesso ? "Su più plessi" : "Solo qui"}
         </button>
+        )}
       </div>
 
       <div className={cn(!open && "hidden")}>
@@ -2493,6 +2902,22 @@ function TeacherCard({
                   </button>
                 </td>
                 {days.map((d) => {
+                  const there = elsewhere?.cells.find((c) => sameCell(c, d, p.id));
+                  if (there) {
+                    return (
+                      <td key={d} className="p-0.5 text-center">
+                        <button
+                          type="button"
+                          aria-label={`${DAY_SHORT[d]} ${p.label}: a ${there.sedeName}, ${there.label}`}
+                          title={`${DAY_SHORT[d]} ${p.label}: a ${there.sedeName} (${there.label}${there.subject ? ` · ${there.subject}` : ""})`}
+                          onClick={() => onCell(d, p.id)}
+                          className="inline-flex h-9 w-full min-w-9 touch-manipulation items-center justify-center rounded-md bg-primary/45 text-primary-foreground"
+                        >
+                          <X className="size-4" strokeWidth={2.5} aria-hidden />
+                        </button>
+                      </td>
+                    );
+                  }
                   const state = cellState(t, d, p.id);
                   const must = state === "class" ? (t.mustSlots ?? []).find((a) => sameCell(a, d, p.id)) : undefined;
                   const ids = must ? (must.classIds?.length ? must.classIds : must.classId ? [must.classId] : []) : [];
@@ -2536,6 +2961,12 @@ function TeacherCard({
             ))}
           </tbody>
         </table>
+        {elsewhere && elsewhere.cells.length > 0 && (
+          <p className="mt-1.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <span className="inline-block size-3 rounded-[3px] bg-primary/45" aria-hidden />
+            Ore a {elsewhere.sedi.join(", ")}: le mette l’app dall’orario di quella sede
+          </p>
+        )}
       </div>
     </li>
   );
@@ -3308,9 +3739,11 @@ function formatCount(n: number): string {
   return String(n);
 }
 
-/** La migliore proposta trovata finora: vincoli ancora da sistemare (se ce ne sono) e ore buche. */
+/** La migliore proposta trovata finora: vincoli ancora da sistemare (se ce ne sono, di chi) e ore buche. */
 function bestSoFar(p: RunProgress): string {
-  const hard = p.bestHard > 0 ? `${p.bestHard === 1 ? "1 vincolo" : `${p.bestHard} vincoli`} ancora da sistemare, ` : "";
+  const who = p.bestHardWho?.length ? ` (${p.bestHardWho.join(", ")}${p.bestHard > p.bestHardWho.length ? "…" : ""})` : "";
+  const hard =
+    p.bestHard > 0 ? `${p.bestHard === 1 ? "1 vincolo" : `${p.bestHard} vincoli`} ancora da sistemare${who}, ` : "";
   return `${hard}${p.bestGaps === 1 ? "1 ora buca" : `${p.bestGaps} ore buche`}`;
 }
 
@@ -3386,7 +3819,8 @@ function hardCount(r: TimetableReport): number {
     h.rientro.length +
     h.must.length +
     h.holes.length +
-    h.pattern.length
+    h.pattern.length +
+    h.dispRoom.length
   );
 }
 
@@ -3527,6 +3961,7 @@ function ReportDetails({ r }: { r: TimetableReport }) {
     ...r.hard.must,
     ...r.hard.holes,
     ...r.hard.pattern,
+    ...r.hard.dispRoom,
   ];
   const dispToAdd = r.patterns.rows
     .filter((x) => x.excess === 0 && x.missing > 0)
@@ -3577,6 +4012,9 @@ function ReportPanel({
   proposal,
   mode,
   label: labelProp,
+  data,
+  hint,
+  picker,
 }: {
   current: TimetableReport | null;
   proposal: TimetableReport;
@@ -3584,6 +4022,12 @@ function ReportPanel({
   mode: SolveMode | "edit";
   /** nome della colonna dell'orario nuovo (es. «Slot 3») */
   label?: string;
+  /** l'orario nuovo, per mostrare dove sono i vincoli non rispettati */
+  data?: PersistedData | null;
+  /** cosa fare con i vincoli non rispettati */
+  hint?: string;
+  /** sopra la tabella (es. la scelta della sede) */
+  picker?: ReactNode;
 }) {
   const groups = compareGroups(current, proposal);
   const hasCurrent = Boolean(current && current.lessons > 0);
@@ -3680,6 +4124,20 @@ function ReportPanel({
         {proposal.lessonsExpected}
       </p>
       {summary && <p className="mt-1 text-sm font-medium text-foreground">{summary}</p>}
+      {hard > 0 && (
+        <HardIssuesBox
+          className="mt-3"
+          report={proposal}
+          data={data ?? null}
+          hint={
+            hint ??
+            (mode === "edit"
+              ? "Questo orario non rispetta queste regole: si sistemano spostando le lezioni, anche con «Trova»."
+              : "La proposta non riesce a rispettare queste regole. Puoi riprovare, scegliere «Accurata» o sistemarle con «Ritocca a mano».")
+          }
+        />
+      )}
+      {picker}
       {mode === "edit" ? (
         <details className="mt-3 border-t border-border pt-3">
           <summary className="cursor-pointer text-sm font-medium">Confronto voce per voce</summary>
@@ -3701,5 +4159,368 @@ function ReportPanel({
         </details>
       )}
     </div>
+  );
+}
+
+/** «Tutte le sedi insieme»: la proposta del motore, l'insieme da cui viene e il confronto con l'attuale. */
+type InsiemeResult = {
+  result: SolveResult;
+  /** i dati di tutte le sedi insieme (con l'orario in uso, o con lo slot aperto), per i ritocchi */
+  joint: InsiemeData;
+  map: InsiemeMap;
+  notes: string[];
+  mode: SolveMode;
+  /** slot in cui è stata salvata la proposta */
+  savedIn: number | null;
+  /** aperto da uno slot salvato per tutte le sedi: numero, nome e i dati con lo slot al posto dell'orario in uso */
+  slot?: { n: number; name: string; base: PersistedData };
+};
+
+/**
+ * «Ritocca a mano» su tutte le sedi: i dati uniti, le lezioni con i ritocchi e il punto di partenza; `base`: i dati
+ * con lo slot aperto (le sue ore a disposizione), se si parte da uno slot.
+ */
+type InsiemeEdit = { edit: EditState; joint: InsiemeData; map: InsiemeMap; mode: SolveMode; base?: PersistedData };
+
+/** La proposta per tutte le sedi: riepilogo, confronto, vista generale e i tasti per tutte le sedi. */
+function InsiemeProposta({
+  sectionRef,
+  data,
+  value,
+  running,
+  onStop,
+  onRetry,
+  onEdit,
+  onClose,
+  onSaved,
+}: {
+  sectionRef: React.RefObject<HTMLElement | null>;
+  data: PersistedData;
+  value: InsiemeResult;
+  running: RunProgress | null;
+  onStop: () => void;
+  onRetry: () => void;
+  onEdit: () => void;
+  onClose: () => void;
+  onSaved: (n: number) => void;
+}) {
+  const store = useAppStore();
+  const lessons = useMemo(() => splitInsieme(value.map, value.result.slots), [value]);
+  // l'orario di ogni sede come sarà salvato (con «Da zero» le ore a disposizione nelle buche) e i suoi numeri:
+  // tutte le sedi insieme e, sede per sede, come li conta l'app di quella sede (le ore nelle altre sedi sono ×)
+  const final = useMemo(() => {
+    const parts = value.slot ? insiemeParts(value.slot.base, lessons, "improve") : insiemeParts(data, lessons, value.mode);
+    const after = withInsiemeParts(data, parts);
+    const joint = buildInsieme(after).joint;
+    return {
+      parts,
+      after,
+      joint,
+      total: evaluateCurrent(joint),
+      sedi: allSedi(after).map((x) => {
+        const view = withOtherSedi(switchSede(after, x.id));
+        return { id: x.id, name: sedeName(x.data.settings), view, report: evaluateCurrent(view) };
+      }),
+    };
+  }, [data, lessons, value]);
+  const inUse = useMemo(
+    () => ({
+      total: evaluateCurrent(buildInsieme(data).joint),
+      sedi: new Map(allSedi(data).map((x) => [x.id, evaluateCurrent(withOtherSedi(switchSede(data, x.id)))])),
+    }),
+    [data],
+  );
+  const [numbers, setNumbers] = useState("tutte");
+  const pickedSede = final.sedi.find((x) => x.id === numbers) ?? null;
+  const sedi = vistaSedi(final.after);
+  const [view, setView] = useState<"giorno" | "settimana" | "docenti" | "classe">("giorno");
+  const [day, setDay] = useState<DayOfWeek>(data.settings.days[0] ?? 1);
+  const [dialog, setDialog] = useState<"save" | "use" | null>(null);
+  const name = value.slot
+    ? value.slot.name
+    : value.mode === "scratch"
+      ? "Tutte le sedi · da zero"
+      : "Tutte le sedi · migliorato";
+  const warnings = [...value.notes, ...value.result.report.warnings];
+
+  function pick(n: number, slotName: string) {
+    const parts = final.parts;
+    if (dialog === "use") {
+      store.putInSlotAll(n, parts, slotName);
+      toast.success(`Slot ${n} in uso in tutte le sedi. Gli orari in vigore restano nello slot 0.`);
+      onClose();
+    } else {
+      store.saveTimetableAll(n, parts, slotName);
+      toast.success(`Salvata nello slot ${n} di tutte le sedi: «${slotName}».`);
+      onSaved(n);
+    }
+    setDialog(null);
+  }
+
+  /** Slot aperto: diventa quello in uso in tutte le sedi. */
+  function activateOpenSlot() {
+    if (!value.slot) return;
+    store.activateSlotAll(value.slot.n);
+    toast.success(`Slot ${value.slot.n} in uso in tutte le sedi. Gli orari in vigore restano nello slot 0.`);
+    onClose();
+  }
+
+  const numbersPicker = (
+    <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+      <label htmlFor="insieme-numeri" className="text-sm font-medium">
+        Numeri di
+      </label>
+      <NativeSelect
+        id="insieme-numeri"
+        className="w-auto min-w-44"
+        value={numbers}
+        onChange={(e) => setNumbers(e.target.value)}
+      >
+        <option value="tutte">Tutte le sedi</option>
+        {final.sedi.map((x) => (
+          <option key={x.id} value={x.id}>
+            {x.name}
+          </option>
+        ))}
+      </NativeSelect>
+      <span className="text-[13px] text-muted-foreground">
+        {pickedSede
+          ? `Contati come nell’app di ${pickedSede.name}: le ore nelle altre sedi sono ×.`
+          : "La somma delle sedi; un giorno diviso tra due sedi conta una volta."}
+      </span>
+    </div>
+  );
+
+  return (
+    <section ref={sectionRef} className="mt-1 max-md:pb-16">
+      <div className="sticky top-0 z-20 -mx-1 flex flex-wrap items-center gap-2 border-b border-border bg-background px-1 py-2 md:bg-background/95 md:backdrop-blur-sm">
+        <h2 className={cn("min-w-0 font-display text-lg", !running && "mr-auto")}>
+          {value.slot ? `Slot ${value.slot.n} · ${value.slot.name}` : "Proposta · tutte le sedi"}
+        </h2>
+        {running ? (
+          <SearchBar progress={running} className="min-w-0 flex-1 md:mr-auto md:flex-none" />
+        ) : (
+          <span className="hidden text-[13px] text-muted-foreground sm:inline">
+            {value.slot
+              ? "Aperto dallo slot, tutte le sedi"
+              : value.savedIn
+                ? `Salvata nello slot ${value.savedIn}`
+                : "Non ancora salvata"}
+          </span>
+        )}
+        <Button variant="outline" className="md:order-1" onClick={() => setDialog("save")} disabled={Boolean(running)}>
+          <Save aria-hidden />
+          <span className="md:hidden">Salva</span>
+          <span className="hidden md:inline">Salva nello slot…</span>
+        </Button>
+        <div className="fixed inset-x-0 bottom-14 z-30 flex items-center gap-2 border-t border-border bg-background/95 px-4 py-2 backdrop-blur-sm md:contents">
+          {running ? (
+            <Button variant="outline" className="max-md:px-3" onClick={onStop}>
+              Basta così
+            </Button>
+          ) : (
+            <>
+              <Button variant="outline" className="max-md:px-3" onClick={onClose}>
+                Chiudi
+              </Button>
+              {!value.slot && (
+                <Button variant="outline" className="max-md:px-3" onClick={onRetry}>
+                  Riprova
+                </Button>
+              )}
+              <Button variant="outline" className="max-md:px-3" onClick={onEdit}>
+                <span className="md:hidden">Ritocca</span>
+                <span className="hidden md:inline">Ritocca a mano</span>
+              </Button>
+            </>
+          )}
+          <Button
+            className="max-md:flex-1 md:order-2"
+            onClick={() => (value.slot ? activateOpenSlot() : setDialog("use"))}
+            disabled={Boolean(running)}
+          >
+            {value.slot ? "Usa questo orario" : "Usa questa proposta"}
+          </Button>
+        </div>
+      </div>
+
+      <ul className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-[13px] text-muted-foreground">
+        {sedi.map((s) => (
+          <li key={s.id}>
+            <span className="font-medium text-foreground">{s.name}</span>: {s.data.classes.length}{" "}
+            {s.data.classes.length === 1 ? "classe" : "classi"}, {(lessons[s.id] ?? []).length} ore messe
+          </li>
+        ))}
+      </ul>
+      <p className="mt-1 text-[13px] text-muted-foreground">
+        «Ritocca a mano» sposta le lezioni in tutte le sedi insieme, anche a catena da una sede all’altra. Le ore a
+        disposizione si sistemano sede per sede quando la usi o la salvi
+        {value.mode === "scratch" ? ", anche nelle ore buche" : ""}.
+      </p>
+      {warnings.length > 0 && (
+        <ul className="mt-2 flex list-disc flex-col gap-1 pl-5 text-[13px] text-warning">
+          {warnings.map((w, i) => (
+            <li key={i}>{w}</li>
+          ))}
+        </ul>
+      )}
+
+      <ReportPanel
+        current={pickedSede ? (inUse.sedi.get(pickedSede.id) ?? null) : inUse.total}
+        proposal={pickedSede ? pickedSede.report : final.total}
+        mode={value.slot ? "edit" : value.mode}
+        label={value.slot ? `Slot ${value.slot.n}` : "Proposta"}
+        data={pickedSede ? pickedSede.view : final.joint}
+        hint={
+          value.slot
+            ? "Questo orario non rispetta queste regole: si sistemano con «Ritocca a mano», anche con «Trova»."
+            : undefined
+        }
+        picker={numbersPicker}
+      />
+
+      <div className="mt-4 flex flex-col gap-3">
+        <Tabs
+          className="flex-wrap overflow-visible"
+          value={view}
+          onValueChange={(v) => setView(v as typeof view)}
+          items={[
+            { value: "giorno", label: "Giorno", title: "Un giorno, tutte le classi di tutte le sedi" },
+            { value: "settimana", label: "Settimana", title: "Tutte le classi, sede per sede" },
+            { value: "docenti", label: "Docenti", title: "La settimana di ogni docente in tutte le sedi" },
+            { value: "classe", label: "Classe", title: "La settimana di una classe" },
+          ]}
+        />
+        {view === "giorno" && (
+          <div className="flex flex-wrap gap-1.5">
+            {data.settings.days.map((d) => (
+              <button
+                key={d}
+                type="button"
+                onClick={() => setDay(d)}
+                className={cn(
+                  "h-10 min-w-14 rounded-md px-3 text-sm font-medium",
+                  day === d ? "bg-primary text-primary-foreground" : "bg-secondary text-secondary-foreground",
+                )}
+              >
+                {DAY_SHORT[d]}
+              </button>
+            ))}
+          </div>
+        )}
+        {view === "giorno" && <GiornoGenerale sedi={sedi} day={day} />}
+        {view === "settimana" && <SettimanaGenerale sedi={sedi} />}
+        {view === "docenti" && <DocentiGenerale sedi={sedi} />}
+        {view === "classe" && <ClasseGenerale sedi={sedi} />}
+      </div>
+
+      <InsiemeSlotDialog
+        mode={dialog}
+        defaultName={name}
+        data={data}
+        onClose={() => setDialog(null)}
+        onPick={pick}
+      />
+    </section>
+  );
+}
+
+/**
+ * Slot di prova (1–5) per la proposta di tutte le sedi: lo stesso numero in ogni sede. «save» non tocca
+ * gli orari in uso (uno slot in uso in una sede non si sceglie); «use» mette e usa in tutte le sedi.
+ */
+function InsiemeSlotDialog({
+  mode,
+  defaultName,
+  data,
+  onClose,
+  onPick,
+}: {
+  mode: "save" | "use" | null;
+  defaultName: string;
+  data: PersistedData;
+  onClose: () => void;
+  onPick: (n: number, name: string) => void;
+}) {
+  const [name, setName] = useState(defaultName);
+  const [confirmN, setConfirmN] = useState<number | null>(null);
+  useEffect(() => {
+    if (!mode) return;
+    setName(defaultName);
+    setConfirmN(null);
+  }, [mode, defaultName]);
+  const sedi = allSedi(data);
+  const clean = name.trim().slice(0, 40) || defaultName;
+  const row =
+    "flex min-h-12 w-full items-center gap-3 rounded-lg border px-3 py-2 text-left text-sm transition-colors disabled:opacity-60";
+
+  return (
+    <Dialog open={mode !== null} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{mode === "use" ? "Usare questa proposta?" : "Salva nello slot"}</DialogTitle>
+          <DialogDescription>
+            {mode === "use"
+              ? "In ogni sede va nello slot di prova scelto e diventa l’orario in uso. Gli orari in vigore (slot 0) non cambiano."
+              : "In ogni sede si salva nello slot scelto, con le ore a disposizione del mattino. Gli orari in uso non cambiano."}
+          </DialogDescription>
+        </DialogHeader>
+        <label className="mt-1 flex flex-col gap-1.5 text-sm font-medium">
+          Nome
+          <Input id="insieme-slot-nome" value={name} maxLength={40} onChange={(e) => setName(e.target.value)} />
+        </label>
+        <ul className="mt-4 flex flex-col gap-1.5">
+          {SAVE_SLOTS.map((n) => {
+            const per = sedi.map((s) => ({
+              name: sedeName(s.data.settings),
+              saved: (s.data.savedTimetables ?? []).find((x) => x.n === n),
+              inUse: (s.data.activeSlot ?? 0) === n,
+            }));
+            const full = per.some((x) => x.saved || x.inUse);
+            const usedIn = per.filter((x) => x.inUse).map((x) => x.name);
+            const blocked = mode === "save" && usedIn.length > 0;
+            const meta = per
+              .map((x) => `${x.name}: ${x.inUse ? "in uso" : x.saved ? `«${x.saved.name}»` : "vuoto"}`)
+              .join(" · ");
+            if (confirmN === n && full) {
+              return (
+                <li key={n} className="rounded-lg border border-destructive/60 px-3 py-2 text-sm">
+                  <p>Lo slot {n} non è vuoto in tutte le sedi ({meta}): sostituire?</p>
+                  <div className="mt-2 flex justify-end gap-2">
+                    <Button size="sm" variant="outline" onClick={() => setConfirmN(null)}>
+                      No
+                    </Button>
+                    <Button size="sm" variant="destructive" onClick={() => onPick(n, clean)}>
+                      Sostituisci
+                    </Button>
+                  </div>
+                </li>
+              );
+            }
+            return (
+              <li key={n}>
+                <button
+                  type="button"
+                  disabled={blocked}
+                  className={cn(row, full ? "border-border bg-card hover:bg-muted" : "border-dashed border-border hover:bg-muted")}
+                  onClick={() => (full ? setConfirmN(n) : onPick(n, clean))}
+                >
+                  <span className="w-4 shrink-0 text-center font-semibold tabular-nums">{n}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className={cn("block", full ? "font-medium" : "text-ink-faint")}>{full ? `Slot ${n}` : "Vuoto"}</span>
+                    {full && (
+                      <span className="block text-[12px] text-muted-foreground">
+                        {meta}
+                        {blocked ? " · per cambiarlo usa «Usa questa proposta»" : ""}
+                      </span>
+                    )}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      </DialogContent>
+    </Dialog>
   );
 }

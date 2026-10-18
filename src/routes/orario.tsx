@@ -38,8 +38,11 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { ScrollGrid } from "@/components/scroll-grid";
-import { teacherCell } from "@/lib/teacher-palette";
+import { sedeColor, teacherCell } from "@/lib/teacher-palette";
 import { CostruisciOrario } from "@/components/costruisci-orario";
+import { allSedi, elsewhereCells, sedeIdOf, sedeName } from "@/lib/sedi";
+import { GiornoGenerale, SettimanaGenerale } from "@/components/vista-generale";
+import { vistaSedi } from "@/lib/sedi-insieme";
 import { BucheList } from "@/components/buche-list";
 import { gapsOf, gapsRanking, isTimetableTeacher } from "@/lib/build-timetable";
 import { ensureTpPeriods, isMensaPeriod, isRestrictedTpPeriod, visiblePeriods } from "@/lib/periods";
@@ -77,6 +80,10 @@ function OrarioPage() {
     weekday && data.settings.days.includes(weekday) ? weekday : 1,
   );
   const [cellEdit, setCellEdit] = useState<CellEdit | null>(null);
+  // Quadro e Settimana: la sede in uso o tutte le sedi (vista generale, in sola lettura)
+  const several = allSedi(data).length > 1;
+  const [allSediView, setAllSediView] = useState(false);
+  const generale = several && allSediView && (view === "quadro" || view === "settimana");
   const [teacherEdit, setTeacherEdit] = useState<TeacherEdit | null>(null);
 
   useEffect(() => {
@@ -102,6 +109,21 @@ function OrarioPage() {
   );
   const currentTeacher = data.teachers.find((t) => t.id === teacherId);
   const teacherHours = data.slots.filter((s) => s.teacherId === teacherId).length;
+  // ore dello stesso docente nelle altre sedi, sulla campanella di questa
+  const elsewhere = currentTeacher ? elsewhereCells(data, currentTeacher) : [];
+  const elsewhereLessons = elsewhere.filter((c) => c.label !== "disp.");
+  const elsewhereSedi = [...new Set(elsewhere.map((c) => c.sedeName))];
+  // chi insegna anche in altre sedi: ogni ora dice in quale sede è, anche quelle della sede in uso, e ogni
+  // sede ha il suo colore (dalla posizione nella pagina Sedi)
+  const hereName = elsewhere.length > 0 ? sedeName(data.settings) : "";
+  const sediOrder = allSedi(data).map((s) => s.id);
+  const colorOfSede = (id: string, tone?: 0 | 2) => sedeColor(Math.max(0, sediOrder.indexOf(id)), tone);
+  const hereId = sedeIdOf(data);
+  const sediLegend = hereName
+    ? sediOrder
+        .filter((id) => id === hereId || elsewhere.some((c) => c.sedeId === id))
+        .map((id) => ({ id, name: id === hereId ? hereName : elsewhere.find((c) => c.sedeId === id)!.sedeName }))
+    : [];
   const teacherDisp = currentTeacher?.dispSlots?.length ?? 0;
   const teacherGaps =
     currentTeacher && isTimetableTeacher(currentTeacher)
@@ -225,6 +247,36 @@ function OrarioPage() {
             { value: "costruisci", label: "Costruisci", title: "Generazione guidata dell’orario" },
           ]}
         />
+        {several && (view === "quadro" || view === "settimana") && (
+          <div className="flex flex-wrap items-center gap-3">
+            <div role="radiogroup" aria-label="Sedi" className="inline-flex flex-wrap rounded-lg bg-muted p-1">
+              {([
+                [false, "Questa sede"],
+                [true, "Tutte le sedi"],
+              ] as const).map(([v, label]) => (
+                <button
+                  key={label}
+                  type="button"
+                  role="radio"
+                  aria-checked={allSediView === v}
+                  onClick={() => setAllSediView(v)}
+                  className={cn(
+                    "min-h-9 rounded-md px-3 text-[13px] font-medium transition-colors",
+                    allSediView === v ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {generale && (
+              <span className="text-[13px] text-muted-foreground">
+                Vista generale, da consultare: le ore si cambiano nella loro sede. Stampe ed esportazioni restano della
+                sede in uso.
+              </span>
+            )}
+          </div>
+        )}
         <label className="flex min-h-10 items-center gap-2 text-sm">
           <input
             type="checkbox"
@@ -357,8 +409,24 @@ function OrarioPage() {
                   ? " · 1 buca"
                   : ` · ${teacherGaps} buche`
                 : ""}
+              {elsewhereSedi.length > 0
+                ? ` · ${elsewhereLessons.length === 1 ? "1 ora" : `${elsewhereLessons.length} ore`} a ${elsewhereSedi.join(", ")}`
+                : ""}
               . Seleziona una casella per inserire o modificare un’ora, anche in compresenza.
             </p>
+            {sediLegend.length > 1 && (
+              <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-muted-foreground">
+                {sediLegend.map((s) => {
+                  const c = teacherCell(colorOfSede(s.id));
+                  return (
+                    <span key={s.id} className="inline-flex items-center gap-1.5">
+                      <span className={cn("size-3 rounded-sm", c.className)} style={c.style} aria-hidden />
+                      {s.name}
+                    </span>
+                  );
+                })}
+              </p>
+            )}
           </div>
         )}
       </div>
@@ -370,7 +438,11 @@ function OrarioPage() {
         />
       )}
 
-      {view === "quadro" && (
+      {view === "quadro" && generale && <GiornoGenerale sedi={vistaSedi(data)} day={quadroDay} />}
+
+      {view === "settimana" && generale && <SettimanaGenerale sedi={vistaSedi(data)} />}
+
+      {view === "quadro" && !generale && (
         <ScrollGrid unit={["Classe", "Classi"]}>
           <table className="w-full min-w-[820px] border-collapse text-sm">
             <thead>
@@ -446,7 +518,7 @@ function OrarioPage() {
         </ScrollGrid>
       )}
 
-      {view === "settimana" && (
+      {view === "settimana" && !generale && (
         <div>
           <p className="mb-3 text-sm text-muted-foreground">
             Quadro settimanale di lavoro: con Foto e PDF, in alto, lo esporti così com’è, con i docenti.
@@ -602,7 +674,53 @@ function OrarioPage() {
                         p.index <= win.last,
                     );
                     const disp = Boolean(currentTeacher && !slot && isDispHour(currentTeacher, d, p.id));
-                    const tc = teacherCell(slot ? currentTeacher?.color : undefined);
+                    // in più sedi: il colore della sede (tenue per le ore a disposizione); altrimenti quello del docente
+                    const tc = teacherCell(
+                      slot
+                        ? hereName
+                          ? colorOfSede(hereId)
+                          : currentTeacher?.color
+                        : disp && hereName
+                          ? colorOfSede(hereId, 0)
+                          : undefined,
+                    );
+                    const there = slot ? undefined : elsewhere.find((c) => c.day === d && c.periodId === p.id);
+                    if (there) {
+                      // ora in un'altra sede: il colore di quella sede; si cambia passando a quella sede
+                      const thereDisp = there.label === "disp.";
+                      const thc = teacherCell(colorOfSede(there.sedeId, thereDisp ? 0 : 2));
+                      return (
+                        <td key={d} className="p-1.5 align-top">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              toast.message(`Ora a ${there.sedeName}: si cambia passando a quella sede dal menu.`)
+                            }
+                            className={cn(
+                              "flex min-h-16 w-full cursor-default flex-col rounded-md px-2 py-1.5 text-left",
+                              thc.className,
+                            )}
+                            style={
+                              thc.style ??
+                              (thereDisp
+                                ? { background: "color-mix(in oklab, var(--color-accent) 45%, transparent)" }
+                                : undefined)
+                            }
+                            title="Ora in un’altra sede: si cambia passando a quella sede"
+                          >
+                            <span className={cn("text-[12px] font-medium", thc.text2)}>{there.sedeName}</span>
+                            {thereDisp ? (
+                              <span className="text-[12px] text-ink-faint">A disposizione</span>
+                            ) : (
+                              <>
+                                <span className="text-[13px] font-medium">{there.label}</span>
+                                <span className={cn("text-[12px]", thc.text2)}>{there.subject}</span>
+                              </>
+                            )}
+                          </button>
+                        </td>
+                      );
+                    }
                     return (
                       <td key={d} className="p-1.5 align-top">
                         <button
@@ -619,6 +737,9 @@ function OrarioPage() {
                         >
                           {slot ? (
                             <>
+                              {hereName && (
+                                <span className={cn("text-[12px] font-medium", tc.text2)}>{hereName}</span>
+                              )}
                               <span className="text-[13px] font-medium">{cls?.name}</span>
                               <span className={cn("text-[12px]", tc.text2)}>
                                 {slot.subject}
@@ -628,9 +749,14 @@ function OrarioPage() {
                               )}
                             </>
                           ) : (
-                            <span className="text-[12px] text-ink-faint">
-                              {disp ? "A disposizione" : inWindow ? "Buca · in sede" : "Aggiungi"}
-                            </span>
+                            <>
+                              {disp && hereName && (
+                                <span className="text-[12px] font-medium text-muted-foreground">{hereName}</span>
+                              )}
+                              <span className="text-[12px] text-ink-faint">
+                                {disp ? "A disposizione" : inWindow ? "Buca · in sede" : "Aggiungi"}
+                              </span>
+                            </>
                           )}
                         </button>
                       </td>

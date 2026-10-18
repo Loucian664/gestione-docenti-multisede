@@ -16,6 +16,7 @@ import { Route as DocentiRouteImport } from './routes/docenti'
 import { Route as ImpostazioniRouteImport } from './routes/impostazioni'
 import { Route as OrarioRouteImport } from './routes/orario'
 import { Route as ReportRouteImport } from './routes/report'
+import { Route as SediRouteImport } from './routes/sedi'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -52,6 +53,11 @@ const ReportRoute = ReportRouteImport.update({
   path: '/report',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SediRoute = SediRouteImport.update({
+  id: '/sedi',
+  path: '/sedi',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -61,6 +67,7 @@ export interface FileRoutesByFullPath {
   '/impostazioni': typeof ImpostazioniRoute
   '/orario': typeof OrarioRoute
   '/report': typeof ReportRoute
+  '/sedi': typeof SediRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -70,6 +77,7 @@ export interface FileRoutesByTo {
   '/impostazioni': typeof ImpostazioniRoute
   '/orario': typeof OrarioRoute
   '/report': typeof ReportRoute
+  '/sedi': typeof SediRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -80,6 +88,7 @@ export interface FileRoutesById {
   '/impostazioni': typeof ImpostazioniRoute
   '/orario': typeof OrarioRoute
   '/report': typeof ReportRoute
+  '/sedi': typeof SediRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -91,6 +100,7 @@ export interface FileRouteTypes {
     | '/impostazioni'
     | '/orario'
     | '/report'
+    | '/sedi'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -100,6 +110,7 @@ export interface FileRouteTypes {
     | '/impostazioni'
     | '/orario'
     | '/report'
+    | '/sedi'
   id:
     | '__root__'
     | '/'
@@ -109,6 +120,7 @@ export interface FileRouteTypes {
     | '/impostazioni'
     | '/orario'
     | '/report'
+    | '/sedi'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -119,6 +131,7 @@ export interface RootRouteChildren {
   ImpostazioniRoute: typeof ImpostazioniRoute
   OrarioRoute: typeof OrarioRoute
   ReportRoute: typeof ReportRoute
+  SediRoute: typeof SediRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -172,6 +185,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ReportRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/sedi': {
+      id: '/sedi'
+      path: '/sedi'
+      fullPath: '/sedi'
+      preLoaderRoute: typeof SediRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -183,6 +203,7 @@ const rootRouteChildren: RootRouteChildren = {
   ImpostazioniRoute: ImpostazioniRoute,
   OrarioRoute: OrarioRoute,
   ReportRoute: ReportRoute,
+  SediRoute: SediRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

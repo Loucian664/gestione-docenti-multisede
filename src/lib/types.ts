@@ -14,6 +14,9 @@ export type TeacherRole = "cattedra" | "potenziamento" | "sostegno" | "religione
 
 export type Tempo = "TN" | "TP";
 
+/** Una sede eliminata dall'app in cui il docente insegna ancora. */
+export type RemovedSede = { name: string; hours: number; removedOn: string };
+
 export type Teacher = {
   id: string;
   lastName: string;
@@ -26,6 +29,11 @@ export type Teacher = {
   assignedClassIds: string[];
   /** Insegna anche in un altro plesso: in Costruisci si segnano le ore altrove. */
   otherPlesso?: boolean;
+  /**
+   * Ore in sedi eliminate dall'app, dove il docente insegna ancora (nome della sede, ore, giorno
+   * dell'eliminazione): finché le × non bastano, Costruisci non propone l'orario.
+   */
+  removedSedi?: RemovedSede[];
   awaySlots?: { day: DayOfWeek; periodId: string }[];
   /** Giorni di rientro T.P.: Costruisci mette 4ª–6ª (pomeriggio a mano). */
   rientroDays?: DayOfWeek[];
@@ -74,6 +82,8 @@ export type Teacher = {
   noGaps?: boolean;
   /** Righe della scheda (classe, materia, ore). Restano sul docente anche se le cattedre globali si perdono. */
   cardRows?: { classId: string; subject: string; hours: number }[];
+  /** Stessa persona in più sedi: le sue schede nelle varie sedi hanno lo stesso valore. */
+  personId?: string;
 };
 
 export type SchoolClass = {
@@ -174,6 +184,11 @@ export type SavedTimetable = {
   lessons: TimetableSlot[];
   /** ore a disposizione del mattino, per docente */
   disp: Record<string, { day: DayOfWeek; periodId: string }[]>;
+  /**
+   * Salvato con «Tutte le sedi insieme»: lo stesso codice nello slot di ogni sede. Riaperto, lo slot mostra
+   * tutte le sedi; «Usa», «Rendi in vigore», «Svuota» e «Rinomina» valgono per tutte.
+   */
+  insieme?: string;
 };
 
 export type PersistedData = {
@@ -200,7 +215,35 @@ export type PersistedData = {
   origin?: "seed" | "user";
   /** Last imported backup filename, if any. */
   importedBackupName?: string;
+  /**
+   * Sede in uso: i suoi dati sono quelli qui sopra (impostazioni, docenti, classi, orario…), come
+   * nell'archivio di un plesso solo. Assente in un backup dell'app di Rombiolo: c'è una sede sola.
+   */
+  sedeId?: string;
+  /** Le altre sedi dell'istituto, ciascuna con i suoi dati. */
+  altreSedi?: SedeArchive[];
+  /** Ordine delle sedi nella pagina Sedi e nella scelta della sede (id). */
+  ordineSedi?: string[];
 };
+
+/** I dati che ogni sede ha per conto suo: tutto tranne data scelta e informazioni di salvataggio. */
+export type SedeData = Pick<
+  PersistedData,
+  | "settings"
+  | "teachers"
+  | "classes"
+  | "slots"
+  | "absences"
+  | "substitutions"
+  | "cattedre"
+  | "cattedraBackup"
+  | "cattedraDispBackup"
+  | "savedTimetables"
+  | "activeSlot"
+  | "officialBackup"
+>;
+
+export type SedeArchive = { id: string; data: SedeData };
 
 export const ABSENCE_REASONS: { value: AbsenceReason; label: string }[] = [
   { value: "malattia", label: "Malattia" },
