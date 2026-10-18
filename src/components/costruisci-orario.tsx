@@ -76,6 +76,7 @@ import {
   missingBySede,
   removedSediIssues,
   sedeName,
+  switchSede,
   withOtherSedi,
   type ElsewhereCell,
 } from "@/lib/sedi";
@@ -84,13 +85,17 @@ import {
   buildInsieme,
   canBuildTogether,
   insiemeParts,
+  insiemeSlot,
+  insiemeSlotData,
   splitInsieme,
   vistaSedi,
+  withInsiemeParts,
   type InsiemeData,
   type InsiemeMap,
 } from "@/lib/sedi-insieme";
 import { ClasseGenerale, DocentiGenerale, GiornoGenerale, SettimanaGenerale } from "@/components/vista-generale";
 import { MissingTeachersBox, MissingTeachersDialog } from "@/components/missing-teachers";
+import { HardIssuesBox } from "@/components/vincoli-box";
 import { SAVE_SLOTS } from "@/lib/saved-timetables";
 
 type Cell = { day: DayOfWeek; periodId: string };
@@ -199,6 +204,10 @@ export function CostruisciOrario({
   );
   const [scope, setScope] = useState<"sede" | "tutte">("sede");
   const allTogether = scope === "tutte" && sediCount > 1;
+  // tutte le sedi insieme: più classi, più tempo (3 s a classe con «Rapida», 6 s con «Accurata»)
+  const jointClasses = sediCount > 1 ? allSedi(rawData).reduce((n, s) => n + s.data.classes.length, 0) : 0;
+  const jointMs = (fast: boolean) =>
+    Math.max(fast ? 30000 : 90000, Math.round((jointClasses * (fast ? 3000 : 6000)) / 30000) * 30000);
   // le materie senza docente della sede in uso o, con «Tutte le sedi insieme», di ogni sede: restano fuori
   const missing = useMemo(
     () => missingBySede(rawData).filter((x) => allTogether || x.active),
@@ -416,21 +425,20 @@ export function CostruisciOrario({
       toast.message("Niente da piazzare: inserisci prima docenti, classi e ore in orario.");
       return;
     }
-    const current = evaluateCurrent(built.joint);
     setResult(null);
     setOpenSave(null);
     setSavedIn(null);
     setRunning({ fraction: 0, iterations: 0, bestHard: 0, bestSoft: 0, bestGaps: 0, workers: 0 });
     const runMode = mode;
     const handle = runTimetable(built.joint, {
-      timeMs: speed === "accurata" ? 90000 : 30000,
+      timeMs: jointMs(speed === "rapida"),
       mode: runMode,
       onProgress: (p) => setRunning(p),
     });
     handleRef.current = handle;
     handle.result
       .then((res) => {
-        setInsieme({ result: res, joint: built.joint, map: built.map, notes: built.notes, mode: runMode, current, savedIn: null });
+        setInsieme({ result: res, joint: built.joint, map: built.map, notes: built.notes, mode: runMode, savedIn: null });
         window.setTimeout(() => {
           insiemeRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
         }, 50);
@@ -543,6 +551,7 @@ export function CostruisciOrario({
         joint: insieme.joint,
         map: insieme.map,
         mode: insieme.mode,
+        base: insieme.slot?.base,
       };
     } else {
       const built = buildInsieme(rawData);
@@ -560,7 +569,11 @@ export function CostruisciOrario({
   /** I ritocchi su tutte le sedi nello slot `n` di ogni sede: salvati, o anche in uso. */
   function pickInsiemeEdit(n: number, name: string) {
     if (!insiemeEdit || !insiemeEditDialog) return;
-    const parts = insiemeParts(rawData, splitInsieme(insiemeEdit.map, insiemeEdit.edit.draft), insiemeEdit.mode);
+    const parts = insiemeParts(
+      insiemeEdit.base ?? rawData,
+      splitInsieme(insiemeEdit.map, insiemeEdit.edit.draft),
+      insiemeEdit.mode,
+    );
     if (insiemeEditDialog === "use") {
       store.putInSlotAll(n, parts, name);
       toast.success(`Slot ${n} in uso in tutte le sedi. Gli orari in vigore restano nello slot 0.`);
@@ -580,6 +593,8 @@ export function CostruisciOrario({
   /** Apre uno slot come proposta: si confronta con l’orario in vigore, si ritocca, si usa. */
   function showSaved(save: SavedTimetable, keepEdit = false) {
     const open = openSavedTimetable(data, save);
+    setInsieme(null);
+    setInsiemeEdit(null);
     setCurrentReport(evaluateCurrent(data));
     setResult({
       slots: open.lessons,
@@ -594,13 +609,43 @@ export function CostruisciOrario({
     return open.dropped;
   }
 
+  /** Uno slot salvato per tutte le sedi insieme: si apre con tutte le sedi, come la proposta. */
+  function openInsiemeSaved(n: number, name: string) {
+    const base = insiemeSlotData(rawData, n);
+    const built = buildInsieme(base);
+    const jointPool = new Set(built.joint.teachers.filter(isTimetableTeacher).map((t) => t.id));
+    const slots = built.joint.slots.filter(
+      (s) => jointPool.has(s.teacherId) && !isTpPeriodId(built.joint.settings.periods, s.periodId),
+    );
+    setResult(null);
+    setOpenSave(null);
+    setSavedIn(null);
+    setEdit(null);
+    setInsiemeEdit(null);
+    setInsieme({
+      result: { slots, report: evaluateCurrent(built.joint), iterations: 0, disp: null },
+      joint: built.joint,
+      map: built.map,
+      notes: built.notes,
+      mode: "improve",
+      savedIn: n,
+      slot: { n, name, base },
+    });
+    window.setTimeout(() => insiemeRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  }
+
   function openSaved(n: number) {
-    const save = (data.savedTimetables ?? []).find((s) => s.n === n);
-    if (!save) return;
     if (handleRef.current) {
       toast.message("Aspetta che finisca la ricerca, oppure fermala.");
       return;
     }
+    const all = insiemeSlot(rawData, n);
+    if (all) {
+      openInsiemeSaved(n, all.name);
+      return;
+    }
+    const save = (data.savedTimetables ?? []).find((s) => s.n === n);
+    if (!save) return;
     const dropped = showSaved(save);
     if (dropped) {
       toast.message(
@@ -726,6 +771,7 @@ export function CostruisciOrario({
             // è cambiato l'orario in uso: proposta e ritocchi aperti erano confrontati con l'altro
             setResult(null);
             setEdit(null);
+            setInsieme(null);
             setInsiemeEdit(null);
             setOpenSave(null);
             setSavedIn(null);
@@ -796,8 +842,8 @@ export function CostruisciOrario({
             options={
               allTogether
                 ? [
-                    { value: "rapida", label: "Rapida · 30 s" },
-                    { value: "accurata", label: "Accurata · 90 s" },
+                    { value: "rapida", label: `Rapida · ${durationText(jointMs(true))}` },
+                    { value: "accurata", label: `Accurata · ${durationText(jointMs(false))}` },
                   ]
                 : [
                     { value: "rapida", label: "Rapida · 12 s" },
@@ -809,7 +855,7 @@ export function CostruisciOrario({
         {allTogether && (
           <p className={cn("mt-2 text-[13px]", together.ok ? "text-muted-foreground" : "text-warning")}>
             {together.ok
-              ? "Costruisce insieme le classi di tutte le sedi. Chi insegna in più sedi non è mai in due sedi alla stessa ora, ha sempre un’ora libera per spostarsi, cambia sede al massimo una volta al giorno e, se possibile, passa giornate intere in una sede. Le × segnate in una sede valgono solo lì; le ore «no» valgono ovunque."
+              ? "Costruisce insieme le classi di tutte le sedi. Chi insegna in più sedi non è mai in due sedi alla stessa ora, ha sempre un’ora libera per spostarsi (che non è un’ora buca), cambia sede al massimo una volta al giorno e, se possibile, passa giornate intere in una sede; le sue giornate si contano come nell’app di ogni sede. Le × segnate in una sede valgono solo lì, le ore «no» ovunque; le ore a disposizione restano nella loro sede."
               : `${together.reason} Per ora si costruisce una sede alla volta.`}
           </p>
         )}
@@ -959,7 +1005,6 @@ export function CostruisciOrario({
           onEdit={() => openInsiemeEdit("proposta")}
           onClose={() => setInsieme(null)}
           onSaved={(n) => setInsieme((v) => (v ? { ...v, savedIn: n } : v))}
-          report={<ReportPanel current={insieme.current} proposal={insieme.result.report} mode={insieme.mode} label="Proposta" />}
         />
       )}
 
@@ -1029,6 +1074,12 @@ export function CostruisciOrario({
             proposal={proposalReport}
             mode={openSave ? "edit" : resultMode}
             label={openSave ? `Slot ${openSave.n}` : undefined}
+            data={previewData}
+            hint={
+              openSave
+                ? "Questo orario non rispetta queste regole: si sistemano con «Ritocca», anche con «Trova»."
+                : undefined
+            }
           />
           <div className="mt-4 flex flex-col gap-3">
             <Tabs
@@ -1951,7 +2002,7 @@ function Ritocchi({
       </div>
 
       <div className="xl:col-span-2">
-        <ReportPanel current={current} proposal={report} mode="edit" />
+        <ReportPanel current={current} proposal={report} mode="edit" data={draftData} />
       </div>
 
       <div className="paper-panel mt-3 rounded-xl p-4 sm:p-5">
@@ -3684,15 +3735,25 @@ function CattedrePanel({
   );
 }
 
+/** Il tempo di ricerca: «30 s», «1 min 30 s», «3 min». */
+function durationText(ms: number): string {
+  const sec = Math.round(ms / 1000);
+  if (sec < 60) return `${sec} s`;
+  const min = Math.floor(sec / 60);
+  return sec % 60 ? `${min} min ${sec % 60} s` : `${min} min`;
+}
+
 function formatCount(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(".", ",")} milioni di`;
   if (n >= 1000) return `${Math.round(n / 1000)} mila`;
   return String(n);
 }
 
-/** La migliore proposta trovata finora: vincoli ancora da sistemare (se ce ne sono) e ore buche. */
+/** La migliore proposta trovata finora: vincoli ancora da sistemare (se ce ne sono, di chi) e ore buche. */
 function bestSoFar(p: RunProgress): string {
-  const hard = p.bestHard > 0 ? `${p.bestHard === 1 ? "1 vincolo" : `${p.bestHard} vincoli`} ancora da sistemare, ` : "";
+  const who = p.bestHardWho?.length ? ` (${p.bestHardWho.join(", ")}${p.bestHard > p.bestHardWho.length ? "…" : ""})` : "";
+  const hard =
+    p.bestHard > 0 ? `${p.bestHard === 1 ? "1 vincolo" : `${p.bestHard} vincoli`} ancora da sistemare${who}, ` : "";
   return `${hard}${p.bestGaps === 1 ? "1 ora buca" : `${p.bestGaps} ore buche`}`;
 }
 
@@ -3768,7 +3829,8 @@ function hardCount(r: TimetableReport): number {
     h.rientro.length +
     h.must.length +
     h.holes.length +
-    h.pattern.length
+    h.pattern.length +
+    h.dispRoom.length
   );
 }
 
@@ -3909,6 +3971,7 @@ function ReportDetails({ r }: { r: TimetableReport }) {
     ...r.hard.must,
     ...r.hard.holes,
     ...r.hard.pattern,
+    ...r.hard.dispRoom,
   ];
   const dispToAdd = r.patterns.rows
     .filter((x) => x.excess === 0 && x.missing > 0)
@@ -3959,6 +4022,9 @@ function ReportPanel({
   proposal,
   mode,
   label: labelProp,
+  data,
+  hint,
+  picker,
 }: {
   current: TimetableReport | null;
   proposal: TimetableReport;
@@ -3966,6 +4032,12 @@ function ReportPanel({
   mode: SolveMode | "edit";
   /** nome della colonna dell'orario nuovo (es. «Slot 3») */
   label?: string;
+  /** l'orario nuovo, per mostrare dove sono i vincoli non rispettati */
+  data?: PersistedData | null;
+  /** cosa fare con i vincoli non rispettati */
+  hint?: string;
+  /** sopra la tabella (es. la scelta della sede) */
+  picker?: ReactNode;
 }) {
   const groups = compareGroups(current, proposal);
   const hasCurrent = Boolean(current && current.lessons > 0);
@@ -4062,6 +4134,20 @@ function ReportPanel({
         {proposal.lessonsExpected}
       </p>
       {summary && <p className="mt-1 text-sm font-medium text-foreground">{summary}</p>}
+      {hard > 0 && (
+        <HardIssuesBox
+          className="mt-3"
+          report={proposal}
+          data={data ?? null}
+          hint={
+            hint ??
+            (mode === "edit"
+              ? "Questo orario non rispetta queste regole: si sistemano spostando le lezioni, anche con «Trova»."
+              : "La proposta non riesce a rispettare queste regole. Puoi riprovare, scegliere «Accurata» o sistemarle con «Ritocca a mano».")
+          }
+        />
+      )}
+      {picker}
       {mode === "edit" ? (
         <details className="mt-3 border-t border-border pt-3">
           <summary className="cursor-pointer text-sm font-medium">Confronto voce per voce</summary>
@@ -4089,18 +4175,22 @@ function ReportPanel({
 /** «Tutte le sedi insieme»: la proposta del motore, l'insieme da cui viene e il confronto con l'attuale. */
 type InsiemeResult = {
   result: SolveResult;
-  /** i dati di tutte le sedi insieme (con l'orario in uso), per i ritocchi */
+  /** i dati di tutte le sedi insieme (con l'orario in uso, o con lo slot aperto), per i ritocchi */
   joint: InsiemeData;
   map: InsiemeMap;
   notes: string[];
   mode: SolveMode;
-  current: TimetableReport;
   /** slot in cui è stata salvata la proposta */
   savedIn: number | null;
+  /** aperto da uno slot salvato per tutte le sedi: numero, nome e i dati con lo slot al posto dell'orario in uso */
+  slot?: { n: number; name: string; base: PersistedData };
 };
 
-/** «Ritocca a mano» su tutte le sedi: i dati uniti, le lezioni con i ritocchi e il punto di partenza. */
-type InsiemeEdit = { edit: EditState; joint: InsiemeData; map: InsiemeMap; mode: SolveMode };
+/**
+ * «Ritocca a mano» su tutte le sedi: i dati uniti, le lezioni con i ritocchi e il punto di partenza; `base`: i dati
+ * con lo slot aperto (le sue ore a disposizione), se si parte da uno slot.
+ */
+type InsiemeEdit = { edit: EditState; joint: InsiemeData; map: InsiemeMap; mode: SolveMode; base?: PersistedData };
 
 /** La proposta per tutte le sedi: riepilogo, confronto, vista generale e i tasti per tutte le sedi. */
 function InsiemeProposta({
@@ -4113,7 +4203,6 @@ function InsiemeProposta({
   onEdit,
   onClose,
   onSaved,
-  report,
 }: {
   sectionRef: React.RefObject<HTMLElement | null>;
   data: PersistedData;
@@ -4124,19 +4213,48 @@ function InsiemeProposta({
   onEdit: () => void;
   onClose: () => void;
   onSaved: (n: number) => void;
-  report: ReactNode;
 }) {
   const store = useAppStore();
   const lessons = useMemo(() => splitInsieme(value.map, value.result.slots), [value]);
-  const sedi = vistaSedi(data, lessons);
+  // l'orario di ogni sede come sarà salvato (con «Da zero» le ore a disposizione nelle buche) e i suoi numeri:
+  // tutte le sedi insieme e, sede per sede, come li conta l'app di quella sede (le ore nelle altre sedi sono ×)
+  const final = useMemo(() => {
+    const parts = value.slot ? insiemeParts(value.slot.base, lessons, "improve") : insiemeParts(data, lessons, value.mode);
+    const after = withInsiemeParts(data, parts);
+    const joint = buildInsieme(after).joint;
+    return {
+      parts,
+      after,
+      joint,
+      total: evaluateCurrent(joint),
+      sedi: allSedi(after).map((x) => {
+        const view = withOtherSedi(switchSede(after, x.id));
+        return { id: x.id, name: sedeName(x.data.settings), view, report: evaluateCurrent(view) };
+      }),
+    };
+  }, [data, lessons, value]);
+  const inUse = useMemo(
+    () => ({
+      total: evaluateCurrent(buildInsieme(data).joint),
+      sedi: new Map(allSedi(data).map((x) => [x.id, evaluateCurrent(withOtherSedi(switchSede(data, x.id)))])),
+    }),
+    [data],
+  );
+  const [numbers, setNumbers] = useState("tutte");
+  const pickedSede = final.sedi.find((x) => x.id === numbers) ?? null;
+  const sedi = vistaSedi(final.after);
   const [view, setView] = useState<"giorno" | "settimana" | "docenti" | "classe">("giorno");
   const [day, setDay] = useState<DayOfWeek>(data.settings.days[0] ?? 1);
   const [dialog, setDialog] = useState<"save" | "use" | null>(null);
-  const name = value.mode === "scratch" ? "Tutte le sedi · da zero" : "Tutte le sedi · migliorato";
+  const name = value.slot
+    ? value.slot.name
+    : value.mode === "scratch"
+      ? "Tutte le sedi · da zero"
+      : "Tutte le sedi · migliorato";
   const warnings = [...value.notes, ...value.result.report.warnings];
 
   function pick(n: number, slotName: string) {
-    const parts = insiemeParts(data, lessons, value.mode);
+    const parts = final.parts;
     if (dialog === "use") {
       store.putInSlotAll(n, parts, slotName);
       toast.success(`Slot ${n} in uso in tutte le sedi. Gli orari in vigore restano nello slot 0.`);
@@ -4149,15 +4267,55 @@ function InsiemeProposta({
     setDialog(null);
   }
 
+  /** Slot aperto: diventa quello in uso in tutte le sedi. */
+  function activateOpenSlot() {
+    if (!value.slot) return;
+    store.activateSlotAll(value.slot.n);
+    toast.success(`Slot ${value.slot.n} in uso in tutte le sedi. Gli orari in vigore restano nello slot 0.`);
+    onClose();
+  }
+
+  const numbersPicker = (
+    <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+      <label htmlFor="insieme-numeri" className="text-sm font-medium">
+        Numeri di
+      </label>
+      <NativeSelect
+        id="insieme-numeri"
+        className="w-auto min-w-44"
+        value={numbers}
+        onChange={(e) => setNumbers(e.target.value)}
+      >
+        <option value="tutte">Tutte le sedi</option>
+        {final.sedi.map((x) => (
+          <option key={x.id} value={x.id}>
+            {x.name}
+          </option>
+        ))}
+      </NativeSelect>
+      <span className="text-[13px] text-muted-foreground">
+        {pickedSede
+          ? `Contati come nell’app di ${pickedSede.name}: le ore nelle altre sedi sono ×.`
+          : "La somma delle sedi; un giorno diviso tra due sedi conta una volta."}
+      </span>
+    </div>
+  );
+
   return (
     <section ref={sectionRef} className="mt-1 max-md:pb-16">
       <div className="sticky top-0 z-20 -mx-1 flex flex-wrap items-center gap-2 border-b border-border bg-background px-1 py-2 md:bg-background/95 md:backdrop-blur-sm">
-        <h2 className={cn("min-w-0 font-display text-lg", !running && "mr-auto")}>Proposta · tutte le sedi</h2>
+        <h2 className={cn("min-w-0 font-display text-lg", !running && "mr-auto")}>
+          {value.slot ? `Slot ${value.slot.n} · ${value.slot.name}` : "Proposta · tutte le sedi"}
+        </h2>
         {running ? (
           <SearchBar progress={running} className="min-w-0 flex-1 md:mr-auto md:flex-none" />
         ) : (
           <span className="hidden text-[13px] text-muted-foreground sm:inline">
-            {value.savedIn ? `Salvata nello slot ${value.savedIn}` : "Non ancora salvata"}
+            {value.slot
+              ? "Aperto dallo slot, tutte le sedi"
+              : value.savedIn
+                ? `Salvata nello slot ${value.savedIn}`
+                : "Non ancora salvata"}
           </span>
         )}
         <Button variant="outline" className="md:order-1" onClick={() => setDialog("save")} disabled={Boolean(running)}>
@@ -4175,17 +4333,23 @@ function InsiemeProposta({
               <Button variant="outline" className="max-md:px-3" onClick={onClose}>
                 Chiudi
               </Button>
-              <Button variant="outline" className="max-md:px-3" onClick={onRetry}>
-                Riprova
-              </Button>
+              {!value.slot && (
+                <Button variant="outline" className="max-md:px-3" onClick={onRetry}>
+                  Riprova
+                </Button>
+              )}
               <Button variant="outline" className="max-md:px-3" onClick={onEdit}>
                 <span className="md:hidden">Ritocca</span>
                 <span className="hidden md:inline">Ritocca a mano</span>
               </Button>
             </>
           )}
-          <Button className="max-md:flex-1 md:order-2" onClick={() => setDialog("use")} disabled={Boolean(running)}>
-            Usa questa proposta
+          <Button
+            className="max-md:flex-1 md:order-2"
+            onClick={() => (value.slot ? activateOpenSlot() : setDialog("use"))}
+            disabled={Boolean(running)}
+          >
+            {value.slot ? "Usa questo orario" : "Usa questa proposta"}
           </Button>
         </div>
       </div>
@@ -4211,7 +4375,19 @@ function InsiemeProposta({
         </ul>
       )}
 
-      {report}
+      <ReportPanel
+        current={pickedSede ? (inUse.sedi.get(pickedSede.id) ?? null) : inUse.total}
+        proposal={pickedSede ? pickedSede.report : final.total}
+        mode={value.slot ? "edit" : value.mode}
+        label={value.slot ? `Slot ${value.slot.n}` : "Proposta"}
+        data={pickedSede ? pickedSede.view : final.joint}
+        hint={
+          value.slot
+            ? "Questo orario non rispetta queste regole: si sistemano con «Ritocca a mano», anche con «Trova»."
+            : undefined
+        }
+        picker={numbersPicker}
+      />
 
       <div className="mt-4 flex flex-col gap-3">
         <Tabs
