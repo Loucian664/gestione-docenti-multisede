@@ -64,7 +64,7 @@
 
 - Test di `src/lib`: per ogni `src/lib/*.test.ts`
   `node_modules/.bin/rolldown <file> --platform node --format esm --file <cartella>/<nome>.mjs`,
-  poi `node --test <cartella>/*.mjs` (156 test al 18/10/2026). `npm test` non li esegue.
+  poi `node --test <cartella>/*.mjs` (162 test al 18/10/2026). `npm test` non li esegue.
 - `npx tsc --noEmit`: 10 errori già presenti; non devono aumentare.
 - `GITHUB_PAGES=true BASE_PATH=/gestione-docenti-multisede/ npm run build:pages` deve riuscire.
 - Nei test del motore usa l'orologio finto (`now: ticks()` in `src/lib/timetable-solver.test.ts`), così
@@ -120,7 +120,25 @@ mattino; le ore si abbinano per numero). Il motore riceve le classi di tutte le 
 due sedi alla stessa ora, un'ora libera tra lezioni in sedi diverse, al massimo un cambio di sede al giorno,
 × valide solo nella loro sede; le giornate in due sedi pesano come «qui e nell'altro plesso». Le ore a
 disposizione restano ferme durante la ricerca e si sistemano dopo, sede per sede. «Salva nello slot…» e
-«Usa questa proposta» valgono per tutte le sedi con lo stesso numero di slot. Nella vista Docenti della proposta, per chi è in più sedi,
+«Usa questa proposta» valgono per tutte le sedi con lo stesso numero di slot.
+Conteggio (18/10, sera): chi insegna in più sedi (`multi` in `Prep`) ha ogni giornata contata come nell'app di
+ogni sede (`sedeViews`, `dayCostSedi`): le ore nelle altre sedi sono × con l'ora di spostamento accanto, che non
+è un'ora buca; buche, 5-6 lezioni, 1ª-6ª e ore libere oltre il consentito sede per sede; mai «a 18 ore» né giorni
+vuoti. Il resoconto di tutte le sedi è la somma di quelli delle sedi (un giorno diviso tra due sedi conta una
+volta): un test lo controlla. Accanto alle × a mano di una sede serve l'ora di spostamento (`sedeAwayMask`). Le
+sue ore a disposizione segnate restano ferme nella loro sede anche con «Da zero» (`dispSede`); quelle da mettere
+vanno nelle buche della loro sede (`fillSede`) e lì deve esserci posto (vincolo `dispRoom`). Dopo la proposta
+`insiemeParts` rimette le disposizioni una sede alla volta, con le lezioni nuove delle altre sedi come × (`relocate`).
+Ricerca: mosse mirate sui vincoli non rispettati (`tryHardMove`); fino a 6 ricerche in parallelo (processori - 1)
+che a ogni giro ripartono dalla migliore (`syncCycles`, `adopt`; messaggi `sync`/`adopt` tra worker e runner).
+Tempo con tutte le sedi: 3 s a classe con «Rapida», 6 s con «Accurata» (per le 6 sedi vere 1 min 30 s e 3 min).
+Proposta per tutte le sedi: «Numeri di» (tutte le sedi o una, contata come nella sua app) sull'orario definitivo
+(`insiemeParts` + `withInsiemeParts`). Slot salvati per tutte le sedi: lo stesso codice `insieme` in ogni sede
+(`insiemeSlot`); si riaprono con tutte le sedi (`insiemeSlotData`); Usa, Rendi in vigore, Svuota e Rinomina valgono
+per tutte (`activateSlotAll`, `makeOfficialAll`, `clearSavedTimetableAll`, `renameSavedTimetableAll`) e «Annulla
+l'ultimo Rendi in vigore» annulla in tutte. Vincoli rigidi non rispettati: il riquadro «Da sistemare»
+(`vincoli-box.tsx`) li elenca per tipo; ogni voce porta le ore (`Issue.cells`, `teacherId`) e apre la settimana del
+docente o della classe con le ore in rosso; durante la ricerca `bestHardWho` dice di chi sono. Nella vista Docenti della proposta, per chi è in più sedi,
 ogni ora ha il nome della sede (niente lettere: decisione dell'utente). In Orario, Quadro e
 Settimana hanno «Tutte le sedi» (sola lettura); in Docente, per chi insegna in più sedi, ogni ora porta il nome
 della sua sede, anche quelle della sede in uso, e ha il colore della sua sede (`sedeColor` in teacher-palette, dalla
