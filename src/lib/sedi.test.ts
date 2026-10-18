@@ -6,6 +6,7 @@ import { encodePersist, mergeSlices, shouldAcceptWrite } from "./persist-storage
 import {
   addSede,
   allSedi,
+  blockingGroups,
   canRemoveRecord,
   canRemoveSede,
   cattedraTotal,
@@ -482,6 +483,11 @@ describe("sedi: docenti in comune", () => {
     ]);
     assert.equal(groups[1]!.items.length, 3);
     assert.ok(groups[1]!.items.every((m) => m.subject === "Francese" && !m.tn));
+    // «Proponi» si ferma solo per le materie della proposta, non per la riga di Laboratorio
+    assert.deepEqual(
+      blockingGroups(groups).map((g) => g.sedeId),
+      [idB],
+    );
   });
 
   it("aggiungendo una sede da backup collega i docenti con lo stesso nome", () => {

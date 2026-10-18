@@ -72,6 +72,7 @@ import {
   allSedi,
   autoAwayCells,
   linkedElsewhere,
+  blockingGroups,
   missingBySede,
   removedSediIssues,
   sedeName,
@@ -89,7 +90,7 @@ import {
   type InsiemeMap,
 } from "@/lib/sedi-insieme";
 import { ClasseGenerale, DocentiGenerale, GiornoGenerale, SettimanaGenerale } from "@/components/vista-generale";
-import { MissingTeachersBox } from "@/components/missing-teachers";
+import { MissingTeachersBox, MissingTeachersDialog } from "@/components/missing-teachers";
 import { SAVE_SLOTS } from "@/lib/saved-timetables";
 
 type Cell = { day: DayOfWeek; periodId: string };
@@ -204,6 +205,9 @@ export function CostruisciOrario({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [rawData.teachers, rawData.classes, rawData.slots, rawData.cattedre, rawData.altreSedi, allTogether],
   );
+  // le materie che la proposta deve mettere: senza docente, «Proponi» si ferma con una finestra
+  const blocking = blockingGroups(missing);
+  const [missingOpen, setMissingOpen] = useState(false);
   const [insieme, setInsieme] = useState<InsiemeResult | null>(null);
   const insiemeRef = useRef<HTMLElement>(null);
   // «Ritocca a mano» su tutte le sedi insieme: i dati uniti e le lezioni con i ritocchi
@@ -441,6 +445,10 @@ export function CostruisciOrario({
   }
 
   function propose() {
+    if (blocking.length > 0) {
+      setMissingOpen(true);
+      return;
+    }
     if (allTogether) {
       proposeTogether();
       return;
@@ -809,8 +817,15 @@ export function CostruisciOrario({
           className="mt-4"
           groups={missing}
           showSede={allTogether}
-          note="Le ore senza docente restano fuori dalla proposta. Il docente si indica nella sua scheda, in Docenti, o in «Cattedre e ore»."
+          note={
+            blocking.length > 0
+              ? "L’orario si propone quando ogni materia ha il suo docente. Il docente si indica nella sua scheda, in Docenti, o in «Cattedre e ore»."
+              : "Mensa e Laboratorio non entrano nella proposta; il docente si indica comunque nella sua scheda, in Docenti."
+          }
         />
+        {missingOpen && (
+          <MissingTeachersDialog groups={blocking} showSede={allTogether} onClose={() => setMissingOpen(false)} />
+        )}
         <p className="mt-2 text-[13px] text-muted-foreground">
           {mode === "scratch"
             ? "Genera un nuovo orario e poi mette le ore a disposizione nelle ore buche. Nella ricerca le ore buche colmabili con ore a disposizione non vengono conteggiate, ma al massimo una al giorno."

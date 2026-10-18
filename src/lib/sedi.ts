@@ -422,6 +422,13 @@ export function missingBySede(
     .filter((x) => x.items.length > 0);
 }
 
+/** Le materie che servono alla proposta: senza Mensa, Laboratorio e righe in classi a tempo normale. */
+export function blockingGroups<G extends { items: MissingTeacher[] }>(groups: G[]): G[] {
+  return groups
+    .map((g) => ({ ...g, items: g.items.filter((i) => !i.tn && !/^(Mensa|Laboratorio)$/i.test(i.subject)) }))
+    .filter((g) => g.items.length > 0);
+}
+
 export type CardRow = { classId: string; subject: string; hours: number };
 
 /**

@@ -1,3 +1,6 @@
+import { Link } from "@tanstack/react-router";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { missingText, type MissingTeacher } from "@/lib/build-timetable";
 import { cn } from "@/lib/utils";
 
@@ -40,5 +43,46 @@ export function MissingTeachersBox({
         {[without ? note : "", tn ? `${TN_NOTE}${showSede ? " della sua sede" : ""}.` : ""].filter(Boolean).join(" ")}
       </p>
     </div>
+  );
+}
+
+/** «Proponi» con materie senza docente: la finestra che spiega perché l'orario non si propone. */
+export function MissingTeachersDialog({
+  groups,
+  showSede,
+  onClose,
+}: {
+  groups: MissingGroup[];
+  showSede: boolean;
+  onClose: () => void;
+}) {
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Materie senza docente</DialogTitle>
+          <DialogDescription>L’orario si propone quando ogni materia ha il suo docente. Mancano:</DialogDescription>
+        </DialogHeader>
+        <ul className="grid gap-1.5 text-sm">
+          {groups.map((g) => (
+            <li key={g.sedeId}>
+              {showSede && <span className="font-medium">{g.sede}: </span>}
+              {g.items.map(missingText).join(", ")}
+            </li>
+          ))}
+        </ul>
+        <p className="text-sm text-muted-foreground">
+          Il docente si indica nella sua scheda, in Docenti → «Classi e materie», oppure in «Cattedre e ore».
+        </p>
+        <div className="flex flex-wrap justify-end gap-2 pt-1">
+          <Button variant="outline" onClick={onClose}>
+            Chiudi
+          </Button>
+          <Button asChild>
+            <Link to="/docenti">Apri Docenti</Link>
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
