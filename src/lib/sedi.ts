@@ -9,7 +9,13 @@
  * ruolo e colore restano uguali in tutte; classi, ore, × e disposizioni sono di ogni sede.
  */
 import type { DayOfWeek, Period, PersistedData, RemovedSede, SedeData, Settings, Teacher } from "./types";
-import { applyTeacherCattedre, cattedreOfTeacher, missingTeachers, type MissingTeacher } from "./build-timetable";
+import {
+  applyTeacherCattedre,
+  cattedreOfTeacher,
+  isTimetableTeacher,
+  missingTeachers,
+  type MissingTeacher,
+} from "./build-timetable";
 import { todayIso } from "./dates";
 import { uid } from "./utils";
 
@@ -310,7 +316,8 @@ export function persons(data: PersistedData): PersonRow[] {
         teacher: t,
         active: s.active,
         sedeName: sedeName(s.data.settings),
-        hours: hoursIn(data, s.data, t.id),
+        // senza lezioni in orario (strumento, sostegno, potenziamento): le ore della scheda in quella sede
+        hours: hoursIn(data, s.data, t.id) || (isTimetableTeacher(t) ? 0 : (t.weeklyHours ?? 0)),
       });
       rows.set(key, row);
     }
