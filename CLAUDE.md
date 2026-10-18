@@ -131,7 +131,8 @@ vanno nelle buche della loro sede (`fillSede`) e lì deve esserci posto (vincolo
 `insiemeParts` rimette le disposizioni una sede alla volta, con le lezioni nuove delle altre sedi come × (`relocate`).
 Ricerca: mosse mirate sui vincoli non rispettati (`tryHardMove`); fino a 6 ricerche in parallelo (processori - 1)
 che a ogni giro ripartono dalla migliore (`syncCycles`, `adopt`; messaggi `sync`/`adopt` tra worker e runner).
-Tempo con tutte le sedi: 3 s a classe con «Rapida», 6 s con «Accurata» (per le 6 sedi vere 1 min 30 s e 3 min).
+Tempo con tutte le sedi: 30 s con «Rapida», 90 s con «Accurata». Provati 1 min 30 s e 3 min sulle 6 sedi vere: nessun
+miglioramento netto (buche 3-8 contro 3-5, 1ª-6ª e 5 lezioni a zero in tutti e due), quindi tolti (decisione dell'utente).
 Proposta per tutte le sedi: «Numeri di» (tutte le sedi o una, contata come nella sua app) sull'orario definitivo
 (`insiemeParts` + `withInsiemeParts`). Slot salvati per tutte le sedi: lo stesso codice `insieme` in ogni sede
 (`insiemeSlot`); si riaprono con tutte le sedi (`insiemeSlotData`); Usa, Rendi in vigore, Svuota e Rinomina valgono
