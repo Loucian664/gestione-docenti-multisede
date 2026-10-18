@@ -10,12 +10,13 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useAppStore, snapshot } from "@/lib/store";
 import { teacherName } from "@/lib/coverage";
-import { cattedreOfTeacher } from "@/lib/build-timetable";
+import { cattedreOfTeacher, missingText } from "@/lib/build-timetable";
 import {
   allSedi,
   canRemoveRecord,
   cattedraTotal,
   hoursIn,
+  missingBySede,
   persons,
   sedeAsData,
   sedeIdOf,
@@ -25,6 +26,7 @@ import {
 } from "@/lib/sedi";
 import { DAY_SHORT, ROLE_LABELS, ACTIVITY_SUBJECTS, CURRICULAR_SUBJECTS, SUBJECTS, type DayOfWeek, type Teacher, type TeacherRole, type TimetableSlot } from "@/lib/types";
 import { Plus, Search, LayoutGrid } from "lucide-react";
+import { MissingTeachersBox } from "@/components/missing-teachers";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { corePeriods } from "@/lib/periods";
@@ -70,6 +72,8 @@ function DocentiPage() {
   }, [search.apri]);
 
   const people = useMemo(() => persons(data), [data]);
+  // materie senza docente: si assegnano dalla scheda di un docente
+  const missing = useMemo(() => missingBySede(data), [data]);
   const subjectsAll = useMemo(
     () =>
       [...new Set(people.flatMap((p) => p.records.flatMap((r) => r.teacher.subjects)))].sort((a, b) =>
@@ -177,6 +181,12 @@ function DocentiPage() {
           ))}
         </NativeSelect>
       </div>
+      <MissingTeachersBox
+        className="mb-4"
+        groups={missing.filter((x) => sedeFilter === ALL || x.sedeId === sedeFilter)}
+        showSede={several}
+        note="Il docente si indica nella sua scheda, in «Classi e materie»."
+      />
       <ul className="paper-panel divide-y divide-border rounded-xl md:hidden">
         {list.map((row) => {
           const t = row.main.teacher;
@@ -466,6 +476,25 @@ function TeacherDialog({ value, onClose }: { value: Teacher | "new"; onClose: ()
     return [...count].map(([k, n]) => (n > 1 ? `${k} (${n} ore)` : k)).join(", ");
   }
 
+  /** Dopo il salvataggio o l'eliminazione: le classi che aveva e che ora restano senza docente. */
+  function warnLeftWithout() {
+    const groups = missingBySede(snapshot(useAppStore.getState()))
+      .map((g) => ({
+        ...g,
+        items: g.items.filter((m) =>
+          initialRows.some((r) => r.sedeId === g.sedeId && r.classId === m.classId && r.subject === m.subject),
+        ),
+      }))
+      .filter((g) => g.items.length > 0);
+    if (!groups.length) return;
+    toast.warning(
+      `Restano senza docente: ${groups
+        .map((g) => `${several ? `${g.sede}: ` : ""}${g.items.map(missingText).join(", ")}`)
+        .join(" · ")}.`,
+      { description: "Il docente si indica nella sua scheda, in «Classi e materie»." },
+    );
+  }
+
   function save() {
     const payload = {
       lastName: lastName.trim(),
@@ -539,6 +568,7 @@ function TeacherDialog({ value, onClose }: { value: Teacher | "new"; onClose: ()
           }
         : undefined,
     );
+    warnLeftWithout();
     onClose();
   }
 
@@ -830,6 +860,7 @@ function TeacherDialog({ value, onClose }: { value: Teacher | "new"; onClose: ()
                 variant="outline"
                 onClick={() => {
                   store.removeTeacher(current.id);
+                  warnLeftWithout();
                   toast.message(
                     elsewhere.length
                       ? `Docente tolto da ${here}: resta a ${elsewhere.map((e) => sedeName(e.sede.data.settings)).join(", ")}.`

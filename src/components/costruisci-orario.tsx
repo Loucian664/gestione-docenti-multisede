@@ -72,8 +72,8 @@ import {
   allSedi,
   autoAwayCells,
   linkedElsewhere,
+  missingBySede,
   removedSediIssues,
-  sedeAsData,
   sedeName,
   withOtherSedi,
   type ElsewhereCell,
@@ -89,6 +89,7 @@ import {
   type InsiemeMap,
 } from "@/lib/sedi-insieme";
 import { ClasseGenerale, DocentiGenerale, GiornoGenerale, SettimanaGenerale } from "@/components/vista-generale";
+import { MissingTeachersBox } from "@/components/missing-teachers";
 import { SAVE_SLOTS } from "@/lib/saved-timetables";
 
 type Cell = { day: DayOfWeek; periodId: string };
@@ -197,17 +198,9 @@ export function CostruisciOrario({
   );
   const [scope, setScope] = useState<"sede" | "tutte">("sede");
   const allTogether = scope === "tutte" && sediCount > 1;
-  // «Tutte le sedi insieme»: le materie senza docente di ogni sede, che non entrano nella proposta
-  const togetherUnassigned = useMemo(
-    () =>
-      allTogether
-        ? allSedi(rawData)
-            .map((s) => ({
-              sede: sedeName(s.data.settings),
-              list: timetableDemand(sedeAsData(rawData, s.data)).unassigned,
-            }))
-            .filter((x) => x.list.length > 0)
-        : [],
+  // le materie senza docente della sede in uso o, con «Tutte le sedi insieme», di ogni sede: restano fuori
+  const missing = useMemo(
+    () => missingBySede(rawData).filter((x) => allTogether || x.active),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [rawData.teachers, rawData.classes, rawData.slots, rawData.cattedre, rawData.altreSedi, allTogether],
   );
@@ -812,15 +805,12 @@ export function CostruisciOrario({
               : `${together.reason} Per ora si costruisce una sede alla volta.`}
           </p>
         )}
-        {allTogether && together.ok && togetherUnassigned.length > 0 && (
-          <p className="mt-2 text-[13px] text-warning">
-            Senza docente, restano fuori dalla proposta:{" "}
-            {togetherUnassigned
-              .map((x) => `${x.sede}: ${x.list.map((u) => `${u.className} ${u.subject} ${u.hours} h`).join(", ")}`)
-              .join(" · ")}
-            . Il docente si sceglie nella sua scheda, in Docenti.
-          </p>
-        )}
+        <MissingTeachersBox
+          className="mt-4"
+          groups={missing}
+          showSede={allTogether}
+          note="Le ore senza docente restano fuori dalla proposta. Il docente si indica nella sua scheda, in Docenti, o in «Cattedre e ore»."
+        />
         <p className="mt-2 text-[13px] text-muted-foreground">
           {mode === "scratch"
             ? "Genera un nuovo orario e poi mette le ore a disposizione nelle ore buche. Nella ricerca le ore buche colmabili con ore a disposizione non vengono conteggiate, ma al massimo una al giorno."

@@ -15,6 +15,7 @@ import {
   elsewhereCells,
   importSede,
   linkedElsewhere,
+  missingBySede,
   nameMatches,
   newSedeData,
   persons,
@@ -452,6 +453,35 @@ describe("sedi: docenti in comune", () => {
     assert.equal(other(now).data.slots.length, other(d).data.slots.length - lessonsB.length);
     assert.equal(now.slots.length, d.slots.length);
     st().resetDemo();
+  });
+
+  it("le ore senza docente di ogni sede: materie, rientri e righe di Mensa o Laboratorio in tempo normale", () => {
+    const d = seed();
+    assert.deepEqual(missingBySede(d), []);
+    const idA = sedeIdOf(d);
+    const idB = other(d).id;
+    const tn = d.classes.find((c) => c.tempo === "TN")!;
+    // una riga di Laboratorio rimasta in una classe a tempo normale
+    const withLab = editSede(d, idA, (sede) => ({
+      ...sede,
+      cattedre: [...(sede.cattedre ?? []), { classId: tn.id, subject: "Laboratorio", hours: 2, teacherId: "" }],
+    }));
+    // nella seconda sede il francese perde il docente e le sue lezioni
+    const out = editSede(withLab, idB, (sede) => ({
+      ...sede,
+      cattedre: (sede.cattedre ?? []).map((c) => (c.teacherId === "tb-fra-1" ? { ...c, teacherId: "" } : c)),
+      slots: sede.slots.filter((s) => s.teacherId !== "tb-fra-1"),
+    }));
+    const groups = missingBySede(out);
+    assert.deepEqual(
+      groups.map((g) => g.sedeId),
+      [idA, idB],
+    );
+    assert.deepEqual(groups[0]!.items, [
+      { classId: tn.id, className: tn.name, subject: "Laboratorio", hours: 2, tn: true },
+    ]);
+    assert.equal(groups[1]!.items.length, 3);
+    assert.ok(groups[1]!.items.every((m) => m.subject === "Francese" && !m.tn));
   });
 
   it("aggiungendo una sede da backup collega i docenti con lo stesso nome", () => {

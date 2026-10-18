@@ -10,7 +10,17 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { useAppStore, snapshot } from "@/lib/store";
 import { backupJson, parseBackupJson } from "@/lib/export";
 import { shareOrSave, toastSave } from "@/lib/share-file";
-import { allSedi, canRemoveSede, nameMatches, pickSede, sedeContents, sedeName, type SedeEntry } from "@/lib/sedi";
+import {
+  allSedi,
+  canRemoveSede,
+  missingBySede,
+  nameMatches,
+  pickSede,
+  sedeContents,
+  sedeName,
+  type SedeEntry,
+} from "@/lib/sedi";
+import { missingText, type MissingTeacher } from "@/lib/build-timetable";
 import { teacherName } from "@/lib/coverage";
 import { DAY_SHORT, type PersistedData, type SedeData, type Teacher } from "@/lib/types";
 import { FileUp, Plus } from "lucide-react";
@@ -38,6 +48,7 @@ function SediPage() {
   }
   const sharedCount = (s: SedeEntry) =>
     s.data.teachers.filter((t) => t.personId && (sharedIds.get(t.personId)?.size ?? 0) > 1).length;
+  const missing = missingBySede(data);
 
   function readBackup(file: File) {
     const reader = new FileReader();
@@ -87,6 +98,7 @@ function SediPage() {
             key={s.id}
             sede={s}
             shared={sharedCount(s)}
+            missing={missing.find((m) => m.sedeId === s.id)?.items ?? []}
             onUse={() => {
               store.switchSede(s.id);
               toast.message(`Sede in uso: ${sedeName(s.data.settings)}`);
@@ -132,11 +144,13 @@ function campanellaLabel(sede: SedeData): string {
 function SedeCard({
   sede,
   shared,
+  missing,
   onUse,
   onEdit,
 }: {
   sede: SedeEntry;
   shared: number;
+  missing: MissingTeacher[];
   onUse: () => void;
   onEdit: () => void;
 }) {
@@ -160,6 +174,11 @@ function SedeCard({
           {teachers.length}
           {shared > 0 ? ` · ${shared} in comune con altre sedi` : ""}
         </Row>
+        {missing.length > 0 && (
+          <Row label="Senza docente">
+            <span className="text-warning">{missing.map(missingText).join(", ")}</span>
+          </Row>
+        )}
       </dl>
       <div className="mt-4 flex flex-wrap gap-2 pt-1">
         {!sede.active && <Button onClick={onUse}>Usa questa sede</Button>}

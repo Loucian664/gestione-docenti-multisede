@@ -9,7 +9,7 @@
  * ruolo e colore restano uguali in tutte; classi, ore, × e disposizioni sono di ogni sede.
  */
 import type { DayOfWeek, Period, PersistedData, RemovedSede, SedeData, Settings, Teacher } from "./types";
-import { applyTeacherCattedre, cattedreOfTeacher } from "./build-timetable";
+import { applyTeacherCattedre, cattedreOfTeacher, missingTeachers, type MissingTeacher } from "./build-timetable";
 import { todayIso } from "./dates";
 import { uid } from "./utils";
 
@@ -406,6 +406,20 @@ export function setTeacherSedi(
     }
   }
   return { data: next, blocked };
+}
+
+/** Le ore senza docente di ogni sede (solo le sedi che ne hanno), nell'ordine delle sedi. */
+export function missingBySede(
+  data: PersistedData,
+): { sedeId: string; sede: string; active: boolean; items: MissingTeacher[] }[] {
+  return allSedi(data)
+    .map((s) => ({
+      sedeId: s.id,
+      sede: sedeName(s.data.settings),
+      active: s.active,
+      items: missingTeachers(sedeAsData(data, s.data)),
+    }))
+    .filter((x) => x.items.length > 0);
 }
 
 export type CardRow = { classId: string; subject: string; hours: number };
