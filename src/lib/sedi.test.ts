@@ -223,6 +223,28 @@ describe("sedi: docenti in comune", () => {
     assert.equal(rows.length, total - 4);
   });
 
+  it("strumento: percussioni, clarinetto e violino senza orario; in due sedi le ore della scheda di ognuna", () => {
+    for (const subject of ["Percussioni", "Clarinetto", "Violino", "Chitarra", "Strumento musicale"])
+      assert.equal(isTimetableTeacher({ ...seed().teachers[0]!, subjects: [subject] }), false, subject);
+    const base = seed();
+    const idB = allSedi(base)[1]!.id;
+    const strumento = (id: string, hours: number): Teacher => ({
+      ...base.teachers[0]!,
+      id,
+      firstName: "Nora",
+      lastName: "Fittizia",
+      subjects: ["Violino"],
+      weeklyHours: hours,
+      personId: "p-violino",
+      assignedClassIds: [],
+      cardRows: [],
+    });
+    let d = { ...base, teachers: [...base.teachers, strumento("t-vio-1", 9)] };
+    d = editSede(d, idB, (s) => ({ ...s, teachers: [...s.teachers, strumento("tb-vio-1", 9)] }));
+    const row = persons(d).find((r) => r.records.some((x) => x.teacher.id === "t-vio-1"))!;
+    assert.deepEqual(row.records.map((x) => x.hours), [9, 9]);
+  });
+
   it("le ore nell'altra sede diventano × della sede in uso, senza toccare le × messe a mano", () => {
     const d = seed();
     const fra = d.teachers.find((t) => t.id === "t-fra-1")!;

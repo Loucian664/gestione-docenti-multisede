@@ -64,7 +64,7 @@ export function monteOreOf(data: PersistedData): { subject: string; hours: numbe
 const HEAVY = new Set(["Italiano", "Matematica", "Inglese"]);
 const CORE_LOAD = new Set(["Italiano", "Storia", "Geografia", "Matematica", "Scienze"]);
 
-const STRUMENTO = /strumento|chitarra|flauto|oboe|pianoforte/i;
+const STRUMENTO = /strumento|chitarra|flauto|oboe|pianoforte|percussion|clarinett|violin/i;
 
 export function isTimetableTeacher(t: Teacher): boolean {
   if (t.role === "sostegno" || t.role === "potenziamento") return false;
