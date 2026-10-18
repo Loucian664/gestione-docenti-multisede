@@ -67,6 +67,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { teacherCell } from "@/lib/teacher-palette";
 import { corePeriods, isTpPeriodId } from "@/lib/periods";
+import { autoAwayCells, linkedElsewhere, sedeName, withOtherSedi, type ElsewhereCell } from "@/lib/sedi";
 
 type Cell = { day: DayOfWeek; periodId: string };
 type CellState = "empty" | "no" | "away" | "class";
@@ -134,7 +135,9 @@ export function CostruisciOrario({
   onSlotOpened?: () => void;
 } = {}) {
   const store = useAppStore();
-  const data = snapshot(store);
+  // i dati come li salva l'app; per il motore e i controlli, con le ore dei docenti nelle altre sedi come ×
+  const rawData = snapshot(store);
+  const data = withOtherSedi(rawData);
   const previewRef = useRef<HTMLElement>(null);
   const [mode, setMode] = useState<SolveMode>("scratch");
   const [speed, setSpeed] = useState<"rapida" | "accurata">("rapida");
@@ -168,6 +171,21 @@ export function CostruisciOrario({
   const byName = (a: Teacher, b: Teacher) =>
     a.lastName.localeCompare(b.lastName, "it") || a.firstName.localeCompare(b.firstName, "it");
   const included = useMemo(() => data.teachers.filter(isTimetableTeacher).sort(byName), [data.teachers]);
+  // nelle schede «Quando ci sono i docenti» si cambiano solo i segni messi a mano
+  const rawIncluded = useMemo(() => rawData.teachers.filter(isTimetableTeacher).sort(byName), [rawData.teachers]);
+  const elsewhere = useMemo(() => {
+    const map = new Map<string, { cells: ElsewhereCell[]; sedi: string[] }>();
+    for (const t of rawData.teachers) {
+      const links = linkedElsewhere(rawData, t);
+      if (!links.length) continue;
+      map.set(t.id, {
+        cells: autoAwayCells(rawData, t),
+        sedi: [...new Set(links.map((l) => sedeName(l.sede.settings)))],
+      });
+    }
+    return map;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rawData.teachers, rawData.altreSedi, rawData.settings.periods]);
   const skipped = useMemo(() => data.teachers.filter((t) => !isTimetableTeacher(t)).sort(byName), [data.teachers]);
   const demand = useMemo(() => timetableDemand(data), [data]);
   const hoursHere = useMemo(() => teacherHoursHere(data), [data]);
@@ -236,6 +254,8 @@ export function CostruisciOrario({
     io.observe(el);
     return () => io.disconnect();
   }, [showHeader]);
+  // cambiando pagina o sede la ricerca in corso si ferma
+  useEffect(() => () => handleRef.current?.stop(), []);
   // lezioni del mattino dei docenti di materia: quelle che Costruisci e i ritocchi cambiano
   const pool = useMemo(() => new Set(included.map((t) => t.id)), [included]);
   const inUseDraft = useMemo(
@@ -542,7 +562,8 @@ export function CostruisciOrario({
       <HowItWorks />
 
       <AvailabilityPanel
-        teachers={included}
+        teachers={rawIncluded}
+        elsewhere={elsewhere}
         skipped={skipped}
         days={data.settings.days}
         morning={morning}
@@ -828,7 +849,7 @@ export function CostruisciOrario({
         morning={morning}
         onChange={setClassPick}
         onSave={(pick, remove, all) => {
-          const t = data.teachers.find((x) => x.id === pick.teacherId);
+          const t = rawData.teachers.find((x) => x.id === pick.teacherId);
           if (!t) return;
           const cell = { day: pick.day, periodId: pick.periodId };
           const patch = withCells(t, [cell], "empty");
@@ -2117,6 +2138,7 @@ function BrushSwatch({ brush }: { brush: Brush }) {
 
 function AvailabilityPanel({
   teachers,
+  elsewhere,
   skipped,
   days,
   morning,
@@ -2128,6 +2150,8 @@ function AvailabilityPanel({
   onPattern,
 }: {
   teachers: Teacher[];
+  /** docenti che insegnano anche in altre sedi dell'app: le loro ore là e i nomi delle sedi */
+  elsewhere: Map<string, { cells: ElsewhereCell[]; sedi: string[] }>;
   skipped: Teacher[];
   days: DayOfWeek[];
   morning: MorningPeriod[];
@@ -2171,6 +2195,11 @@ function AvailabilityPanel({
   }
 
   function paintCell(t: Teacher, day: DayOfWeek, periodId: string) {
+    const there = elsewhere.get(t.id)?.cells.find((c) => sameCell(c, day, periodId));
+    if (there) {
+      toast.message(`A quell’ora è a ${there.sedeName} (${there.label}): si cambia dall’orario di quella sede.`);
+      return;
+    }
     if (brush === "class") {
       onClassPick(t, day, periodId);
       return;
@@ -2273,6 +2302,7 @@ function AvailabilityPanel({
               })
             }
             t={t}
+            elsewhere={elsewhere.get(t.id)}
             days={days}
             morning={morning}
             classes={classes}
@@ -2299,6 +2329,7 @@ function TeacherCard({
   open,
   onToggle,
   t,
+  elsewhere,
   days,
   morning,
   classes,
@@ -2313,6 +2344,7 @@ function TeacherCard({
   open: boolean;
   onToggle: () => void;
   t: Teacher;
+  elsewhere?: { cells: ElsewhereCell[]; sedi: string[] };
   days: DayOfWeek[];
   morning: MorningPeriod[];
   classes: PersistedData["classes"];
@@ -2375,6 +2407,14 @@ function TeacherCard({
             </span>
           </button>
         </div>
+        {elsewhere ? (
+          <span
+            className="shrink-0 rounded-full border border-primary bg-primary px-2.5 py-1 text-[12px] font-medium text-primary-foreground"
+            title={`Insegna anche a ${elsewhere.sedi.join(", ")}`}
+          >
+            Su più sedi
+          </span>
+        ) : (
         <button
           type="button"
           role="switch"
@@ -2389,6 +2429,7 @@ function TeacherCard({
         >
           {t.otherPlesso ? "Su più plessi" : "Solo qui"}
         </button>
+        )}
       </div>
 
       <div className={cn(!open && "hidden")}>
@@ -2493,6 +2534,22 @@ function TeacherCard({
                   </button>
                 </td>
                 {days.map((d) => {
+                  const there = elsewhere?.cells.find((c) => sameCell(c, d, p.id));
+                  if (there) {
+                    return (
+                      <td key={d} className="p-0.5 text-center">
+                        <button
+                          type="button"
+                          aria-label={`${DAY_SHORT[d]} ${p.label}: a ${there.sedeName}, ${there.label}`}
+                          title={`${DAY_SHORT[d]} ${p.label}: a ${there.sedeName} (${there.label}${there.subject ? ` · ${there.subject}` : ""})`}
+                          onClick={() => onCell(d, p.id)}
+                          className="inline-flex h-9 w-full min-w-9 touch-manipulation items-center justify-center rounded-md bg-primary/45 text-primary-foreground"
+                        >
+                          <X className="size-4" strokeWidth={2.5} aria-hidden />
+                        </button>
+                      </td>
+                    );
+                  }
                   const state = cellState(t, d, p.id);
                   const must = state === "class" ? (t.mustSlots ?? []).find((a) => sameCell(a, d, p.id)) : undefined;
                   const ids = must ? (must.classIds?.length ? must.classIds : must.classId ? [must.classId] : []) : [];
@@ -2536,6 +2593,12 @@ function TeacherCard({
             ))}
           </tbody>
         </table>
+        {elsewhere && elsewhere.cells.length > 0 && (
+          <p className="mt-1.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <span className="inline-block size-3 rounded-[3px] bg-primary/45" aria-hidden />
+            Ore a {elsewhere.sedi.join(", ")}: le mette l’app dall’orario di quella sede
+          </p>
+        )}
       </div>
     </li>
   );

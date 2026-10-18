@@ -40,6 +40,7 @@ import { cn } from "@/lib/utils";
 import { ScrollGrid } from "@/components/scroll-grid";
 import { teacherCell } from "@/lib/teacher-palette";
 import { CostruisciOrario } from "@/components/costruisci-orario";
+import { elsewhereCells } from "@/lib/sedi";
 import { BucheList } from "@/components/buche-list";
 import { gapsOf, gapsRanking, isTimetableTeacher } from "@/lib/build-timetable";
 import { ensureTpPeriods, isMensaPeriod, isRestrictedTpPeriod, visiblePeriods } from "@/lib/periods";
@@ -102,6 +103,10 @@ function OrarioPage() {
   );
   const currentTeacher = data.teachers.find((t) => t.id === teacherId);
   const teacherHours = data.slots.filter((s) => s.teacherId === teacherId).length;
+  // ore dello stesso docente nelle altre sedi, sulla campanella di questa
+  const elsewhere = currentTeacher ? elsewhereCells(data, currentTeacher) : [];
+  const elsewhereLessons = elsewhere.filter((c) => c.label !== "disp.");
+  const elsewhereSedi = [...new Set(elsewhere.map((c) => c.sedeName))];
   const teacherDisp = currentTeacher?.dispSlots?.length ?? 0;
   const teacherGaps =
     currentTeacher && isTimetableTeacher(currentTeacher)
@@ -357,6 +362,9 @@ function OrarioPage() {
                   ? " · 1 buca"
                   : ` · ${teacherGaps} buche`
                 : ""}
+              {elsewhereSedi.length > 0
+                ? ` · ${elsewhereLessons.length === 1 ? "1 ora" : `${elsewhereLessons.length} ore`} a ${elsewhereSedi.join(", ")}`
+                : ""}
               . Seleziona una casella per inserire o modificare un’ora, anche in compresenza.
             </p>
           </div>
@@ -603,6 +611,23 @@ function OrarioPage() {
                     );
                     const disp = Boolean(currentTeacher && !slot && isDispHour(currentTeacher, d, p.id));
                     const tc = teacherCell(slot ? currentTeacher?.color : undefined);
+                    const there = slot ? undefined : elsewhere.find((c) => c.day === d && c.periodId === p.id);
+                    if (there) {
+                      return (
+                        <td key={d} className="p-1.5 align-top">
+                          <div
+                            className="flex min-h-16 w-full flex-col rounded-md border border-dashed border-border bg-muted/60 px-2 py-1.5 text-left"
+                            title="Ora in un’altra sede: si cambia passando a quella sede"
+                          >
+                            <span className="text-[12px] font-medium text-muted-foreground">{there.sedeName}</span>
+                            <span className="text-[12px] text-muted-foreground">
+                              {there.label}
+                              {there.subject ? ` · ${there.subject}` : ""}
+                            </span>
+                          </div>
+                        </td>
+                      );
+                    }
                     return (
                       <td key={d} className="p-1.5 align-top">
                         <button
