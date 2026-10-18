@@ -17,6 +17,7 @@ import {
   persons,
   pickSede,
   removeSede,
+  sedeContents,
   sedeIdOf,
   sedeName,
   setSchoolYear,
@@ -108,13 +109,28 @@ describe("sedi: cambio e modifica", () => {
     );
   });
 
-  it("si elimina solo una sede senza classi, e mai l'ultima", () => {
+  it("si elimina ogni sede tranne l'ultima, anche con le sue classi", () => {
     const d = seed();
-    assert.equal(canRemoveSede(d, other(d).id), false);
+    const b = other(d);
+    assert.equal(canRemoveSede(d, b.id), true);
+    // l'avviso dice cosa si perde; i docenti in comune restano nell'altra sede
+    const info = sedeContents(d, b.id)!;
+    assert.equal(info.classes, b.data.classes.length);
+    assert.equal(info.lessons, b.data.slots.length);
+    assert.equal(info.shared, 4);
+    assert.equal(info.teachers, b.data.teachers.length - 4);
+    const noB = removeSede(d, b.id);
+    assert.equal(allSedi(noB).length, 1);
+    assert.equal(allSedi(noB)[0]!.data.teachers.length, d.teachers.length);
+    assert.deepEqual(plain(pickSede(noB)), plain(pickSede(d)));
+    // eliminando la sede in uso si passa all'altra, che resta com'era
+    const noA = removeSede(d, sedeIdOf(d));
+    assert.equal(sedeIdOf(noA), b.id);
+    assert.deepEqual(plain(pickSede(noA)), plain(b.data));
     const { data: withC, id } = addSede(d, newSedeData(d.settings, "Sede C"));
     assert.equal(canRemoveSede(withC, id), true);
     assert.equal(allSedi(removeSede(withC, id)).length, 2);
-    // la sede in uso, se vuota, si elimina passando a un'altra
+    // la sede in uso si elimina passando a un'altra
     const inC = switchSede(withC, id);
     const gone = removeSede(inC, id);
     assert.notEqual(sedeIdOf(gone), id);

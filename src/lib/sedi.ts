@@ -142,10 +142,32 @@ export function addSede(data: PersistedData, sede: SedeData): { data: PersistedD
 }
 
 /** Si elimina solo una sede senza classi, e mai l'ultima. */
+/** Si elimina ogni sede tranne l'ultima, con tutto quello che ha (dopo l'avviso con `sedeContents`). */
 export function canRemoveSede(data: PersistedData, id: string): boolean {
   const list = allSedi(data);
+  return list.length > 1 && list.some((s) => s.id === id);
+}
+
+/**
+ * Cosa si perde eliminando una sede: classi, lezioni dell'orario, docenti che insegnano solo lì, orari
+ * salvati, assenze. I docenti in comune (`shared`) restano nelle altre sedi, senza le ore di questa.
+ */
+export function sedeContents(data: PersistedData, id: string) {
+  const list = allSedi(data);
   const sede = list.find((s) => s.id === id);
-  return Boolean(sede && list.length > 1 && sede.data.classes.length === 0);
+  if (!sede) return null;
+  const elsewhere = new Set(
+    list.filter((s) => s.id !== id).flatMap((s) => s.data.teachers.flatMap((t) => (t.personId ? [t.personId] : []))),
+  );
+  const shared = sede.data.teachers.filter((t) => t.personId && elsewhere.has(t.personId)).length;
+  return {
+    classes: sede.data.classes.length,
+    lessons: sede.data.slots.length,
+    teachers: sede.data.teachers.length - shared,
+    shared,
+    saved: (sede.data.savedTimetables ?? []).length,
+    absences: sede.data.absences.length,
+  };
 }
 
 export function removeSede(data: PersistedData, id: string): PersistedData {

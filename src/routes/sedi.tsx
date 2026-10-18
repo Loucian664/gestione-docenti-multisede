@@ -8,8 +8,9 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useAppStore, snapshot } from "@/lib/store";
-import { parseBackupJson } from "@/lib/export";
-import { allSedi, canRemoveSede, nameMatches, pickSede, sedeName, type SedeEntry } from "@/lib/sedi";
+import { backupJson, parseBackupJson } from "@/lib/export";
+import { shareOrSave, toastSave } from "@/lib/share-file";
+import { allSedi, canRemoveSede, nameMatches, pickSede, sedeContents, sedeName, type SedeEntry } from "@/lib/sedi";
 import { teacherName } from "@/lib/coverage";
 import { DAY_SHORT, type PersistedData, type SedeData, type Teacher } from "@/lib/types";
 import { FileUp, Plus } from "lucide-react";
@@ -179,14 +180,30 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
+/** «6 classi, l’orario (180 ore), 12 docenti che insegnano solo qui e 2 orari salvati» */
+function lostText(info: NonNullable<ReturnType<typeof sedeContents>>): string {
+  const n = (k: number, one: string, many: string) => (k === 1 ? one : `${k} ${many}`);
+  const parts = [
+    info.classes > 0 && n(info.classes, "1 classe", "classi"),
+    info.lessons > 0 && `l’orario (${n(info.lessons, "1 ora", "ore")})`,
+    info.teachers > 0 && n(info.teachers, "1 docente che insegna solo qui", "docenti che insegnano solo qui"),
+    info.saved > 0 && n(info.saved, "1 orario salvato", "orari salvati"),
+    info.absences > 0 && n(info.absences, "1 assenza", "assenze"),
+  ].filter((x): x is string => Boolean(x));
+  if (parts.length === 0) return "solo le sue impostazioni: è vuota";
+  return parts.length === 1 ? parts[0]! : `${parts.slice(0, -1).join(", ")} e ${parts[parts.length - 1]}`;
+}
+
 function SedeDialog({ sedeId, onClose }: { sedeId: string; onClose: () => void }) {
   const store = useAppStore();
   const data = snapshot(store);
   const sede = allSedi(data).find((s) => s.id === sedeId);
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  // eliminazione in due passaggi: 1 = cosa si perde, 2 = ultima conferma
+  const [step, setStep] = useState<0 | 1 | 2>(0);
   if (!sede) return null;
   const settings = sede.data.settings;
   const removable = canRemoveSede(data, sedeId);
+  const info = sedeContents(data, sedeId);
   const update = (patch: Parameters<typeof store.updateSede>[1]) => store.updateSede(sedeId, patch);
 
   return (
@@ -215,43 +232,86 @@ function SedeDialog({ sedeId, onClose }: { sedeId: string; onClose: () => void }
             </p>
             <CampanellaEditor settings={settings} onChange={update} />
           </div>
-          <div className="sticky bottom-0 z-10 flex flex-wrap items-center gap-2 border-t border-border bg-popover pt-3">
-            {confirmDelete ? (
-              <>
-                <span className="text-sm">Eliminare questa sede?</span>
-                <Button variant="outline" onClick={() => setConfirmDelete(false)}>
-                  No
-                </Button>
-                <Button
-                  variant="destructive"
-                  onClick={() => {
-                    store.removeSede(sedeId);
-                    toast.message("Sede eliminata");
-                    onClose();
-                  }}
-                >
-                  Sì, elimina
-                </Button>
-              </>
-            ) : (
-              <Button
-                variant="outline"
-                disabled={!removable}
-                onClick={() => setConfirmDelete(true)}
-                title={removable ? undefined : "Si elimina solo una sede senza classi, e mai l’ultima"}
-              >
-                Elimina sede
-              </Button>
+          <div className="sticky bottom-0 z-10 grid gap-3 border-t border-border bg-popover pt-3">
+            {step === 1 && info && (
+              <div className="rounded-xl border border-destructive/25 bg-danger-soft px-4 py-3 text-sm">
+                <p className="font-medium">Eliminare «{sedeName(settings)}»?</p>
+                <p className="mt-1">Insieme alla sede si cancellano {lostText(info)}.</p>
+                {info.shared > 0 && (
+                  <p className="mt-1 text-muted-foreground">
+                    {info.shared === 1
+                      ? "Il docente in comune resta nelle altre sedi, senza le ore di qui."
+                      : `I ${info.shared} docenti in comune restano nelle altre sedi, senza le ore di qui.`}
+                  </p>
+                )}
+              </div>
             )}
-            <Button className="ml-auto" onClick={onClose}>
-              Fatto
-            </Button>
+            {step === 2 && (
+              <div className="rounded-xl border border-destructive/25 bg-danger-soft px-4 py-3 text-sm">
+                <p className="font-medium">Ultima conferma</p>
+                <p className="mt-1">
+                  L’eliminazione non si può annullare. Se vuoi tenerne una copia, esporta prima il backup: contiene tutte
+                  le sedi.
+                </p>
+              </div>
+            )}
+            <div className="flex flex-wrap items-center gap-2">
+              {step === 0 && (
+                <Button
+                  variant="outline"
+                  disabled={!removable}
+                  onClick={() => setStep(1)}
+                  title={removable ? undefined : "L’ultima sede non si elimina"}
+                >
+                  Elimina sede
+                </Button>
+              )}
+              {step === 1 && (
+                <>
+                  <Button variant="outline" onClick={() => setStep(0)}>
+                    Annulla
+                  </Button>
+                  <Button variant="destructive" onClick={() => setStep(2)}>
+                    Continua
+                  </Button>
+                </>
+              )}
+              {step === 2 && (
+                <>
+                  <Button variant="outline" onClick={() => setStep(0)}>
+                    No
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      void shareOrSave(
+                        `gestione-docenti-backup-${store.selectedDate}.json`,
+                        backupJson(data),
+                        "application/json",
+                      ).then((outcome) => toastSave(outcome, "backup"));
+                    }}
+                  >
+                    Esporta backup
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    onClick={() => {
+                      const name = sedeName(settings);
+                      store.removeSede(sedeId);
+                      toast.message(`Sede «${name}» eliminata`);
+                      onClose();
+                    }}
+                  >
+                    Sì, elimina
+                  </Button>
+                </>
+              )}
+              <Button className="ml-auto" onClick={onClose}>
+                Fatto
+              </Button>
+            </div>
           </div>
-          {!removable && (
-            <p className="-mt-1 text-[12px] text-muted-foreground">
-              Per eliminare una sede togli prima le sue classi; l’ultima sede non si elimina.
-            </p>
-          )}
+          {!removable && <p className="-mt-1 text-[12px] text-muted-foreground">L’ultima sede non si elimina.</p>}
         </div>
       </DialogContent>
     </Dialog>
