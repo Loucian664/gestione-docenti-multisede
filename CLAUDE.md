@@ -119,7 +119,8 @@ due sedi alla stessa ora, un'ora libera tra lezioni in sedi diverse, al massimo 
 × valide solo nella loro sede; le giornate in due sedi pesano come «qui e nell'altro plesso». Le ore a
 disposizione restano ferme durante la ricerca e si sistemano dopo, sede per sede. «Salva nello slot…» e
 «Usa questa proposta» valgono per tutte le sedi con lo stesso numero di slot. In Orario, Quadro e
-Settimana hanno «Tutte le sedi» (sola lettura); nella vista Giorno le sedi vanno a capo su più file, in ordine, quante ne
+Settimana hanno «Tutte le sedi» (sola lettura); in Docente, per chi insegna in più sedi, ogni ora porta il nome
+della sua sede, anche quelle della sede in uso; nella vista Giorno le sedi vanno a capo su più file, in ordine, quante ne
 servono per la larghezza dello schermo (`righeSedi`). Da costruire: «Esporta sede» e «Riporta sede» (tappa 3).
 
 Eliminare una sede (pagina Sedi, due avvisi): si cancellano classi, orario, docenti solo lì, orari salvati e

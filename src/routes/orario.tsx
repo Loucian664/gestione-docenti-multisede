@@ -40,7 +40,7 @@ import { cn } from "@/lib/utils";
 import { ScrollGrid } from "@/components/scroll-grid";
 import { teacherCell } from "@/lib/teacher-palette";
 import { CostruisciOrario } from "@/components/costruisci-orario";
-import { allSedi, elsewhereCells } from "@/lib/sedi";
+import { allSedi, elsewhereCells, sedeName } from "@/lib/sedi";
 import { GiornoGenerale, SettimanaGenerale } from "@/components/vista-generale";
 import { vistaSedi } from "@/lib/sedi-insieme";
 import { BucheList } from "@/components/buche-list";
@@ -113,6 +113,8 @@ function OrarioPage() {
   const elsewhere = currentTeacher ? elsewhereCells(data, currentTeacher) : [];
   const elsewhereLessons = elsewhere.filter((c) => c.label !== "disp.");
   const elsewhereSedi = [...new Set(elsewhere.map((c) => c.sedeName))];
+  // chi insegna anche in altre sedi: ogni ora dice in quale sede è, anche quelle della sede in uso
+  const hereName = elsewhere.length > 0 ? sedeName(data.settings) : "";
   const teacherDisp = currentTeacher?.dispSlots?.length ?? 0;
   const teacherGaps =
     currentTeacher && isTimetableTeacher(currentTeacher)
@@ -684,6 +686,9 @@ function OrarioPage() {
                         >
                           {slot ? (
                             <>
+                              {hereName && (
+                                <span className={cn("text-[12px] font-medium", tc.text2)}>{hereName}</span>
+                              )}
                               <span className="text-[13px] font-medium">{cls?.name}</span>
                               <span className={cn("text-[12px]", tc.text2)}>
                                 {slot.subject}
@@ -693,9 +698,14 @@ function OrarioPage() {
                               )}
                             </>
                           ) : (
-                            <span className="text-[12px] text-ink-faint">
-                              {disp ? "A disposizione" : inWindow ? "Buca · in sede" : "Aggiungi"}
-                            </span>
+                            <>
+                              {disp && hereName && (
+                                <span className="text-[12px] font-medium text-muted-foreground">{hereName}</span>
+                              )}
+                              <span className="text-[12px] text-ink-faint">
+                                {disp ? "A disposizione" : inWindow ? "Buca · in sede" : "Aggiungi"}
+                              </span>
+                            </>
                           )}
                         </button>
                       </td>
