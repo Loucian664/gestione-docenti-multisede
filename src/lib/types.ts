@@ -74,6 +74,8 @@ export type Teacher = {
   noGaps?: boolean;
   /** Righe della scheda (classe, materia, ore). Restano sul docente anche se le cattedre globali si perdono. */
   cardRows?: { classId: string; subject: string; hours: number }[];
+  /** Stessa persona in più sedi: le sue schede nelle varie sedi hanno lo stesso valore. */
+  personId?: string;
 };
 
 export type SchoolClass = {
@@ -200,7 +202,35 @@ export type PersistedData = {
   origin?: "seed" | "user";
   /** Last imported backup filename, if any. */
   importedBackupName?: string;
+  /**
+   * Sede in uso: i suoi dati sono quelli qui sopra (impostazioni, docenti, classi, orario…), come
+   * nell'archivio di un plesso solo. Assente in un backup dell'app di Rombiolo: c'è una sede sola.
+   */
+  sedeId?: string;
+  /** Le altre sedi dell'istituto, ciascuna con i suoi dati. */
+  altreSedi?: SedeArchive[];
+  /** Ordine delle sedi nella pagina Sedi e nella scelta della sede (id). */
+  ordineSedi?: string[];
 };
+
+/** I dati che ogni sede ha per conto suo: tutto tranne data scelta e informazioni di salvataggio. */
+export type SedeData = Pick<
+  PersistedData,
+  | "settings"
+  | "teachers"
+  | "classes"
+  | "slots"
+  | "absences"
+  | "substitutions"
+  | "cattedre"
+  | "cattedraBackup"
+  | "cattedraDispBackup"
+  | "savedTimetables"
+  | "activeSlot"
+  | "officialBackup"
+>;
+
+export type SedeArchive = { id: string; data: SedeData };
 
 export const ABSENCE_REASONS: { value: AbsenceReason; label: string }[] = [
   { value: "malattia", label: "Malattia" },

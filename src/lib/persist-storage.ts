@@ -1,5 +1,13 @@
 import type { StateStorage } from "zustand/middleware";
-import { DEFAULT_SCHOOL_NAME, LEGACY_SCHOOL_NAMES, SEED_ABSENCE_IDS, SEED_CLASS_TEMPO, SEED_TEACHER_IDS, buildSeed } from "./seed";
+import {
+  DEFAULT_SCHOOL_NAME,
+  LEGACY_SCHOOL_NAMES,
+  SEED_ABSENCE_IDS,
+  SEED_CLASS_TEMPO,
+  SEED_SEDE_NAMES,
+  SEED_TEACHER_IDS,
+  buildSeed,
+} from "./seed";
 import type { PersistedData } from "./types";
 
 /** Nessun nome vecchio: l'app di Rombiolo (copertura-plesso…) sta sullo stesso sito e i suoi dati non vanno né letti né cancellati. */
@@ -153,17 +161,26 @@ function ssSet(key: string, value: string): void {
 
 const SEED_IDS = new Set<string>(SEED_TEACHER_IDS);
 const SEED_ABSENCE = new Set<string>(SEED_ABSENCE_IDS);
-const SHIPPED_SCHOOL_NAMES = new Set<string>([DEFAULT_SCHOOL_NAME, ...LEGACY_SCHOOL_NAMES]);
+const SHIPPED_SCHOOL_NAMES = new Set<string>([DEFAULT_SCHOOL_NAME, ...LEGACY_SCHOOL_NAMES, ...SEED_SEDE_NAMES]);
 
 function isShippedSchoolName(name: string | undefined): boolean {
   return !name || SHIPPED_SCHOOL_NAMES.has(name);
+}
+
+/** Docenti di tutte le sedi: la sede in uso può essere nuova e ancora vuota. */
+function allTeachersCount(data: PersistSlice): number {
+  return (data.teachers?.length ?? 0) + (data.altreSedi ?? []).reduce((n, a) => n + (a.data?.teachers?.length ?? 0), 0);
 }
 
 /** Deliberate wipe: empty organico with a user stamp. Not the shipped example. */
 export function isClearedRegister(data: PersistSlice | null | undefined): boolean {
   if (!data || data.origin === "seed") return false;
   if ((Number(data.savedAt) || 0) <= 0) return false;
+  const others = (data.altreSedi ?? []).some(
+    (a) => (a.data?.teachers?.length ?? 0) + (a.data?.classes?.length ?? 0) + (a.data?.slots?.length ?? 0) > 0,
+  );
   return (
+    !others &&
     (data.teachers?.length ?? 0) === 0 &&
     (data.classes?.length ?? 0) === 0 &&
     (data.slots?.length ?? 0) === 0
@@ -303,6 +320,8 @@ export function mergeSlices(a: PersistSlice, b: PersistSlice): PersistSlice {
   if (isClearedRegister(b) && bAt >= aAt) return { ...b, origin: "user" };
 
   const preferB = bAt >= aAt;
+  // sedi in uso diverse: i dati in cima sono di due sedi, non si mescolano
+  if ((a.sedeId ?? "") !== (b.sedeId ?? "")) return preferB ? { ...b } : { ...a };
   const nameA = a.settings?.schoolName ?? "";
   const nameB = b.settings?.schoolName ?? "";
   const aCustom = Boolean(nameA && !isShippedSchoolName(nameA));
@@ -355,6 +374,9 @@ export function mergeSlices(a: PersistSlice, b: PersistSlice): PersistSlice {
     importedBackupName: preferB
       ? b.importedBackupName || a.importedBackupName
       : a.importedBackupName || b.importedBackupName,
+    sedeId: a.sedeId ?? b.sedeId,
+    altreSedi: preferB ? b.altreSedi ?? a.altreSedi : a.altreSedi ?? b.altreSedi,
+    ordineSedi: preferB ? b.ordineSedi ?? a.ordineSedi : a.ordineSedi ?? b.ordineSedi,
   };
 }
 
@@ -397,7 +419,7 @@ export function shouldAcceptWrite(incoming: string, existing: string | null, for
   if (incSeed && incAt === 0) return false;
   const ex = parsePersist(existing);
   if (!ex) return !incSeed || incAt > 0;
-  if ((inc.teachers?.length ?? 0) === 0 && (ex.teachers?.length ?? 0) > 0) {
+  if (allTeachersCount(inc) === 0 && allTeachersCount(ex) > 0) {
     if (!isClearedRegister(inc) || incAt < persistSavedAt(existing)) return false;
   }
   const exSeed = isSeedLike(ex);
