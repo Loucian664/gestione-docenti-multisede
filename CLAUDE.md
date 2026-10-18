@@ -60,7 +60,7 @@
 
 - Test di `src/lib`: per ogni `src/lib/*.test.ts`
   `node_modules/.bin/rolldown <file> --platform node --format esm --file <cartella>/<nome>.mjs`,
-  poi `node --test <cartella>/*.mjs` (141 test al 18/10/2026). `npm test` non li esegue.
+  poi `node --test <cartella>/*.mjs` (147 test al 18/10/2026). `npm test` non li esegue.
 - `npx tsc --noEmit`: 10 errori già presenti; non devono aumentare.
 - `GITHUB_PAGES=true BASE_PATH=/gestione-docenti-multisede/ npm run build:pages` deve riuscire.
 - Nei test del motore usa l'orologio finto (`now: ticks()` in `src/lib/timetable-solver.test.ts`), così
@@ -87,6 +87,9 @@ Una copia di prova, non il codice vero:
 - `src/lib/sedi.ts`: più sedi (cambio sede, sedi non in uso, docenti in comune con `personId`, × automatiche
   dalle altre sedi con `withOtherSedi`); `src/routes/sedi.tsx`: pagina Sedi; `src/components/campanella-editor.tsx`:
   orari di una sede.
+- `src/lib/sedi-insieme.ts`: «Tutte le sedi insieme» (dati di tutte le sedi per il motore con `buildInsieme`,
+  risultato di nuovo per sede con `splitInsieme`, ore a disposizione per sede con `insiemeParts`);
+  `src/components/vista-generale.tsx`: vista generale (Giorno, Settimana, Docenti, Classe su tutte le sedi).
 - `src/lib/timetable-solver.ts`: motore di Costruisci («Da zero», «Migliora l'attuale», Ritocchi, Trova,
   ore a disposizione nelle buche); `timetable-worker.ts` e `timetable-runner.ts` lo fanno girare in
   background.
@@ -105,8 +108,16 @@ uso. Chi insegna in più sedi ha una scheda in ognuna con lo stesso `personId` (
 sincronizzati); in Costruisci le sue ore nelle altre sedi diventano × automatiche (`withOtherSedi`), sulla
 campanella della sede in uso, e il motore lascia l'ora di spostamento. Le × a mano (`awaySlots`) restano
 per giornate intere e impegni; `otherPlesso` a mano vale per chi insegna in sedi fuori dall'app. Gli esempi
-hanno due sedi con nomi inventati. Da costruire: Costruisci per tutte le sedi insieme (tappa 2), «Esporta
-sede» e «Riporta sede» (tappa 3).
+hanno due sedi con nomi inventati.
+
+Tappa 2: in Costruisci «Tutte le sedi insieme» (solo sedi con gli stessi giorni e le stesse ore del
+mattino; le ore si abbinano per numero). Il motore riceve le classi di tutte le sedi con la sede di ognuna
+(`InsiemeInfo` in `timetable-solver.ts`: `nSedi`, `classSede`, `sedeUnavail`, `tSede`); vincoli rigidi: mai
+due sedi alla stessa ora, un'ora libera tra lezioni in sedi diverse, al massimo un cambio di sede al giorno,
+× valide solo nella loro sede; le giornate in due sedi pesano come «qui e nell'altro plesso». Le ore a
+disposizione restano ferme durante la ricerca e si sistemano dopo, sede per sede. «Salva nello slot…» e
+«Usa questa proposta» valgono per tutte le sedi con lo stesso numero di slot. In Orario, Quadro e
+Settimana hanno «Tutte le sedi» (sola lettura). Da costruire: «Esporta sede» e «Riporta sede» (tappa 3).
 
 ## Più sedi: decisioni dell'utente (17/10/2026)
 
