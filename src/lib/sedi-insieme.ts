@@ -278,3 +278,49 @@ export function vistaSedi(data: PersistedData, lessons?: Record<string, Timetabl
     };
   });
 }
+
+/**
+ * Vista generale, Giorno: le sedi divise in file, nell'ordine, perché ogni fila stia in `cap` colonne. Meno file
+ * possibile e il più pari possibile; una sede più larga di `cap` sta da sola nella sua fila (e scorre di lato).
+ * `sizes`: le colonne di ogni sede; restituisce gli indici delle sedi di ogni fila.
+ */
+export function righeSedi(sizes: number[], cap: number): number[][] {
+  const n = sizes.length;
+  if (n === 0) return [];
+  const limit = Math.max(1, cap);
+  const greedy = () => {
+    const rows: number[][] = [];
+    let w = 0;
+    sizes.forEach((x, i) => {
+      if (rows.length && w + x <= limit) {
+        rows[rows.length - 1]!.push(i);
+        w += x;
+      } else {
+        rows.push([i]);
+        w = x;
+      }
+    });
+    return rows;
+  };
+  if (n > 14) return greedy();
+  // tutte le divisioni in file (le sedi restano in ordine): meno file, poi la fila più larga, poi la più pari
+  let best: { rows: number[][]; widest: number; squares: number } | null = null;
+  for (let mask = 0; mask < 1 << (n - 1); mask++) {
+    const rows: number[][] = [[0]];
+    for (let i = 1; i < n; i++) {
+      if (mask & (1 << (i - 1))) rows.push([i]);
+      else rows[rows.length - 1]!.push(i);
+    }
+    const widths = rows.map((r) => r.reduce((a, i) => a + sizes[i]!, 0));
+    if (rows.some((r, k) => r.length > 1 && widths[k]! > limit)) continue;
+    const widest = Math.max(...widths);
+    const squares = widths.reduce((a, w) => a + w * w, 0);
+    if (
+      !best ||
+      rows.length < best.rows.length ||
+      (rows.length === best.rows.length && (widest < best.widest || (widest === best.widest && squares < best.squares)))
+    )
+      best = { rows, widest, squares };
+  }
+  return best!.rows;
+}

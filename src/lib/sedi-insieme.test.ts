@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import { isTimetableTeacher } from "./build-timetable.ts";
 import { buildSeed } from "./seed.ts";
 import { allSedi, editSede, sedeIdOf } from "./sedi.ts";
-import { buildInsieme, canBuildTogether, insiemeParts, splitInsieme } from "./sedi-insieme.ts";
+import { buildInsieme, canBuildTogether, insiemeParts, righeSedi, splitInsieme } from "./sedi-insieme.ts";
 import { prepare, solveTimetable } from "./timetable-solver.ts";
 import type { PersistedData, TimetableSlot } from "./types.ts";
 
@@ -143,5 +143,18 @@ describe("tutte le sedi insieme", () => {
       assert.equal(parts[s.id]!.lessons.length, morningLessons(d)[s.id]!.length);
       assert.ok(parts[s.id]!.disp);
     }
+  });
+
+  it("vista Giorno: le sedi in file, in ordine, meno file possibile e il più pari possibile", () => {
+    const sizes = [6, 6, 3, 3, 1, 1];
+    // schermo largo: tutte in una fila
+    assert.deepEqual(righeSedi(sizes, 20), [[0, 1, 2, 3, 4, 5]]);
+    // 12 classi per fila: due file da 12 e 8
+    assert.deepEqual(righeSedi(sizes, 12), [[0, 1], [2, 3, 4, 5]]);
+    // 9 per fila: tre file, la più larga da 8 (non 6 | 6+3 | 3+1+1)
+    assert.deepEqual(righeSedi(sizes, 9), [[0], [1], [2, 3, 4, 5]]);
+    // telefono: una sede troppo larga sta da sola; le piccole insieme
+    assert.deepEqual(righeSedi(sizes, 2), [[0], [1], [2], [3], [4, 5]]);
+    assert.deepEqual(righeSedi([], 5), []);
   });
 });
