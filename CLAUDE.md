@@ -31,10 +31,12 @@
 
 - I backup JSON dell'utente e le sue schermate contengono nomi veri di colleghi. Usali solo in locale,
   in una cartella temporanea: mai in commit, anteprime, test o messaggi su GitHub.
-- Anteprime private su Claude: dal 18/10/2026 l'utente vuole i dati veri (nomi reali compresi). Nell'anteprima
-  la sede Rombiolo viene dal suo backup (con assenze, sostituzioni e orari salvati), accanto alle sedi
-  inventate; la copia di prova usa un nome di salvataggio suo (es. `gestione-docenti-multisede-rombiolo`).
-  Nel codice, nei test, nei commit e sul sito pubblicato restano gli esempi con nomi inventati.
+- Anteprime private su Claude: dal 18/10/2026 l'utente vuole i dati veri (nomi reali compresi). Dal 18/10
+  l'anteprima ha le 6 sedi vere: Rombiolo dal suo backup (con assenze, sostituzioni e orari salvati), le altre
+  dal PDF delle assegnazioni e dagli orari in vigore; la copia di prova usa un nome di salvataggio suo
+  (`gestione-docenti-multisede-sedi-reali`). Gli script che costruiscono questi dati (trascrizioni, confronti,
+  backup «orario-generale-6-sedi.json») stanno solo nella cartella temporanea della sessione, mai nella
+  repository. Nel codice, nei test, nei commit e sul sito pubblicato restano gli esempi con nomi inventati.
 
 ## Dati nel browser
 
@@ -183,6 +185,14 @@ riga mostra un avviso.
   Mensa) e «Laboratorio scientifico» + Mensa il rientro di matematica; «Progetto LEL (Latino)» è la materia
   «Latino», 1 ora; le righe con gli asterischi non ci sono.
 - Le lettere delle sedi non servono: si usano i nomi reali. La sede «ferma» per ora non serve.
+- Dati delle sedi (18/10/2026): ore di 60 minuti per tutte le sedi, Rombiolo compresa (8-14; Mensa 14-15,
+  7ª 15-16, 8ª 16-17), così le ore delle sedi coincidono. Stessa persona solo con cognome e nome uguali.
+  Ogni docente fa 18 ore, salvo rare eccezioni (Pontoriero Grazia: 9 a Rombiolo e 9 a Cessaniti). Comerci
+  è potenziamento a San Calogero. Strumento come a Rombiolo (senza orario), con Ventura a Rombiolo. La
+  pluriclasse di Zaccanopoli è una classe sola («1ª-2ª-3ª A»). Dove PDF e orario in vigore non coincidono
+  vale l'orario in vigore (es. matematica di 3ª A e 3ª B a Cessaniti). Il Progetto LEL (Latino) sta al
+  pomeriggio come nell'orario in vigore. La regola di Rombiolo sui rientri (mattina dalla 4ª ora) per ora
+  vale solo lì.
 - Strumento (chitarra, pianoforte, flauto): resta nell'elenco docenti senza orario (lezioni individuali
   al pomeriggio); serve per le sostituzioni.
 - Le sostituzioni di ogni giorno restano nell'app di Rombiolo: qui Oggi, Assenze e Report restano come
