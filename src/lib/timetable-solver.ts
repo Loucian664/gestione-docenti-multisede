@@ -108,6 +108,19 @@ type TeacherInfo = {
 
 type ClassInfo = { id: string; name: string };
 
+/**
+ * «Tutte le sedi insieme»: le classi di tutte le sedi in un problema solo. Il docente in più sedi è una
+ * persona sola; le × segnate in una sede valgono solo per quella sede.
+ */
+export type InsiemeInfo = {
+  /** nomi delle sedi, nell'ordine */
+  sedi: string[];
+  /** sede (indice) di ogni classe */
+  classSede: Record<string, number>;
+  /** × segnate in una sede: lì il docente in quell'ora non può essere (ma in un'altra sede sì) */
+  sedeAway: Record<string, { s: number; day: DayOfWeek; periodId: string }[]>;
+};
+
 type SlotWish = { d: number; m: number; classes: number[] };
 
 export type Prep = {
@@ -180,6 +193,13 @@ export type Prep = {
   dispMask0: Uint32Array;
   /** T*D: dove può stare una disposizione (mattino, senza ×, «no» e prima della 4ª nei giorni di rientro) */
   dispCand: Uint32Array;
+  /** «Tutte le sedi insieme»: quante sedi (1 = una sede, come sempre) */
+  nSedi: number;
+  /** C: sede di ogni classe */
+  classSede: Int8Array;
+  sedeNames: string[];
+  /** T*D*P (solo con più sedi): sedi, un bit per sede, in cui il docente in quell'ora non può essere */
+  sedeUnavail: Uint32Array;
 };
 
 /** Ore a disposizione del docente su questo plesso (dichiarate o segnate). */
@@ -265,7 +285,9 @@ export function prepare(
 ): Prep {
   const keepDisp = opts.keepDisp ?? source === "slots";
   const dispYield = Boolean(opts.dispYield);
-  const floatDisp = keepDisp && Boolean(opts.floatDisp);
+  // «Tutte le sedi insieme»: le ore a disposizione restano dove sono (dopo, sede per sede)
+  const insieme = (data as PersistedData & { insieme?: InsiemeInfo }).insieme;
+  const floatDisp = keepDisp && Boolean(opts.floatDisp) && !insieme;
   const warnings: string[] = [];
   const days = [...data.settings.days].sort((a, b) => a - b);
   const D = days.length;
@@ -669,6 +691,24 @@ export function prepare(
     for (let x = 0; x < S; x++) if (csHours[c * S + x] && PE_RE.test(subjects[x]!)) peSubj[c] = x;
   }
 
+  // «Tutte le sedi insieme»: sede di ogni classe e × segnate in una sola sede
+  const nSedi = insieme ? Math.max(1, insieme.sedi.length) : 1;
+  const classSede = new Int8Array(C);
+  const sedeUnavail = new Uint32Array(nSedi > 1 ? T * D * P : 0);
+  if (insieme && nSedi > 1) {
+    classes.forEach((c, i) => (classSede[i] = insieme.classSede[c.id] ?? 0));
+    for (const [id, list] of Object.entries(insieme.sedeAway)) {
+      const ti = teacherIdx.get(id);
+      if (ti === undefined) continue;
+      for (const a of list) {
+        const d = dayIdx.get(a.day);
+        const pos = posOf.get(a.periodId);
+        if (d === undefined || pos === undefined) continue;
+        sedeUnavail[(ti * D + d) * P + pos]! |= 1 << a.s;
+      }
+    }
+  }
+
   const orig = new Int32Array(C * DM).fill(-1);
   for (const s of data.slots) {
     if (!poolSet.has(s.teacherId) || !isMorning(s.periodId)) continue;
@@ -730,6 +770,10 @@ export function prepare(
     floatDisp,
     dispMask0,
     dispCand,
+    nSedi,
+    classSede,
+    sedeNames: insieme?.sedi ?? [],
+    sedeUnavail,
   };
 }
 
@@ -795,6 +839,8 @@ export class TimetableSolver {
   grid: Int16Array;
   unitCell: Int32Array;
   tOcc: Uint8Array;
+  /** «Tutte le sedi insieme»: lezioni del docente per ora e per sede (T*D*P*nSedi; vuoto con una sede) */
+  tSede: Uint8Array;
   ccount: Uint8Array;
   lastCount: Int16Array;
   cdCost: Float64Array;
@@ -833,6 +879,9 @@ export class TimetableSolver {
   private lastLessonsM = 0;
   private lastDuties = 0;
   private lastMixed = false;
+  /** l'ultima giornata calcolata: vincoli tra sedi non rispettati */
+  private lastSedeHard = 0;
+  private sedeBuf: Int16Array;
   // voci del confronto per parte dell'orario e totali
   private tdMet: Int16Array;
   private twMet: Int16Array;
@@ -910,6 +959,8 @@ export class TimetableSolver {
     this.grid = new Int16Array(C * DM).fill(-1);
     this.unitCell = new Int32Array(U).fill(-1);
     this.tOcc = new Uint8Array(T * D * P);
+    this.tSede = new Uint8Array(prep.nSedi > 1 ? T * D * P * prep.nSedi : 0);
+    this.sedeBuf = new Int16Array(Math.max(1, prep.nSedi));
     this.ccount = new Uint8Array(C * S * D);
     this.lastCount = new Int16Array(T);
     this.cdCost = new Float64Array(C * D);
@@ -983,7 +1034,18 @@ export class TimetableSolver {
   private resetOcc() {
     const p = this.p;
     this.tOcc.fill(0);
-    for (const f of p.fixed) this.tOcc[(f.t * p.D + f.d) * p.P + f.pos]! += 1;
+    this.tSede.fill(0);
+    for (const f of p.fixed) {
+      this.tOcc[(f.t * p.D + f.d) * p.P + f.pos]! += 1;
+      this.bumpSede(f.t, f.d, f.pos, f.c, 1);
+    }
+  }
+
+  /** «Tutte le sedi insieme»: una lezione in più (o in meno) del docente in quell'ora, nella sede della classe. */
+  private bumpSede(t: number, d: number, pos: number, c: number, delta: number) {
+    const p = this.p;
+    if (p.nSedi < 2) return;
+    this.tSede[((t * p.D + d) * p.P + pos) * p.nSedi + p.classSede[c]!]! += delta;
   }
 
   private occAt(t: number, z: number): number {
@@ -1000,6 +1062,7 @@ export class TimetableSolver {
     this.unitCell[u] = cell;
     const t = p.unitTeacher[u]!;
     this.tOcc[(t * p.D + ((cell / p.M) | 0)) * p.P + p.morningPos[cell % p.M]!]! += 1;
+    this.bumpSede(t, (cell / p.M) | 0, p.morningPos[cell % p.M]!, c, 1);
   }
 
   /** Mette le lezioni: dalla posizione iniziale se c'è, altrimenti a caso ma con criterio. */
@@ -1058,7 +1121,11 @@ export class TimetableSolver {
         const d = (cell / M) | 0;
         const pos = p.morningPos[cell % M]!;
         const k = (t * D + d) * P + pos;
-        const ok = !p.unavail[k] && this.tOcc[k] === 0 && !(p.rientro[t * D + d] && p.pIndex[pos]! < 4);
+        const ok =
+          !p.unavail[k] &&
+          this.tOcc[k] === 0 &&
+          !(p.rientro[t * D + d] && p.pIndex[pos]! < 4) &&
+          !(p.nSedi > 1 && (p.sedeUnavail[k]! >>> p.classSede[c]!) & 1);
         (ok ? options : fallback).push(cell);
       }
       const list = options.length ? options : fallback;
@@ -1082,6 +1149,7 @@ export class TimetableSolver {
       if (this.grid[c * DM + cell] === -1) this.grid[c * DM + cell] = u;
       const t = p.unitTeacher[u]!;
       this.tOcc[(t * p.D + ((cell / p.M) | 0)) * p.P + p.morningPos[cell % p.M]!]! += 1;
+      this.bumpSede(t, (cell / p.M) | 0, p.morningPos[cell % p.M]!, c, 1);
     }
     this.recomputeAll();
   }
@@ -1099,6 +1167,7 @@ export class TimetableSolver {
         this.unitCell[u] = cell;
         const t = p.unitTeacher[u]!;
         this.tOcc[(t * p.D + ((cell / p.M) | 0)) * p.P + p.morningPos[cell % p.M]!]! += 1;
+        this.bumpSede(t, (cell / p.M) | 0, p.morningPos[cell % p.M]!, c, 1);
       }
     }
     this.recomputeAll();
@@ -1448,6 +1517,7 @@ export class TimetableSolver {
     }
     this.lastLessonsM = lessonsM;
     this.lastDuties = duties;
+    this.lastSedeHard = 0;
     if (duties === 0) {
       this.lastGaps = 0;
       this.lastSpan6 = false;
@@ -1473,15 +1543,68 @@ export class TimetableSolver {
     const span6 = !afternoon && mFirst >= 0 && p.pIndex[mLast]! - p.pIndex[mFirst]! + 1 >= 6;
     if (span6) cost += info.full ? W.span6 + W.span6Full : W.span6;
     if (duties === 1) cost += W.single;
-    const mixed = info.otherPlesso && p.dayHasAway[t * p.D + d] === 1 && mFirst >= 0;
+    let mixed = info.otherPlesso && p.dayHasAway[t * p.D + d] === 1 && mFirst >= 0;
     if (mixed) {
       cost += W.mixed;
       if (lessonsM <= 1) cost += W.mixedSingle;
+    }
+    if (p.nSedi > 1) {
+      // in più sedi nello stesso giorno: come qui e nell'altro plesso
+      const sd = this.sedeDay(t, d);
+      this.lastSedeHard = sd.hard;
+      if (sd.sedi > 1 && !mixed) {
+        mixed = true;
+        cost += W.mixed;
+        if (sd.minLessons <= 1) cost += W.mixedSingle;
+      }
     }
     this.lastGaps = gaps;
     this.lastSpan6 = span6;
     this.lastMixed = mixed;
     return cost;
+  }
+
+  /**
+   * «Tutte le sedi insieme»: le sedi del docente nella giornata. Vincoli: almeno un'ora libera tra una
+   * lezione in una sede e una in un'altra, al massimo un cambio di sede, niente lezioni in una sede
+   * dove l'ora è segnata ×. `sedi`: in quante sedi è; `minLessons`: le lezioni nella sede dove ne ha meno.
+   */
+  sedeDay(t: number, d: number): { hard: number; sedi: number; minLessons: number } {
+    const p = this.p;
+    const NS = p.nSedi;
+    const base = (t * p.D + d) * p.P;
+    const per = this.sedeBuf;
+    per.fill(0);
+    let hard = 0;
+    let prevS = -1;
+    let prevPos = -1;
+    let changes = 0;
+    for (let pos = 0; pos < p.P; pos++) {
+      let here = -1;
+      for (let s = 0; s < NS; s++) {
+        const n = this.tSede[(base + pos) * NS + s]!;
+        if (!n) continue;
+        per[s]! += n;
+        if ((p.sedeUnavail[base + pos]! >>> s) & 1) hard += n;
+        if (here < 0) here = s;
+      }
+      if (here < 0) continue;
+      if (prevS >= 0 && here !== prevS) {
+        changes += 1;
+        if (p.pIndex[pos]! - p.pIndex[prevPos]! < 2) hard += 1;
+      }
+      prevS = here;
+      prevPos = pos;
+    }
+    if (changes > 1) hard += changes - 1;
+    let sedi = 0;
+    let minLessons = 0;
+    for (let s = 0; s < NS; s++) {
+      if (!per[s]) continue;
+      sedi += 1;
+      if (sedi === 1 || per[s]! < minLessons) minLessons = per[s]!;
+    }
+    return { hard, sedi, minLessons };
   }
 
   /**
@@ -1591,6 +1714,7 @@ export class TimetableSolver {
     this.tdCost[t * D + d] = this.dayCost(t, d);
     this.tdGaps[t * D + d] = this.lastGaps;
     this.tdDuties[t * D + d] = this.lastDuties;
+    hard += this.lastSedeHard;
     hard += this.dayHardFree(t);
     this.tdHard[t * D + d] = hard;
     const o = (t * D + d) * MET_TD;
@@ -1837,6 +1961,8 @@ export class TimetableSolver {
     const mt = to % M;
     this.tOcc[(t * D + df) * P + p.morningPos[mf]!]! -= 1;
     this.tOcc[(t * D + dt) * P + p.morningPos[mt]!]! += 1;
+    this.bumpSede(t, df, p.morningPos[mf]!, c, -1);
+    this.bumpSede(t, dt, p.morningPos[mt]!, c, 1);
     if (mf === p.lastM) this.lastCount[t]! -= 1;
     if (mt === p.lastM) this.lastCount[t]! += 1;
     if (df !== dt) {
@@ -2920,6 +3046,41 @@ export function buildReport(s: TimetableSolver, expected: number): TimetableRepo
       if (info.otherPlesso && p.dayHasAway[t * D + d] && mFirst >= 0) {
         rep.docenti.mixed.push({ text: `${info.name} · ${dayName(d)}: qui e nell'altro plesso` });
         fact("mixed", twho, d, "", 1);
+      } else if (p.nSedi > 1) {
+        // «Tutte le sedi insieme»: in quali sedi, spostamenti e × segnate in una sede
+        const NS = p.nSedi;
+        const base = (t * D + d) * P;
+        const seen: number[] = [];
+        let prevS = -1;
+        let prevPos = -1;
+        let changes = 0;
+        for (let pos = 0; pos < P; pos++) {
+          let here = -1;
+          for (let x = 0; x < NS; x++) {
+            if (!s.tSede[(base + pos) * NS + x]) continue;
+            if (!seen.includes(x)) seen.push(x);
+            if ((p.sedeUnavail[base + pos]! >>> x) & 1)
+              rep.hard.away.push({
+                text: `${info.name} · ${dayName(d)} ${hourLabel(pos)}: a ${p.sedeNames[x]} in un'ora segnata ×`,
+              });
+            if (here < 0) here = x;
+          }
+          if (here < 0) continue;
+          if (prevS >= 0 && here !== prevS) {
+            changes += 1;
+            if (p.pIndex[pos]! - p.pIndex[prevPos]! < 2)
+              rep.hard.travel.push({
+                text: `${info.name} · ${dayName(d)}: da ${p.sedeNames[prevS]} a ${p.sedeNames[here]} senza un'ora libera`,
+              });
+          }
+          prevS = here;
+          prevPos = pos;
+        }
+        if (changes > 1) rep.hard.travel.push({ text: `${info.name} · ${dayName(d)}: più di un cambio di sede` });
+        if (seen.length > 1) {
+          rep.docenti.mixed.push({ text: `${info.name} · ${dayName(d)}: ${seen.map((x) => p.sedeNames[x]).join(" e ")}` });
+          fact("mixed", twho, d, "", 1);
+        }
       }
     }
     rep.gapsTotal += gaps;
