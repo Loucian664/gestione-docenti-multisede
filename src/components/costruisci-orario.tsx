@@ -41,6 +41,7 @@ import {
   type FindTarget,
   type FixOption,
   type FixStep,
+  type InsiemeInfo,
   type MoveEffect,
   type RowKey,
   type SolveMode,
@@ -77,7 +78,15 @@ import {
   type ElsewhereCell,
 } from "@/lib/sedi";
 import { formatItDate } from "@/lib/dates";
-import { buildInsieme, canBuildTogether, insiemeParts, splitInsieme, vistaSedi, type InsiemeMap } from "@/lib/sedi-insieme";
+import {
+  buildInsieme,
+  canBuildTogether,
+  insiemeParts,
+  splitInsieme,
+  vistaSedi,
+  type InsiemeData,
+  type InsiemeMap,
+} from "@/lib/sedi-insieme";
 import { ClasseGenerale, DocentiGenerale, GiornoGenerale, SettimanaGenerale } from "@/components/vista-generale";
 import { SAVE_SLOTS } from "@/lib/saved-timetables";
 
@@ -189,6 +198,10 @@ export function CostruisciOrario({
   const allTogether = scope === "tutte" && sediCount > 1;
   const [insieme, setInsieme] = useState<InsiemeResult | null>(null);
   const insiemeRef = useRef<HTMLElement>(null);
+  // «Ritocca a mano» su tutte le sedi insieme: i dati uniti e le lezioni con i ritocchi
+  const [insiemeEdit, setInsiemeEdit] = useState<InsiemeEdit | null>(null);
+  const [insiemeEditDialog, setInsiemeEditDialog] = useState<"save" | "use" | null>(null);
+  const insiemeEditRef = useRef<HTMLElement>(null);
   // docenti con ore in sedi eliminate dall'app e meno × di quelle ore: l'orario non si propone
   const removedIssues = allSedi(rawData)
     .filter((s) => allTogether || s.active)
@@ -205,6 +218,23 @@ export function CostruisciOrario({
   const byName = (a: Teacher, b: Teacher) =>
     a.lastName.localeCompare(b.lastName, "it") || a.firstName.localeCompare(b.firstName, "it");
   const included = useMemo(() => data.teachers.filter(isTimetableTeacher).sort(byName), [data.teachers]);
+  // ritocchi su tutte le sedi: i docenti di materia e le classi, sede per sede
+  const insiemeTeachers = useMemo(
+    () => (insiemeEdit ? insiemeEdit.joint.teachers.filter(isTimetableTeacher).sort(byName) : []),
+    [insiemeEdit],
+  );
+  const insiemeClasses = useMemo(() => {
+    if (!insiemeEdit) return [];
+    const { classes, insieme: info } = insiemeEdit.joint;
+    return [...classes]
+      .sort(
+        (a, b) =>
+          (info.classSede[a.id] ?? 0) - (info.classSede[b.id] ?? 0) ||
+          a.grade - b.grade ||
+          a.section.localeCompare(b.section, "it"),
+      )
+      .map((c) => ({ id: c.id, name: c.name, tempo: c.tempo }));
+  }, [insiemeEdit]);
   // nelle schede «Quando ci sono i docenti» si cambiano solo i segni messi a mano
   const rawIncluded = useMemo(() => rawData.teachers.filter(isTimetableTeacher).sort(byName), [rawData.teachers]);
   const elsewhere = useMemo(() => {
@@ -369,6 +399,7 @@ export function CostruisciOrario({
       return;
     }
     const built = buildInsieme(rawData);
+    setInsiemeEdit(null);
     if (timetableDemand(built.joint).lessons.length === 0) {
       toast.message("Niente da piazzare: inserisci prima docenti, classi e ore in orario.");
       return;
@@ -387,7 +418,7 @@ export function CostruisciOrario({
     handleRef.current = handle;
     handle.result
       .then((res) => {
-        setInsieme({ result: res, map: built.map, notes: built.notes, mode: runMode, current, savedIn: null });
+        setInsieme({ result: res, joint: built.joint, map: built.map, notes: built.notes, mode: runMode, current, savedIn: null });
         window.setTimeout(() => {
           insiemeRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
         }, 50);
@@ -408,6 +439,7 @@ export function CostruisciOrario({
     }
     if (handleRef.current) return;
     setInsieme(null);
+    setInsiemeEdit(null);
     if (timetableDemand(data).lessons.length === 0) {
       toast.message("Niente da piazzare: inserisci prima docenti, classi e ore in orario.");
       return;
@@ -478,8 +510,55 @@ export function CostruisciOrario({
   }
 
   function openEdit(from: EditState["from"]) {
+    setInsiemeEdit(null);
     setEdit({ draft: from === "proposta" && result ? result.slots : inUseDraft, history: [], from });
     window.setTimeout(() => editRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  }
+
+  /**
+   * «Ritocca a mano» su tutte le sedi insieme, dalla proposta o dagli orari in uso: le mosse e le catene
+   * possono passare da una sede all'altra, con le regole tra sedi.
+   */
+  function openInsiemeEdit(from: EditState["from"]) {
+    let next: InsiemeEdit;
+    if (from === "proposta" && insieme) {
+      next = {
+        edit: { draft: insieme.result.slots, history: [], from },
+        joint: insieme.joint,
+        map: insieme.map,
+        mode: insieme.mode,
+      };
+    } else {
+      const built = buildInsieme(rawData);
+      const jointPool = new Set(built.joint.teachers.filter(isTimetableTeacher).map((t) => t.id));
+      const draft = built.joint.slots.filter(
+        (s) => jointPool.has(s.teacherId) && !isTpPeriodId(built.joint.settings.periods, s.periodId),
+      );
+      next = { edit: { draft, history: [], from: "uso" }, joint: built.joint, map: built.map, mode: "improve" };
+    }
+    setEdit(null);
+    setInsiemeEdit(next);
+    window.setTimeout(() => insiemeEditRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  }
+
+  /** I ritocchi su tutte le sedi nello slot `n` di ogni sede: salvati, o anche in uso. */
+  function pickInsiemeEdit(n: number, name: string) {
+    if (!insiemeEdit || !insiemeEditDialog) return;
+    const parts = insiemeParts(rawData, splitInsieme(insiemeEdit.map, insiemeEdit.edit.draft), insiemeEdit.mode);
+    if (insiemeEditDialog === "use") {
+      store.putInSlotAll(n, parts, name);
+      toast.success(`Slot ${n} in uso in tutte le sedi. Gli orari in vigore restano nello slot 0.`);
+      setInsiemeEdit(null);
+      setInsieme(null);
+    } else {
+      store.saveTimetableAll(n, parts, name);
+      toast.success(`Salvato nello slot ${n} di tutte le sedi: «${name}».`);
+      setInsiemeEdit({
+        ...insiemeEdit,
+        edit: { ...insiemeEdit.edit, savedIn: n, savedLen: insiemeEdit.edit.history.length },
+      });
+    }
+    setInsiemeEditDialog(null);
   }
 
   /** Apre uno slot come proposta: si confronta con l’orario in vigore, si ritocca, si usa. */
@@ -631,6 +710,7 @@ export function CostruisciOrario({
             // è cambiato l'orario in uso: proposta e ritocchi aperti erano confrontati con l'altro
             setResult(null);
             setEdit(null);
+            setInsiemeEdit(null);
             setOpenSave(null);
             setSavedIn(null);
           }}
@@ -764,7 +844,11 @@ export function CostruisciOrario({
           >
             {running ? "Sto cercando…" : allTogether ? "Proponi l’orario di tutte le sedi" : "Proponi orario"}
           </Button>
-          <Button variant="outline" onClick={() => openEdit("uso")} disabled={Boolean(running) || !inUseDraft.length}>
+          <Button
+            variant="outline"
+            onClick={() => (allTogether ? openInsiemeEdit("uso") : openEdit("uso"))}
+            disabled={Boolean(running) || (allTogether ? !together.ok : !inUseDraft.length)}
+          >
             Ritocca a mano
           </Button>
         </div>
@@ -798,7 +882,44 @@ export function CostruisciOrario({
         />
       )}
 
-      {!edit && insieme && (
+      {insiemeEdit && (
+        <Ritocchi
+          sectionRef={insiemeEditRef}
+          edit={insiemeEdit.edit}
+          settings={insiemeEdit.joint.settings}
+          teachersAll={insiemeEdit.joint.teachers}
+          classesAll={insiemeEdit.joint.classes}
+          slots={insiemeEdit.joint.slots}
+          cattedre={insiemeEdit.joint.cattedre}
+          teachers={insiemeTeachers}
+          classes={insiemeClasses}
+          morning={corePeriods(insiemeEdit.joint.settings.periods)}
+          insieme={insiemeEdit.joint.insieme}
+          canLock={false}
+          onChange={(next) => setInsiemeEdit((v) => (v ? { ...v, edit: next } : v))}
+          onClose={() => setInsiemeEdit(null)}
+          onApply={() => setInsiemeEditDialog("use")}
+          onSave={() => setInsiemeEditDialog("save")}
+          onUpdateTeacher={() => undefined}
+        />
+      )}
+      {insiemeEdit && (
+        <InsiemeSlotDialog
+          mode={insiemeEditDialog}
+          defaultName={
+            insiemeEdit.edit.from === "uso"
+              ? "Tutte le sedi · ritoccato"
+              : insiemeEdit.mode === "scratch"
+                ? "Tutte le sedi · da zero e ritoccato"
+                : "Tutte le sedi · migliorato e ritoccato"
+          }
+          data={rawData}
+          onClose={() => setInsiemeEditDialog(null)}
+          onPick={pickInsiemeEdit}
+        />
+      )}
+
+      {!edit && !insiemeEdit && insieme && (
         <InsiemeProposta
           sectionRef={insiemeRef}
           data={rawData}
@@ -806,6 +927,7 @@ export function CostruisciOrario({
           running={running}
           onStop={() => handleRef.current?.stop()}
           onRetry={proposeTogether}
+          onEdit={() => openInsiemeEdit("proposta")}
           onClose={() => setInsieme(null)}
           onSaved={(n) => setInsieme((v) => (v ? { ...v, savedIn: n } : v))}
           report={<ReportPanel current={insieme.current} proposal={insieme.result.report} mode={insieme.mode} label="Proposta" />}
@@ -1306,6 +1428,8 @@ function Ritocchi({
   onApply,
   onSave,
   onUpdateTeacher,
+  insieme,
+  canLock = true,
 }: {
   sectionRef: React.RefObject<HTMLElement | null>;
   edit: EditState;
@@ -1325,6 +1449,10 @@ function Ritocchi({
   onApply: () => void;
   onSave: () => void;
   onUpdateTeacher: (id: string, patch: Partial<Teacher>) => void;
+  /** «Tutte le sedi insieme»: la sede di ogni classe e le × di ogni sede, per le regole tra sedi */
+  insieme?: InsiemeInfo;
+  /** con tutte le sedi insieme i lucchetti non si cambiano (valgono quelli messi in ogni sede) */
+  canLock?: boolean;
 }) {
   const days = useMemo(() => [...settings.days].sort((a, b) => a - b), [settings.days]);
   const rows = useMemo(() => [...morning].sort((a, b) => a.index - b.index), [morning]);
@@ -1339,8 +1467,9 @@ function Ritocchi({
       absences: [],
       substitutions: [],
       selectedDate: "",
+      ...(insieme ? { insieme } : {}),
     }),
-    [settings, teachersAll, classesAll, slots, cattedre],
+    [settings, teachersAll, classesAll, slots, cattedre, insieme],
   );
   // le altre ore (pomeriggio, sostegno…) restano; cambiano solo le lezioni del mattino dei docenti di materia
   const keep = useMemo(
@@ -1632,7 +1761,7 @@ function Ritocchi({
     );
   /** Blocca / sblocca la lezione scelta (con la settimana bloccata si sblocca la settimana). */
   const lockButton = () => {
-    if (!sel || !selLesson || selTeacher?.lockWeek) return null;
+    if (!canLock || !sel || !selLesson || selTeacher?.lockWeek) return null;
     return (
       <Button
         variant="outline"
@@ -1728,7 +1857,7 @@ function Ritocchi({
       className="mt-1 max-md:pb-16 xl:grid xl:grid-cols-[minmax(0,1fr)_22rem] xl:items-start xl:gap-x-4"
     >
       <div className="sticky top-0 z-20 -mx-1 flex flex-wrap items-center gap-2 border-b border-border bg-background px-1 py-2 md:bg-background/95 md:backdrop-blur-sm xl:col-span-2">
-        <h2 className="mr-auto font-display text-lg">Ritocchi</h2>
+        <h2 className="mr-auto font-display text-lg">{insieme ? "Ritocchi · tutte le sedi" : "Ritocchi"}</h2>
         <span className="hidden text-[13px] text-muted-foreground sm:inline">
           {edit.savedIn && edit.history.length === edit.savedLen
             ? `Salvato nello slot ${edit.savedIn}`
@@ -1863,7 +1992,7 @@ function Ritocchi({
                 ))}
             </NativeSelect>
           )}
-          {view === "teacher" && shownTeacher && (
+          {view === "teacher" && shownTeacher && canLock && (
             <button
               type="button"
               role="switch"
@@ -3931,6 +4060,8 @@ function ReportPanel({
 /** «Tutte le sedi insieme»: la proposta del motore, l'insieme da cui viene e il confronto con l'attuale. */
 type InsiemeResult = {
   result: SolveResult;
+  /** i dati di tutte le sedi insieme (con l'orario in uso), per i ritocchi */
+  joint: InsiemeData;
   map: InsiemeMap;
   notes: string[];
   mode: SolveMode;
@@ -3938,6 +4069,9 @@ type InsiemeResult = {
   /** slot in cui è stata salvata la proposta */
   savedIn: number | null;
 };
+
+/** «Ritocca a mano» su tutte le sedi: i dati uniti, le lezioni con i ritocchi e il punto di partenza. */
+type InsiemeEdit = { edit: EditState; joint: InsiemeData; map: InsiemeMap; mode: SolveMode };
 
 /** La proposta per tutte le sedi: riepilogo, confronto, vista generale e i tasti per tutte le sedi. */
 function InsiemeProposta({
@@ -3947,6 +4081,7 @@ function InsiemeProposta({
   running,
   onStop,
   onRetry,
+  onEdit,
   onClose,
   onSaved,
   report,
@@ -3957,6 +4092,7 @@ function InsiemeProposta({
   running: RunProgress | null;
   onStop: () => void;
   onRetry: () => void;
+  onEdit: () => void;
   onClose: () => void;
   onSaved: (n: number) => void;
   report: ReactNode;
@@ -4013,6 +4149,10 @@ function InsiemeProposta({
               <Button variant="outline" className="max-md:px-3" onClick={onRetry}>
                 Riprova
               </Button>
+              <Button variant="outline" className="max-md:px-3" onClick={onEdit}>
+                <span className="md:hidden">Ritocca</span>
+                <span className="hidden md:inline">Ritocca a mano</span>
+              </Button>
             </>
           )}
           <Button className="max-md:flex-1 md:order-2" onClick={() => setDialog("use")} disabled={Boolean(running)}>
@@ -4030,8 +4170,9 @@ function InsiemeProposta({
         ))}
       </ul>
       <p className="mt-1 text-[13px] text-muted-foreground">
-        Per ritoccarla, usala e poi in ogni sede «Ritocca a mano». Le ore a disposizione si sistemano sede per sede
-        quando la usi o la salvi{value.mode === "scratch" ? ", anche nelle ore buche" : ""}.
+        «Ritocca a mano» sposta le lezioni in tutte le sedi insieme, anche a catena da una sede all’altra. Le ore a
+        disposizione si sistemano sede per sede quando la usi o la salvi
+        {value.mode === "scratch" ? ", anche nelle ore buche" : ""}.
       </p>
       {warnings.length > 0 && (
         <ul className="mt-2 flex list-disc flex-col gap-1 pl-5 text-[13px] text-warning">
