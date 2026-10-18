@@ -30,6 +30,7 @@ import {
   addSede as addSedeTo,
   allSedi,
   classInUse,
+  dropRemovedSede as dropRemovedSedeFrom,
   editSede,
   importSede as importSedeInto,
   newSedeData,
@@ -115,8 +116,10 @@ type Actions = {
   /** Aggiunge come nuova sede quella in uso nel backup, collegando i docenti indicati; restituisce l'id. */
   importSede: (data: PersistedData, links: { incomingId: string; sedeId: string; teacherId: string }[]) => string;
   updateSede: (id: string, patch: Partial<Settings>) => void;
-  /** Solo una sede senza classi, e mai l'ultima. */
+  /** Mai l'ultima; i docenti in comune conservano le ore di quella sede (`removedSedi`). */
   removeSede: (id: string) => void;
+  /** «Non insegna più lì»: toglie una sede eliminata dalle schede della persona. */
+  dropRemovedSede: (personId: string, name: string) => void;
   /** Uguale per tutte le sedi. */
   setSchoolYear: (schoolYear: string) => void;
   addClassIn: (sedeId: string, c: Omit<SchoolClass, "id">) => void;
@@ -533,6 +536,8 @@ export const useAppStore = create<AppStore>()(
           save(editSede(snapshot(get()), id, (sede) => ({ ...sede, settings: { ...sede.settings, ...patch } }))),
 
         removeSede: (id) => save(removeSedeFrom(snapshot(get()), id)),
+
+        dropRemovedSede: (personId, name) => save(dropRemovedSedeFrom(snapshot(get()), personId, name)),
 
         setSchoolYear: (schoolYear) => save(setSchoolYearIn(snapshot(get()), schoolYear)),
 

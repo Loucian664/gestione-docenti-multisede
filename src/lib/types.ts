@@ -14,6 +14,9 @@ export type TeacherRole = "cattedra" | "potenziamento" | "sostegno" | "religione
 
 export type Tempo = "TN" | "TP";
 
+/** Una sede eliminata dall'app in cui il docente insegna ancora. */
+export type RemovedSede = { name: string; hours: number; removedOn: string };
+
 export type Teacher = {
   id: string;
   lastName: string;
@@ -26,6 +29,11 @@ export type Teacher = {
   assignedClassIds: string[];
   /** Insegna anche in un altro plesso: in Costruisci si segnano le ore altrove. */
   otherPlesso?: boolean;
+  /**
+   * Ore in sedi eliminate dall'app, dove il docente insegna ancora (nome della sede, ore, giorno
+   * dell'eliminazione): finché le × non bastano, Costruisci non propone l'orario.
+   */
+  removedSedi?: RemovedSede[];
   awaySlots?: { day: DayOfWeek; periodId: string }[];
   /** Giorni di rientro T.P.: Costruisci mette 4ª–6ª (pomeriggio a mano). */
   rientroDays?: DayOfWeek[];

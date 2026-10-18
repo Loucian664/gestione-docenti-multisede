@@ -67,7 +67,16 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { teacherCell } from "@/lib/teacher-palette";
 import { corePeriods, isTpPeriodId } from "@/lib/periods";
-import { allSedi, autoAwayCells, linkedElsewhere, sedeName, withOtherSedi, type ElsewhereCell } from "@/lib/sedi";
+import {
+  allSedi,
+  autoAwayCells,
+  linkedElsewhere,
+  removedSediIssues,
+  sedeName,
+  withOtherSedi,
+  type ElsewhereCell,
+} from "@/lib/sedi";
+import { formatItDate } from "@/lib/dates";
 import { buildInsieme, canBuildTogether, insiemeParts, splitInsieme, vistaSedi, type InsiemeMap } from "@/lib/sedi-insieme";
 import { ClasseGenerale, DocentiGenerale, GiornoGenerale, SettimanaGenerale } from "@/components/vista-generale";
 import { SAVE_SLOTS } from "@/lib/saved-timetables";
@@ -180,6 +189,17 @@ export function CostruisciOrario({
   const allTogether = scope === "tutte" && sediCount > 1;
   const [insieme, setInsieme] = useState<InsiemeResult | null>(null);
   const insiemeRef = useRef<HTMLElement>(null);
+  // docenti con ore in sedi eliminate dall'app e meno × di quelle ore: l'orario non si propone
+  const removedIssues = allSedi(rawData)
+    .filter((s) => allTogether || s.active)
+    .flatMap((s) =>
+      removedSediIssues(s.data.teachers.filter(isTimetableTeacher)).map((x) => ({
+        ...x,
+        sedeId: s.id,
+        sede: sedeName(s.data.settings),
+      })),
+    );
+  const removedPeople = new Set(removedIssues.map((x) => x.teacher.personId ?? x.teacher.id)).size;
   const morning = corePeriods(data.settings.periods);
 
   const byName = (a: Teacher, b: Teacher) =>
@@ -703,14 +723,57 @@ export function CostruisciOrario({
             : "Migliora l’orario in uso senza peggiorare nessuna voce. Le ore a disposizione si spostano solo nello stesso giorno, per chiudere un’ora buca."}
           {speed === "accurata" ? " Richiede più tempo, ma in genere trova soluzioni migliori." : ""}
         </p>
+        {removedIssues.length > 0 && (
+          <div className="mt-4 rounded-xl border border-destructive/25 bg-danger-soft px-4 py-3 text-sm">
+            <p className="font-medium">Ore in sedi fuori dall’app</p>
+            <ul className="mt-2 grid gap-3">
+              {removedIssues.map((x) => (
+                <li key={`${x.sedeId}-${x.teacher.id}`}>
+                  {x.sedi.map((r) => (
+                    <div key={r.name} className="flex flex-wrap items-start justify-between gap-2">
+                      <p className="min-w-0 flex-1">
+                        {teacherName(x.teacher)} ha {r.hours === 1 ? "1 ora" : `${r.hours} ore`} nella sede «{r.name}»,
+                        eliminata dall’app il {formatItDate(r.removedOn)}.
+                      </p>
+                      {x.teacher.personId && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          title="Toglie la sede dalla scheda del docente."
+                          onClick={() => store.dropRemovedSede(x.teacher.personId!, r.name)}
+                        >
+                          Non insegna più lì
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                  <p className="mt-1 text-muted-foreground">
+                    Per costruire l’orario occorre segnare con le × in «Quando ci sono i docenti»
+                    {allTogether ? ` della sede «${x.sede}»` : ""} i giorni o le ore di impegno in{" "}
+                    {x.sedi.length > 1 ? "quelle sedi" : "quella sede"}. × segnate: {x.marked} su {x.hours}.
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         <div className="mt-4 flex flex-wrap items-center gap-3">
-          <Button onClick={propose} disabled={Boolean(running) || (allTogether && !together.ok)}>
+          <Button
+            onClick={propose}
+            disabled={Boolean(running) || (allTogether && !together.ok) || removedIssues.length > 0}
+          >
             {running ? "Sto cercando…" : allTogether ? "Proponi l’orario di tutte le sedi" : "Proponi orario"}
           </Button>
           <Button variant="outline" onClick={() => openEdit("uso")} disabled={Boolean(running) || !inUseDraft.length}>
             Ritocca a mano
           </Button>
         </div>
+        {removedIssues.length > 0 && (
+          <p className="mt-2 text-[13px] text-warning">
+            Prima di proporre l’orario, indica le ore nelle sedi fuori dall’app per{" "}
+            {removedPeople === 1 ? "1 docente" : `${removedPeople} docenti`}.
+          </p>
+        )}
         {running && <SearchProgress progress={running} onStop={() => handleRef.current?.stop()} />}
       </section>
 
