@@ -193,6 +193,12 @@ riga mostra un avviso.
   vale l'orario in vigore (es. matematica di 3ª A e 3ª B a Cessaniti). Il Progetto LEL (Latino) sta al
   pomeriggio come nell'orario in vigore. La regola di Rombiolo sui rientri (mattina dalla 4ª ora) per ora
   vale solo lì.
+- Correzioni (utente, 18/10): il backup di Rombiolo è la fonte più affidabile e non si tocca; ogni docente fa
+  18 ore e gli errori del PDF si sistemano «anche per arrangiare». Fatto: conflitti tra orari risolti con
+  scambi di ore nella stessa classe delle altre sedi (Pata Daniela e Francica a Nicotera), Latino di Vecchio a
+  Nicotera al mercoledì 14-15, Lico 10 ore a disposizione a Cessaniti, Staropoli Rosa 7 ore a disposizione da
+  mettere a Nicotera, «Su più plessi» per chi completa altrove (Brosio Rosaria, Russo, Rombolà, Solano).
+  Restano a 20 ore Di Leo, Francica, Naso e Scavone (10 classi da 2 ore negli orari in vigore).
 - Strumento (chitarra, pianoforte, flauto): resta nell'elenco docenti senza orario (lezioni individuali
   al pomeriggio); serve per le sostituzioni.
 - Le sostituzioni di ogni giorno restano nell'app di Rombiolo: qui Oggi, Assenze e Report restano come
