@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import { PageHeader } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -50,6 +50,9 @@ export const Route = createFileRoute("/docenti")({
 });
 
 const ALL = "tutte";
+
+/** Mensa e Laboratorio: le ore del rientro, solo nelle classi a tempo prolungato. */
+const rientro = (subject?: string) => /^(Mensa|Laboratorio)$/i.test(subject ?? "");
 
 function DocentiPage() {
   const store = useAppStore();
@@ -403,11 +406,23 @@ function TeacherDialog({ value, onClose }: { value: Teacher | "new"; onClose: ()
       ...all,
       {
         sedeId,
-        classId: classesOf(sedeId)[0]?.id ?? "",
+        classId: rientro(subject) ? tpClassFor(sedeId, all) : (classesOf(sedeId)[0]?.id ?? ""),
         subject: subject ?? subjects.split(",")[0]?.trim() ?? "",
         hours: "1",
       },
     ]);
+  }
+
+  /**
+   * «+ Mensa» e «+ Laboratorio»: una classe a tempo prolungato, quella delle sue righe in quella sede se c'è,
+   * altrimenti la prima; senza classi a tempo prolungato la classe resta da scegliere.
+   */
+  function tpClassFor(sedeId: string, all: typeof rows): string {
+    const tp = classesOf(sedeId)
+      .filter((c) => c.tempo === "TP")
+      .sort((a, b) => a.name.localeCompare(b.name, "it"));
+    const used = tp.find((c) => all.some((r) => r.sedeId === sedeId && r.classId === c.id));
+    return (used ?? tp[0])?.id ?? "";
   }
 
   /** Le righe valide di ogni sede. */
@@ -726,7 +741,8 @@ function TeacherDialog({ value, onClose }: { value: Teacher | "new"; onClose: ()
                 )}
                 {rows.map((row, i) =>
                   row.sedeId !== x.id ? null : (
-                    <div key={i} className="grid grid-cols-[minmax(0,0.9fr)_minmax(0,1.15fr)_3.75rem_2rem] items-center gap-1.5">
+                    <Fragment key={i}>
+                    <div className="grid grid-cols-[minmax(0,0.9fr)_minmax(0,1.15fr)_3.75rem_2rem] items-center gap-1.5">
                       <NativeSelect
                         value={row.classId}
                         onChange={(e) =>
@@ -791,6 +807,13 @@ function TeacherDialog({ value, onClose }: { value: Teacher | "new"; onClose: ()
                         ×
                       </button>
                     </div>
+                    {rientro(row.subject) && x.data.classes.find((c) => c.id === row.classId)?.tempo === "TN" && (
+                      <p className="-mt-1 text-[12px] text-warning">
+                        {x.data.classes.find((c) => c.id === row.classId)?.name} è a tempo normale: {row.subject} vale solo
+                        per le classi a tempo prolungato.
+                      </p>
+                    )}
+                    </Fragment>
                   ),
                 )}
                 {(() => {
