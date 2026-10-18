@@ -23,6 +23,7 @@ import {
   type TimetablePart,
 } from "@/lib/saved-timetables";
 import { evaluateCurrent } from "@/lib/timetable-solver";
+import { insiemeSlot } from "@/lib/sedi-insieme";
 import type { PersistedData, SavedTimetable } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -40,6 +41,8 @@ type SlotInfo = {
   /** prova uguale all’orario in vigore */
   same: boolean;
   inUse: boolean;
+  /** salvato per tutte le sedi insieme: lo stesso slot in ogni sede */
+  insieme: boolean;
 };
 
 /** I dati che servono agli slot, con riferimenti stabili (si ricalcola solo quando cambiano). */
@@ -52,6 +55,10 @@ function useSlotsData(): PersistedData {
   const savedTimetables = useAppStore((s) => s.savedTimetables);
   const activeSlot = useAppStore((s) => s.activeSlot);
   const officialBackup = useAppStore((s) => s.officialBackup);
+  // le altre sedi: per sapere quali slot sono stati salvati per tutte le sedi insieme
+  const sedeId = useAppStore((s) => s.sedeId);
+  const altreSedi = useAppStore((s) => s.altreSedi);
+  const ordineSedi = useAppStore((s) => s.ordineSedi);
   return useMemo(
     () => ({
       settings,
@@ -65,8 +72,11 @@ function useSlotsData(): PersistedData {
       absences: [],
       substitutions: [],
       selectedDate: "",
+      sedeId,
+      altreSedi,
+      ordineSedi,
     }),
-    [settings, teachers, classes, slots, cattedre, savedTimetables, activeSlot, officialBackup],
+    [settings, teachers, classes, slots, cattedre, savedTimetables, activeSlot, officialBackup, sedeId, altreSedi, ordineSedi],
   );
 }
 
@@ -87,7 +97,7 @@ function slotsInfo(data: PersistedData): SlotInfo[] {
     const inUse = n === active;
     const part = slotPart(data, n);
     if (!part) {
-      return { n, save, full: false, lessons: 0, gaps: null, dropped: 0, same: false, inUse };
+      return { n, save, full: false, lessons: 0, gaps: null, dropped: 0, same: false, inUse, insieme: false };
     }
     const open = inUse ? null : openSavedTimetable(data, { n, name: "", savedAt: 0, ...part });
     const lessons = open ? open.lessons.length : part.lessons.length;
@@ -106,6 +116,7 @@ function slotsInfo(data: PersistedData): SlotInfo[] {
       dropped: open?.dropped ?? 0,
       same: like.has(n),
       inUse,
+      insieme: Boolean(insiemeSlot(data, n)),
     };
   });
 }
@@ -263,7 +274,7 @@ export function SaveSlots({
                       i.inUse ? "opacity-80" : "text-muted-foreground",
                     )}
                   >
-                    {gapsText(i.gaps)}
+                    {i.insieme ? "tutte le sedi" : gapsText(i.gaps)}
                   </span>
                 )}
               </button>
@@ -358,13 +369,16 @@ function SlotDialog({
     [i.lessons === 1 ? "1 lezione" : `${i.lessons} lezioni`, gapsText(i.gaps)]
       .filter(Boolean)
       .join(" · ");
+  // slot salvato per tutte le sedi insieme: «Usa», «Rendi in vigore», «Svuota» e «Rinomina» valgono per tutte
+  const all = Boolean(info?.insieme);
   const use = (k: number) => {
-    store.activateSlot(k);
+    if (all) store.activateSlotAll(k);
+    else store.activateSlot(k);
     onInUseChange?.();
     toast.success(
       k === 0
         ? "In uso l’orario in vigore."
-        : `Slot ${k} in uso. L’orario in vigore resta nello slot 0.`,
+        : `Slot ${k} in uso${all ? " in tutte le sedi" : ""}. L’orario in vigore resta nello slot 0.`,
     );
     onClose();
   };
@@ -452,6 +466,9 @@ function SlotDialog({
               : info.save
                 ? `Salvato il ${savedWhen(info.save.savedAt, true)}.`
                 : ""}
+            {all
+              ? " Salvato per tutte le sedi insieme: si apre con tutte le sedi e «Usa», «Rendi in vigore», «Svuota» e «Rinomina» valgono per tutte."
+              : ""}
           </DialogDescription>
         </DialogHeader>
         <label className="flex flex-col gap-1.5 text-sm font-medium">
@@ -462,8 +479,9 @@ function SlotDialog({
               variant="outline"
               disabled={!clean || clean === info.save?.name}
               onClick={() => {
-                store.renameSavedTimetable(k, clean);
-                toast.success("Nome cambiato.");
+                if (all) store.renameSavedTimetableAll(k, clean);
+                else store.renameSavedTimetable(k, clean);
+                toast.success(all ? "Nome cambiato in tutte le sedi." : "Nome cambiato.");
               }}
             >
               Rinomina
@@ -480,8 +498,8 @@ function SlotDialog({
         )}
         {confirmOfficial && (
           <p className="mt-3 rounded-lg border border-warning/60 bg-warning-soft px-3 py-2 text-sm">
-            Lo slot {k} prende il posto dell’orario in vigore (slot 0), quello che usano Oggi e le
-            sostituzioni. Potrai annullarlo subito dopo.
+            Lo slot {k} prende il posto dell’orario in vigore (slot 0){all ? " in tutte le sedi" : ""}, quello che usano
+            Oggi e le sostituzioni. Potrai annullarlo subito dopo.
           </p>
         )}
         {!info.inUse && openWarning && <p className="mt-3 text-sm text-warning">{openWarning}</p>}
@@ -503,9 +521,10 @@ function SlotDialog({
                 setConfirmOfficial(true);
                 return;
               }
-              store.makeOfficial(k);
+              if (all) store.makeOfficialAll(k);
+              else store.makeOfficial(k);
               onInUseChange?.();
-              toast.success(`Lo slot ${k} è ora l’orario in vigore.`);
+              toast.success(`Lo slot ${k} è ora l’orario in vigore${all ? " in tutte le sedi" : ""}.`);
               onClose();
             }}
           >
@@ -521,8 +540,9 @@ function SlotDialog({
                 setConfirmClear(true);
                 return;
               }
-              store.clearSavedTimetable(k);
-              toast.message(`Slot ${k} svuotato.`);
+              if (all) store.clearSavedTimetableAll(k);
+              else store.clearSavedTimetable(k);
+              toast.message(`Slot ${k} svuotato${all ? " in tutte le sedi" : ""}.`);
               onClose();
             }}
           >
