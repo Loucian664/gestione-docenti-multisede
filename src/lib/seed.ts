@@ -3,6 +3,7 @@ import type {
   DayOfWeek,
   PersistedData,
   SchoolClass,
+  SedeData,
   Settings,
   Substitution,
   Teacher,
@@ -15,6 +16,17 @@ import { withPaletteColors } from "./teacher-palette";
 
 export const DEFAULT_SCHOOL_NAME = "Istituto comprensivo";
 export const LEGACY_SCHOOL_NAMES = [] as const;
+/** Nomi delle due sedi degli esempi (inventati). */
+export const SEED_SEDE_NAMES = ["Sede A (esempio)", "Sede B (esempio)"] as const;
+const SEED_SEDE_A_ID = "sede-1";
+const SEED_SEDE_B_ID = "sede-esempio-b";
+/** Docenti degli esempi che insegnano in tutte e due le sedi. */
+const SEED_SHARED: Record<string, string> = {
+  "t-fra-1": "p-esempio-fra",
+  "t-tec-1": "p-esempio-tec",
+  "t-mus-1": "p-esempio-mus",
+  "t-rel-1": "p-esempio-rel",
+};
 
 export const SEED_TEACHER_IDS = [
   "t-ita-1",
@@ -200,6 +212,7 @@ export function buildSeed(): PersistedData {
   ];
 
   const slots = placeLessons(lessons);
+  for (const x of teachers) if (SEED_SHARED[x.id]) x.personId = SEED_SHARED[x.id];
 
   const absences: Absence[] = [
     {
@@ -244,16 +257,18 @@ export function buildSeed(): PersistedData {
     },
   ];
 
+  const settings: Settings = {
+    schoolName: SEED_SEDE_NAMES[0],
+    plesso: "Secondaria di I grado",
+    schoolYear: "2026/2027",
+    responsabile: "",
+    days: DAYS,
+    periods: PERIODS,
+    tpAfternoon: false,
+  };
+
   return {
-    settings: {
-      schoolName: DEFAULT_SCHOOL_NAME,
-      plesso: "Secondaria di I grado",
-      schoolYear: "2026/2027",
-      responsabile: "",
-      days: DAYS,
-      periods: PERIODS,
-      tpAfternoon: false,
-    },
+    settings,
     teachers,
     classes,
     slots,
@@ -262,6 +277,102 @@ export function buildSeed(): PersistedData {
     selectedDate: d(0),
     savedAt: 0,
     origin: "seed",
+    sedeId: SEED_SEDE_A_ID,
+    altreSedi: [{ id: SEED_SEDE_B_ID, data: buildSedeB(settings, teachers, slots) }],
+    ordineSedi: [SEED_SEDE_A_ID, SEED_SEDE_B_ID],
+  };
+}
+
+/**
+ * Seconda sede degli esempi: tre classi, docenti propri e quattro docenti in comune con la prima
+ * (francese, tecnologia, musica, religione), messi nelle ore in cui sono liberi là.
+ */
+function buildSedeB(settingsA: Settings, teachersA: Teacher[], slotsA: TimetableSlot[]): SedeData {
+  const classes: SchoolClass[] = [
+    { id: "cb-1A", name: "1ª A", grade: 1, section: "A", students: 16, tempo: "TN" },
+    { id: "cb-2A", name: "2ª A", grade: 2, section: "A", students: 17, tempo: "TN" },
+    { id: "cb-3A", name: "3ª A", grade: 3, section: "A", students: 15, tempo: "TN" },
+  ];
+  const shared = (idA: string, idB: string): Teacher => {
+    const a = teachersA.find((x) => x.id === idA)!;
+    return { ...a, id: idB, weeklyHours: 0, notes: "", assignedClassIds: [], personId: SEED_SHARED[idA] };
+  };
+  const teachers: Teacher[] = withPaletteColors([
+    t("tb-ita-1", "Rinaldi", "Carla", ["Italiano", "Storia", "Geografia"], 14, "cattedra"),
+    t("tb-ita-2", "Caruso", "Matteo", ["Italiano", "Storia", "Geografia"], 16, "cattedra"),
+    t("tb-mat-1", "Martini", "Franca", ["Matematica", "Scienze"], 18, "cattedra"),
+    t("tb-ing-1", "Leone", "Ugo", ["Inglese"], 9, "cattedra"),
+    t("tb-art-1", "Sala", "Nadia", ["Arte e Immagine"], 6, "cattedra"),
+    t("tb-mot-1", "Mancini", "Enzo", ["Scienze Motorie"], 6, "cattedra"),
+    shared("t-fra-1", "tb-fra-1"),
+    shared("t-tec-1", "tb-tec-1"),
+    shared("t-mus-1", "tb-mus-1"),
+    shared("t-rel-1", "tb-rel-1"),
+  ]);
+  const rows: { classId: string; subject: string; teacherId: string; hours: number }[] = [];
+  for (const c of classes) {
+    const ita = c.grade === 3 ? "tb-ita-2" : "tb-ita-1";
+    rows.push(
+      { classId: c.id, subject: "Italiano", teacherId: c.grade === 2 ? "tb-ita-2" : ita, hours: 6 },
+      { classId: c.id, subject: "Storia", teacherId: ita, hours: 2 },
+      { classId: c.id, subject: "Geografia", teacherId: ita, hours: 2 },
+      { classId: c.id, subject: "Matematica", teacherId: "tb-mat-1", hours: 4 },
+      { classId: c.id, subject: "Scienze", teacherId: "tb-mat-1", hours: 2 },
+      { classId: c.id, subject: "Inglese", teacherId: "tb-ing-1", hours: 3 },
+      { classId: c.id, subject: "Francese", teacherId: "tb-fra-1", hours: 2 },
+      { classId: c.id, subject: "Tecnologia", teacherId: "tb-tec-1", hours: 2 },
+      { classId: c.id, subject: "Arte e Immagine", teacherId: "tb-art-1", hours: 2 },
+      { classId: c.id, subject: "Musica", teacherId: "tb-mus-1", hours: 2 },
+      { classId: c.id, subject: "Scienze Motorie", teacherId: "tb-mot-1", hours: 2 },
+      { classId: c.id, subject: "Religione", teacherId: "tb-rel-1", hours: 1 },
+    );
+  }
+  for (const x of teachers) {
+    x.cardRows = rows
+      .filter((r) => r.teacherId === x.id)
+      .map((r) => ({ classId: r.classId, subject: r.subject, hours: r.hours }));
+    x.assignedClassIds = [...new Set(x.cardRows.map((r) => r.classId))];
+    if (x.personId) x.weeklyHours = x.cardRows.reduce((n, r) => n + r.hours, 0);
+  }
+
+  // i docenti in comune: prima a giornate intere libere nella prima sede, se non bastano almeno con
+  // un'ora libera prima e dopo le lezioni là
+  const sharedIds = Object.keys(SEED_SHARED);
+  const busyA = (whole: boolean) => {
+    const out = new Set<string>();
+    for (const idA of sharedIds) {
+      const idB = idA.replace(/^t-/, "tb-");
+      for (const s of slotsA.filter((x) => x.teacherId === idA)) {
+        const at = PERIODS.find((p) => p.id === s.periodId)?.index ?? 0;
+        for (const p of PERIODS) {
+          if (whole || Math.abs(p.index - at) <= 1) out.add(`${s.day}-${p.id}-${idB}`);
+        }
+      }
+    }
+    return out;
+  };
+  const sharedRows = rows.filter((r) => teachers.find((x) => x.id === r.teacherId)?.personId);
+  const complete = (list: typeof rows, slots: TimetableSlot[]) =>
+    list.every((r) => slots.filter((s) => s.classId === r.classId && s.subject === r.subject).length === r.hours);
+  let fixed = placeLessons(sharedRows, busyA(true));
+  if (!complete(sharedRows, fixed)) fixed = placeLessons(sharedRows, busyA(false));
+  // poi i docenti della sola seconda sede, nelle ore rimaste
+  const slots = placeLessons(
+    rows.filter((r) => !sharedRows.includes(r)),
+    new Set(),
+    fixed,
+  );
+
+  return {
+    settings: { ...settingsA, schoolName: SEED_SEDE_NAMES[1], days: [...settingsA.days], periods: settingsA.periods.map((p) => ({ ...p })) },
+    teachers,
+    classes,
+    slots,
+    absences: [],
+    substitutions: [],
+    cattedre: rows,
+    savedTimetables: [],
+    activeSlot: 0,
   };
 }
 
@@ -293,11 +404,19 @@ const AFTERNOONISH = new Set(["Scienze Motorie", "Arte e Immagine", "Musica", "T
 
 function placeLessons(
   lessons: { classId: string; subject: string; teacherId: string; hours: number }[],
+  /** ore già occupate dei docenti (giorno-ora-docente), per esempio in un'altra sede */
+  blocked: Set<string> = new Set(),
+  /** lezioni già messe, che restano dove sono */
+  fixed: TimetableSlot[] = [],
 ): TimetableSlot[] {
-  const teacherBusy = new Set<string>();
+  const teacherBusy = new Set<string>(blocked);
   const classBusy = new Set<string>();
-  const slots: TimetableSlot[] = [];
+  const slots: TimetableSlot[] = fixed.map((x) => ({ ...x }));
   const key = (day: number, periodId: string, who: string) => `${day}-${periodId}-${who}`;
+  for (const x of fixed) {
+    teacherBusy.add(key(x.day, x.periodId, x.teacherId));
+    classBusy.add(key(x.day, x.periodId, x.classId));
+  }
 
   const remaining = new Map<string, { classId: string; subject: string; teacherId: string }[]>();
   for (const lesson of lessons) {

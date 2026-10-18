@@ -7,6 +7,7 @@ import type {
   PersistedData,
   SavedTimetable,
   SchoolClass,
+  SedeData,
   Settings,
   Substitution,
   Teacher,
@@ -25,6 +26,21 @@ import {
   withOrigin,
   writePersistSync,
 } from "./persist-storage";
+import {
+  addSede as addSedeTo,
+  classInUse,
+  editSede,
+  importSede as importSedeInto,
+  newSedeData,
+  pickSede,
+  removeSede as removeSedeFrom,
+  sedeAsData,
+  sedeIdOf,
+  setSchoolYear as setSchoolYearIn,
+  setTeacherSedi as setTeacherSediIn,
+  switchSede as switchSedeTo,
+  syncPersonFields,
+} from "./sedi";
 
 /** Un'assenza eliminata e le coperture tolte con lei, ciascuna con la sua posizione. */
 export type RemovedAbsence = {
@@ -87,6 +103,24 @@ type Actions = {
   /** Annulla l’ultimo «Rendi in vigore». */
   undoMakeOfficial: () => void;
   setCattedre: (cattedre: Cattedra[]) => void;
+  /** La sede `id` diventa quella in uso in tutte le pagine. */
+  switchSede: (id: string) => void;
+  /** Nuova sede vuota, con giorni e campanella della sede in uso; restituisce il suo id. */
+  addSede: (name: string) => string;
+  /** Aggiunge come nuova sede quella in uso nel backup, collegando i docenti indicati; restituisce l'id. */
+  importSede: (data: PersistedData, links: { incomingId: string; sedeId: string; teacherId: string }[]) => string;
+  updateSede: (id: string, patch: Partial<Settings>) => void;
+  /** Solo una sede senza classi, e mai l'ultima. */
+  removeSede: (id: string) => void;
+  /** Uguale per tutte le sedi. */
+  setSchoolYear: (schoolYear: string) => void;
+  addClassIn: (sedeId: string, c: Omit<SchoolClass, "id">) => void;
+  updateClassIn: (sedeId: string, id: string, patch: Partial<SchoolClass>) => void;
+  removeClassIn: (sedeId: string, id: string) => void;
+  /** Sposta una classe senza lezioni né cattedre in un'altra sede. */
+  moveClass: (fromSedeId: string, id: string, toSedeId: string) => boolean;
+  /** Le sedi in cui insegna il docente della sede in uso; restituisce le sedi da cui non si è potuto togliere. */
+  setTeacherSedi: (teacherId: string, sedeIds: string[]) => string[];
   importData: (data: PersistedData, fileName?: string) => void;
   resetDemo: () => void;
   clearAll: () => void;
@@ -112,6 +146,28 @@ export function snapshot(state: AppStore): PersistedData {
     savedAt: state.savedAt,
     origin: state.origin,
     importedBackupName: state.importedBackupName,
+    sedeId: state.sedeId,
+    altreSedi: state.altreSedi,
+    ordineSedi: state.ordineSedi,
+  };
+}
+
+/** Le correzioni dell'organico, per la sede in uso e per le altre. */
+function fixAllSedi(data: PersistedData): PersistedData {
+  const top = applyOrganicoFixes(data);
+  return {
+    ...top,
+    altreSedi: (data.altreSedi ?? []).map((a) => ({ id: a.id, data: pickSede(applyOrganicoFixes(sedeAsData(data, a.data))) })),
+  };
+}
+
+/** Classe tolta da una sede, con le sue lezioni e cattedre. */
+function withoutClass(sede: SedeData, id: string): SedeData {
+  return {
+    ...sede,
+    classes: sede.classes.filter((c) => c.id !== id),
+    slots: sede.slots.filter((s) => s.classId !== id),
+    cattedre: (sede.cattedre ?? []).filter((x) => x.classId !== id),
   };
 }
 
@@ -180,7 +236,8 @@ export const useAppStore = create<AppStore>()(
             ? get().teachers.map((t) => (t.id === id ? { ...t, ...nextPatch } : t))
             : [...get().teachers, { ...nextPatch, id: teacherId }];
           const cattedre = applyTeacherCattedre({ ...snapshot(get()), teachers }, teacherId, rows);
-          save({ teachers, cattedre });
+          // nome, materie, ruolo e colore uguali nelle altre sedi in cui insegna
+          save(syncPersonFields({ ...snapshot(get()), teachers, cattedre }, teacherId));
           return teacherId;
         },
 
@@ -414,12 +471,77 @@ export const useAppStore = create<AppStore>()(
 
         setCattedre: (cattedre) => save({ cattedre }),
 
+        switchSede: (id) => {
+          const state = snapshot(get());
+          if (id === sedeIdOf(state)) return;
+          save(switchSedeTo(state, id));
+        },
+
+        addSede: (name) => {
+          const state = snapshot(get());
+          const { data, id } = addSedeTo(state, newSedeData(state.settings, name));
+          save(data);
+          return id;
+        },
+
+        importSede: (incoming, links) => {
+          const fixed = fixAllSedi({ ...incoming, altreSedi: [] });
+          const { data, id } = importSedeInto(snapshot(get()), fixed, links);
+          save(data);
+          return id;
+        },
+
+        updateSede: (id, patch) =>
+          save(editSede(snapshot(get()), id, (sede) => ({ ...sede, settings: { ...sede.settings, ...patch } }))),
+
+        removeSede: (id) => save(removeSedeFrom(snapshot(get()), id)),
+
+        setSchoolYear: (schoolYear) => save(setSchoolYearIn(snapshot(get()), schoolYear)),
+
+        addClassIn: (sedeId, c) =>
+          save(editSede(snapshot(get()), sedeId, (sede) => ({ ...sede, classes: [...sede.classes, { ...c, id: uid("c") }] }))),
+
+        updateClassIn: (sedeId, id, patch) =>
+          save(
+            editSede(snapshot(get()), sedeId, (sede) => ({
+              ...sede,
+              classes: sede.classes.map((c) => (c.id === id ? { ...c, ...patch } : c)),
+            })),
+          ),
+
+        removeClassIn: (sedeId, id) => save(editSede(snapshot(get()), sedeId, (sede) => withoutClass(sede, id))),
+
+        moveClass: (fromSedeId, id, toSedeId) => {
+          const state = snapshot(get());
+          if (fromSedeId === toSedeId) return false;
+          const from = fromSedeId === sedeIdOf(state) ? pickSede(state) : state.altreSedi?.find((a) => a.id === fromSedeId)?.data;
+          const cls = from?.classes.find((c) => c.id === id);
+          if (!from || !cls) return false;
+          if (classInUse(from, id)) return false;
+          let next = editSede(state, fromSedeId, (sede) => withoutClass(sede, id));
+          next = editSede(next, toSedeId, (sede) => {
+            const taken = sede.classes.some((c) => c.id === cls.id);
+            return { ...sede, classes: [...sede.classes, taken ? { ...cls, id: uid("c") } : cls] };
+          });
+          save(next);
+          return true;
+        },
+
+        setTeacherSedi: (teacherId, sedeIds) => {
+          const { data, blocked } = setTeacherSediIn(snapshot(get()), teacherId, sedeIds);
+          save(data);
+          return blocked;
+        },
+
         importData: (data, fileName) => {
           noteUserMutation();
           const importedBackupName = (fileName ?? data.importedBackupName)?.trim() || undefined;
           // gli slot diventano quelli del file (nessuno se è un backup di prima)
           set({
-            ...applyOrganicoFixes(data),
+            ...fixAllSedi(data),
+            // un backup dell'app di Rombiolo ha una sede sola
+            sedeId: data.sedeId,
+            ordineSedi: data.ordineSedi,
             savedTimetables: data.savedTimetables ?? [],
             activeSlot: data.activeSlot ?? 0,
             officialBackup: data.officialBackup,
@@ -448,6 +570,9 @@ export const useAppStore = create<AppStore>()(
           noteUserMutation();
           set({
             ...EMPTY_DATA,
+            sedeId: undefined,
+            altreSedi: [],
+            ordineSedi: undefined,
             savedTimetables: [],
             activeSlot: 0,
             officialBackup: undefined,
@@ -465,7 +590,7 @@ export const useAppStore = create<AppStore>()(
       version: PERSIST_VERSION,
       storage: createJSONStorage(() => createDurableStorage()),
       migrate: (persisted) => {
-        const data = applyOrganicoFixes(persisted as PersistedData);
+        const data = fixAllSedi(persisted as PersistedData);
         return withOrigin(data);
       },
       partialize: (state) => ({
@@ -485,6 +610,9 @@ export const useAppStore = create<AppStore>()(
         savedAt: state.savedAt,
         origin: state.origin,
         importedBackupName: state.importedBackupName,
+        sedeId: state.sedeId,
+        altreSedi: state.altreSedi,
+        ordineSedi: state.ordineSedi,
       }),
     },
   ),
