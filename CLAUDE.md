@@ -134,6 +134,12 @@ servono per la larghezza dello schermo (`righeSedi`). Da costruire: «Esporta se
 - Spostamento tra due sedi: sempre un'ora intera libera. Al massimo un cambio di sede al giorno (mai
   sede A, poi B, poi di nuovo A).
 - Docente con le × su tutte le mattine perché fa solo le ore del T.P.: va bene così.
+- Laboratori del T.P.: come a Rombiolo. Ogni rientro è Mensa + 2 ore di Laboratorio (7ª e 8ª) con lo stesso
+  docente, segnate come materie «Mensa» e «Laboratorio» nella sua scheda; chi fa solo quelle ore ha le × su
+  tutte le mattine.
+- Dati delle altre sedi: arriveranno i PDF delle assegnazioni dei docenti alle classi (con i nomi delle
+  sedi) e degli orari in vigore (solo materia e cognome). Usarli solo in locale; se sedi, omonimie o
+  cognomi non sono chiari, chiedere all'utente.
 - Strumento (chitarra, pianoforte, flauto): resta nell'elenco docenti senza orario (lezioni individuali
   al pomeriggio); serve per le sostituzioni.
 - Le sostituzioni di ogni giorno restano nell'app di Rombiolo: qui Oggi, Assenze e Report restano come
