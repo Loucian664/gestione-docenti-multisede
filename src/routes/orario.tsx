@@ -655,18 +655,38 @@ function OrarioPage() {
                     const tc = teacherCell(slot ? currentTeacher?.color : undefined);
                     const there = slot ? undefined : elsewhere.find((c) => c.day === d && c.periodId === p.id);
                     if (there) {
+                      // ora in un'altra sede: stessi colori delle ore di qui, si cambia passando a quella sede
+                      const thereDisp = there.label === "disp.";
+                      const thc = teacherCell(thereDisp ? undefined : currentTeacher?.color);
                       return (
                         <td key={d} className="p-1.5 align-top">
-                          <div
-                            className="flex min-h-16 w-full flex-col rounded-md border border-dashed border-border bg-muted/60 px-2 py-1.5 text-left"
+                          <button
+                            type="button"
+                            onClick={() =>
+                              toast.message(`Ora a ${there.sedeName}: si cambia passando a quella sede dal menu.`)
+                            }
+                            className={cn(
+                              "flex min-h-16 w-full cursor-default flex-col rounded-md px-2 py-1.5 text-left",
+                              thc.className,
+                            )}
+                            style={
+                              thc.style ??
+                              (thereDisp
+                                ? { background: "color-mix(in oklab, var(--color-accent) 45%, transparent)" }
+                                : undefined)
+                            }
                             title="Ora in un’altra sede: si cambia passando a quella sede"
                           >
-                            <span className="text-[12px] font-medium text-muted-foreground">{there.sedeName}</span>
-                            <span className="text-[12px] text-muted-foreground">
-                              {there.label}
-                              {there.subject ? ` · ${there.subject}` : ""}
-                            </span>
-                          </div>
+                            <span className={cn("text-[12px] font-medium", thc.text2)}>{there.sedeName}</span>
+                            {thereDisp ? (
+                              <span className="text-[12px] text-ink-faint">A disposizione</span>
+                            ) : (
+                              <>
+                                <span className="text-[13px] font-medium">{there.label}</span>
+                                <span className={cn("text-[12px]", thc.text2)}>{there.subject}</span>
+                              </>
+                            )}
+                          </button>
                         </td>
                       );
                     }
