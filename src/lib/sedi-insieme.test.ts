@@ -4,7 +4,7 @@ import { isTimetableTeacher } from "./build-timetable.ts";
 import { buildSeed } from "./seed.ts";
 import { allSedi, editSede, sedeIdOf } from "./sedi.ts";
 import { buildInsieme, canBuildTogether, insiemeParts, righeSedi, splitInsieme } from "./sedi-insieme.ts";
-import { prepare, solveTimetable } from "./timetable-solver.ts";
+import { prepare, solveTimetable, TimetableEditor } from "./timetable-solver.ts";
 import type { PersistedData, TimetableSlot } from "./types.ts";
 
 function ticks(): () => number {
@@ -143,6 +143,36 @@ describe("tutte le sedi insieme", () => {
       assert.equal(parts[s.id]!.lessons.length, morningLessons(d)[s.id]!.length);
       assert.ok(parts[s.id]!.disp);
     }
+  });
+
+  it("ritocchi su tutte le sedi: «Trova» propone catene tra sedi e rispetta le regole tra sedi", () => {
+    const d = buildSeed();
+    const { joint, map } = buildInsieme(d);
+    const before = violations(d, splitInsieme(map, joint.slots));
+    const days = [...joint.settings.days].sort((a, b) => a - b);
+    const ed = new TimetableEditor(joint);
+    const p = ed.prep;
+    const sedeOf = (classId: string) => classId.split("~")[0];
+    let cross = 0;
+    let options = 0;
+    for (const s of joint.slots.filter((x) => x.teacherId === "P~p-esempio-fra").slice(0, 5)) {
+      const m = p.morningPos.indexOf(joint.settings.periods.findIndex((q) => q.id === s.periodId));
+      if (m < 0) continue;
+      const gen = new TimetableEditor(joint).findFixes({ kind: "lesson", classId: s.classId, z: days.indexOf(s.day) * p.M + m }, 60_000);
+      let r = gen.next();
+      while (!r.done) r = gen.next();
+      for (const opt of r.value.options) {
+        options += 1;
+        if (new Set(opt.steps.map((st) => sedeOf(st.classId))).size > 1) cross += 1;
+        const e2 = new TimetableEditor(joint);
+        let out: ReturnType<TimetableEditor["apply"]> = null;
+        for (const st of opt.steps) out = e2.apply(st.classId, st.from, st.to);
+        const after = violations(d, splitInsieme(map, out!.slots));
+        assert.ok(after.clash <= before.clash && after.travel <= before.travel && after.changes <= before.changes);
+      }
+    }
+    assert.ok(options > 0);
+    assert.ok(cross > 0, "nessuna proposta con mosse in due sedi");
   });
 
   it("vista Giorno: le sedi in file, in ordine, meno file possibile e il più pari possibile", () => {
