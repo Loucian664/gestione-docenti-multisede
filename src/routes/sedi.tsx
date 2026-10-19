@@ -199,17 +199,23 @@ function SedeCard({
           </Row>
         )}
       </dl>
+      {/* sul telefono i tasti stanno su una riga: larghi uguali, più stretti, senza icona */}
       <div className="mt-4 flex flex-wrap gap-2 pt-1">
-        {!sede.active && <Button onClick={onUse}>Usa questa sede</Button>}
-        <Button variant="outline" onClick={onEdit}>
+        {!sede.active && (
+          <Button className="max-sm:flex-1 max-sm:px-3" onClick={onUse}>
+            Usa questa sede
+          </Button>
+        )}
+        <Button variant="outline" className="max-sm:flex-1 max-sm:px-3" onClick={onEdit}>
           Modifica
         </Button>
         <Button
           variant="outline"
+          className="max-sm:flex-1 max-sm:px-3"
           onClick={onExport}
           title="Il backup di questa sede per l’app della singola scuola"
         >
-          <FileDown aria-hidden />
+          <FileDown aria-hidden className="max-sm:hidden" />
           Esporta sede
         </Button>
       </div>
