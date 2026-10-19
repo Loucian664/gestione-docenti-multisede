@@ -30,6 +30,22 @@ export function teacherHistory(data: PersistedData, id: string): { absences: num
 }
 
 /**
+ * Cosa cambia eliminando il docente (in servizio o no): le sue ore in orario, le sue assenze, le ore che ha coperto
+ * (tornano da coprire) e quelle che i colleghi hanno coperto per lui (restano nel loro report).
+ */
+export function removalImpact(
+  data: PersistedData,
+  id: string,
+): { lessons: number; absences: number; coveredByThem: number; coveredForThem: number } {
+  return {
+    lessons: data.slots.filter((s) => s.teacherId === id).length,
+    absences: data.absences.filter((a) => a.teacherId === id).length,
+    coveredByThem: data.substitutions.filter((s) => s.substituteId === id).length,
+    coveredForThem: data.substitutions.filter((s) => s.absentTeacherId === id && s.substituteId).length,
+  };
+}
+
+/**
  * Arriva un'altra persona al posto del docente: la scheda (classi, ore, orario, preferenze) resta la stessa e prende
  * il nome nuovo; chi lascia passa tra i docenti non più in servizio con le assenze e le coperture dei giorni prima di
  * `fromDate`. Da `fromDate` in poi quello che era già segnato resta sulla scheda, cioè alla persona nuova.

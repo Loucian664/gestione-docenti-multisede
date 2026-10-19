@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { coverageNeeds } from "./coverage.ts";
-import { allTeachers, findAnyTeacher, replaceTeacher, teacherHistory, withFormerTeachers } from "./replace-teacher.ts";
+import { allTeachers, findAnyTeacher, removalImpact, replaceTeacher, teacherHistory, withFormerTeachers } from "./replace-teacher.ts";
 import { buildSeed } from "./seed.ts";
 import {
   allSedi,
@@ -10,6 +10,8 @@ import {
   formerPersons,
   historyIn,
   linkedElsewhere,
+  removalImpactSedi,
+  removeTeacherRefs,
   replaceTeacherSedi,
   sedeIdOf,
   teacherRefs,
@@ -177,6 +179,43 @@ describe("sostituisci docente", () => {
   });
 });
 
+describe("elimina docente", () => {
+  it("conta ore in orario, assenze, ore coperte per i colleghi e ore coperte dai colleghi", () => {
+    const d = data({
+      absences: [absence("a1", "t-old", "2026-10-12"), absence("a2", "t-cov", "2026-10-13")],
+      substitutions: [
+        sub("s1", "2026-10-12", "t-old", "t-cov"),
+        sub("s2", "2026-10-12", "t-old", null),
+        sub("s3", "2026-10-13", "t-cov", "t-old"),
+      ],
+    });
+    assert.deepEqual(removalImpact(d, "t-old"), { lessons: 1, absences: 1, coveredByThem: 1, coveredForThem: 1 });
+    assert.deepEqual(removalImpact(d, "t-x"), { lessons: 0, absences: 0, coveredByThem: 0, coveredForThem: 0 });
+  });
+
+  it("dal negozio: si elimina anche chi non è più in servizio, con le sue assenze e le ore che ha coperto", () => {
+    const st = () => useAppStore.getState();
+    st().resetDemo();
+    const [t, other] = st().teachers;
+    assert.ok(t && other);
+    useAppStore.setState({
+      absences: [absence("a-x", t.id, "2026-10-12"), absence("a-y", other.id, "2026-10-13")],
+      substitutions: [sub("s-x", "2026-10-12", t.id, other.id), sub("s-y", "2026-10-13", other.id, t.id)],
+    });
+    assert.equal(st().replaceTeacher(t.id, { lastName: "Nuova", firstName: "Persona" }, FROM), true);
+    const formerId = st().formerTeachers![0]!.id;
+    st().removeTeacher(formerId);
+    assert.equal(st().formerTeachers?.length ?? 0, 0);
+    assert.ok(st().teachers.some((x) => x.id === t.id));
+    assert.ok(!st().absences.some((a) => a.teacherId === formerId));
+    assert.ok(st().absences.some((a) => a.id === "a-y"));
+    // l'ora che aveva coperto torna da coprire; quella coperta dal collega resta
+    assert.ok(!st().substitutions.some((s) => s.id === "s-y"));
+    assert.ok(st().substitutions.some((s) => s.id === "s-x"));
+    st().resetDemo();
+  });
+});
+
 // ---------------------------------------------------------------------------------------------
 // Più sedi: gli esempi hanno due sedi con un docente di francese in comune (nomi inventati)
 
@@ -293,6 +332,54 @@ describe("più sedi: sostituisci docente", () => {
     assert.equal(out.formerTeachers![0]!.personId, undefined);
     assert.equal(out.formerTeachers![0]!.lastName, here.lastName);
     assert.ok(out.absences.some((a) => a.teacherId === out.formerTeachers![0]!.id));
+  });
+});
+
+describe("più sedi: elimina docente", () => {
+  it("le conseguenze sede per sede; solo nella sede in uso l'altra scheda resta", () => {
+    const { d, here, there, bId } = twoSedi();
+    const all = teacherRefs(d, here.id, true);
+    const impact = removalImpactSedi(d, all);
+    assert.deepEqual(
+      impact.map((x) => [x.sedeName, x.absences, x.coveredByThem, x.coveredForThem]),
+      [
+        ["Sede A (esempio)", 2, 1, 1],
+        ["Sede B (esempio)", 2, 1, 1],
+      ],
+    );
+    assert.equal(impact[0]!.lessons, d.slots.filter((s) => s.teacherId === here.id).length);
+    const onlyHere = removeTeacherRefs(d, teacherRefs(d, here.id, false));
+    assert.ok(!onlyHere.teachers.some((t) => t.id === here.id));
+    assert.ok(sedeB(onlyHere, bId).teachers.some((t) => t.id === there.id));
+    assert.deepEqual(sedeB(onlyHere, bId), sedeB(d, bId));
+    const everywhere = removeTeacherRefs(d, all);
+    const b = sedeB(everywhere, bId);
+    assert.ok(!b.teachers.some((t) => t.id === there.id));
+    assert.ok(!b.slots.some((s) => s.teacherId === there.id));
+    assert.ok(!b.absences.some((a) => a.teacherId === there.id));
+    // le ore che ha coperto tornano da coprire, quelle coperte dai colleghi restano
+    assert.deepEqual(
+      b.substitutions.map((s) => s.id),
+      ["b-s1", "b-s3"],
+    );
+  });
+
+  it("chi non è più in servizio in più sedi si elimina da tutte, con tutta la sua storia", () => {
+    const { d, here, there, bId } = twoSedi();
+    const next = replaceTeacherSedi(d, here.id, { lastName: "Nuova", firstName: "Persona" }, FROM, true)!;
+    const row = formerPersons(next)[0]!;
+    const out = removeTeacherRefs(next, row.records);
+    assert.deepEqual(formerPersons(out), []);
+    for (const [sede, card] of [
+      [pickHere(out), here.id],
+      [sedeB(out, bId), there.id],
+    ] as const) {
+      assert.ok(sede.teachers.some((t) => t.id === card));
+      assert.equal(sede.formerTeachers?.length, 0);
+      assert.ok(sede.absences.every((a) => a.teacherId !== row.records[0]!.teacherId));
+      // restano l'assenza dopo la data (della scheda) e quella del collega
+      assert.equal(sede.absences.length, 2);
+    }
   });
 });
 

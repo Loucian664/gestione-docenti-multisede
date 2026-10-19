@@ -17,7 +17,7 @@ import {
   type MissingTeacher,
 } from "./build-timetable";
 import { todayIso } from "./dates";
-import { replaceTeacher } from "./replace-teacher";
+import { removalImpact, replaceTeacher } from "./replace-teacher";
 import { uid } from "./utils";
 
 /** Id della sede di un archivio che non ne ha ancora uno (un backup dell'app di Rombiolo). */
@@ -777,6 +777,38 @@ export function historyIn(data: PersistedData, refs: TeacherRef[]): { absences: 
     ).length;
   }
   return out;
+}
+
+export type RemovalInSede = TeacherRef & { sedeName: string } & ReturnType<typeof removalImpact>;
+
+/** Cosa cambia eliminando le schede, sede per sede (vedi `removalImpact`). */
+export function removalImpactSedi(data: PersistedData, refs: TeacherRef[]): RemovalInSede[] {
+  return refs.flatMap((r) => {
+    const sede = refData(data, r.sedeId);
+    return sede ? [{ ...r, sedeName: sedeName(sede.settings), ...removalImpact(sede, r.teacherId) }] : [];
+  });
+}
+
+/**
+ * Toglie una scheda (in servizio o no) dalla sua sede: le sue ore in orario e le sue assenze; le ore che ha coperto
+ * tornano da coprire, quelle che i colleghi hanno coperto per lei restano nel loro report.
+ */
+function withoutTeacher(sede: SedeData, id: string): SedeData {
+  return {
+    ...sede,
+    teachers: sede.teachers.filter((t) => t.id !== id),
+    formerTeachers: sede.formerTeachers?.filter((t) => t.id !== id),
+    slots: sede.slots.filter((s) => s.teacherId !== id),
+    absences: sede.absences.filter((a) => a.teacherId !== id),
+    substitutions: sede.substitutions.filter((s) => s.substituteId !== id),
+    cattedre: (sede.cattedre ?? []).map((x) => (x.teacherId === id ? { ...x, teacherId: "" } : x)),
+  };
+}
+
+export function removeTeacherRefs(data: PersistedData, refs: TeacherRef[]): PersistedData {
+  let next = data;
+  for (const r of refs) next = editSede(next, r.sedeId, (sede) => withoutTeacher(sede, r.teacherId));
+  return next;
 }
 
 export type FormerPerson = {
