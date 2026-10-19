@@ -124,6 +124,8 @@ export type InsiemeInfo = {
    * si conta come nell'app di ogni sede: le ore nelle altre sedi sono ×, con l'ora di spostamento accanto.
    */
   sedeDisp?: Record<string, { s: number; hours: number; slots: { day: DayOfWeek; periodId: string }[] }[]>;
+  /** quanto pesa un giorno diviso tra due sedi (o qui e nell'altro plesso); di base `WEIGHTS.mixed` */
+  mixedW?: number;
 };
 
 type SlotWish = { d: number; m: number; classes: number[] };
@@ -200,6 +202,8 @@ export type Prep = {
   dispCand: Uint32Array;
   /** «Tutte le sedi insieme»: quante sedi (1 = una sede, come sempre) */
   nSedi: number;
+  /** peso di un giorno diviso tra due sedi (o qui e nell'altro plesso) */
+  mixedW: number;
   /** C: sede di ogni classe */
   classSede: Int8Array;
   sedeNames: string[];
@@ -845,6 +849,7 @@ export function prepare(
     dispMask0,
     dispCand,
     nSedi,
+    mixedW: insieme?.mixedW ?? WEIGHTS.mixed,
     classSede,
     sedeNames: insieme?.sedi ?? [],
     sedeUnavail,
@@ -1692,7 +1697,7 @@ export class TimetableSolver {
     if (duties === 1) cost += W.single;
     const mixed = info.otherPlesso && p.dayHasAway[t * p.D + d] === 1 && mFirst >= 0;
     if (mixed) {
-      cost += W.mixed;
+      cost += p.mixedW;
       if (lessonsM <= 1) cost += W.mixedSingle;
     }
     this.lastGaps = gaps;
@@ -1802,7 +1807,7 @@ export class TimetableSolver {
     }
     this.lastSedeHard = n ? this.sedeHardOf(t, d) : 0;
     if (mixed) {
-      cost += W.mixed;
+      cost += p.mixedW;
       if (mixedSingle) cost += W.mixedSingle;
     }
     this.lastGaps = gaps;
@@ -4782,7 +4787,7 @@ export class TimetableEditor {
     let worseW = 0;
     let betterW = 0;
     for (const r of rows) {
-      const w = ROW_WEIGHT[r.key] * Math.abs(r.to - r.from);
+      const w = (r.key === "mixed" ? this.prep.mixedW : ROW_WEIGHT[r.key]) * Math.abs(r.to - r.from);
       if (r.better) betterW += w;
       else worseW += w;
     }

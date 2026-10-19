@@ -50,7 +50,7 @@ import {
   type Who,
   type WhoChange,
 } from "@/lib/timetable-solver";
-import { runTimetable, type RunHandle, type RunProgress } from "@/lib/timetable-runner";
+import { runTimetable, runTimetableVersions, type RunProgress } from "@/lib/timetable-runner";
 import { teacherName, teacherShort } from "@/lib/coverage";
 import { subjectAbbr, weekCellLines } from "@/lib/sheet-image";
 import {
@@ -84,14 +84,17 @@ import { formatItDate } from "@/lib/dates";
 import {
   buildInsieme,
   canBuildTogether,
+  INSIEME_VERSIONI,
   insiemeParts,
   insiemeSlot,
   insiemeSlotData,
   splitInsieme,
   vistaSedi,
   withInsiemeParts,
+  withMixedWeight,
   type InsiemeData,
   type InsiemeMap,
+  type InsiemeVersione,
 } from "@/lib/sedi-insieme";
 import { ClasseGenerale, DocentiGenerale, GiornoGenerale, SettimanaGenerale } from "@/components/vista-generale";
 import { MissingTeachersBox, MissingTeachersDialog } from "@/components/missing-teachers";
@@ -170,8 +173,24 @@ export function CostruisciOrario({
   const previewRef = useRef<HTMLElement>(null);
   const [mode, setMode] = useState<SolveMode>("scratch");
   const [speed, setSpeed] = useState<"rapida" | "accurata">("rapida");
+  // «Tutte le sedi insieme»: le tre versioni o una sola (ricordata su questo dispositivo)
+  const [versioni, setVersioni] = useState<VersioniScelta>(() => {
+    try {
+      const v = localStorage.getItem(VERSIONI_KEY);
+      return v && VERSIONI_SCELTE.some((x) => x.value === v) ? (v as VersioniScelta) : "tutte";
+    } catch {
+      return "tutte";
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(VERSIONI_KEY, versioni);
+    } catch {
+      // senza memoria del browser vale solo finché la pagina resta aperta
+    }
+  }, [versioni]);
   const [running, setRunning] = useState<RunProgress | null>(null);
-  const handleRef = useRef<RunHandle | null>(null);
+  const handleRef = useRef<{ stop: () => void } | null>(null);
   const [result, setResult] = useState<SolveResult | null>(null);
   const [resultMode, setResultMode] = useState<SolveMode>("scratch");
   const [currentReport, setCurrentReport] = useState<TimetableReport | null>(null);
@@ -428,15 +447,26 @@ export function CostruisciOrario({
     setSavedIn(null);
     setRunning({ fraction: 0, iterations: 0, bestHard: 0, bestSoft: 0, bestGaps: 0, workers: 0 });
     const runMode = mode;
-    const handle = runTimetable(built.joint, {
-      timeMs: jointMs(speed === "rapida"),
-      mode: runMode,
-      onProgress: (p) => setRunning(p),
-    });
+    // le versioni scelte, con un peso diverso per i giorni divisi tra due sedi: le ricerche si dividono tra loro
+    const chosen = INSIEME_VERSIONI.filter((v) => versioni === "tutte" || v.key === versioni);
+    const handle = runTimetableVersions(
+      chosen.map((v) => withMixedWeight(built.joint, v.mixedW)),
+      { timeMs: jointMs(speed === "rapida"), mode: runMode, onProgress: (p) => setRunning(p) },
+    );
     handleRef.current = handle;
     handle.result
       .then((res) => {
-        setInsieme({ result: res, joint: built.joint, map: built.map, notes: built.notes, mode: runMode, savedIn: null });
+        setInsieme({
+          result: res[0]!,
+          versions: res,
+          versionKeys: chosen.map((v) => v.key),
+          version: 0,
+          joint: built.joint,
+          map: built.map,
+          notes: built.notes,
+          mode: runMode,
+          savedIn: null,
+        });
         window.setTimeout(() => {
           insiemeRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
         }, 50);
@@ -544,12 +574,15 @@ export function CostruisciOrario({
   function openInsiemeEdit(from: EditState["from"], after?: PersistedData) {
     let next: InsiemeEdit;
     if (from === "proposta" && insieme) {
+      const versione = versioneOf(insieme);
       next = {
         edit: { draft: insieme.result.slots, history: [], from },
-        joint: insieme.joint,
+        // i ritocchi contano i giorni divisi come la versione scelta
+        joint: versione ? withMixedWeight(insieme.joint, versione.mixedW) : insieme.joint,
         map: insieme.map,
         mode: insieme.mode,
         base: insieme.slot?.base,
+        versione: versione?.short,
         // come nella proposta: le ore a disposizione già nelle buche, così i numeri sono gli stessi
         baseTeachers: after ? buildInsieme(after).joint.teachers : undefined,
       };
@@ -851,7 +884,24 @@ export function CostruisciOrario({
                   ]
             }
           />
+          {allTogether && (
+            <Segmented
+              label="Versioni"
+              value={versioni}
+              onChange={setVersioni}
+              disabled={Boolean(running)}
+              options={VERSIONI_SCELTE}
+              grid
+            />
+          )}
         </div>
+        {allTogether && (
+          <p className="mt-2 text-[13px] text-muted-foreground">
+            {versioni === "tutte"
+              ? "Tre proposte nello stesso tempo: più peso ai giorni in un solo plesso, equilibrata, meno ore buche. Le ricerche si dividono tra le tre; alla fine scegli quale vedere e usare."
+              : `Una proposta sola, «${INSIEME_VERSIONI.find((v) => v.key === versioni)?.label}»: tutte le ricerche lavorano su quella, che viene più rifinita.`}
+          </p>
+        )}
         {allTogether && (
           <p className={cn("mt-2 text-[13px]", together.ok ? "text-muted-foreground" : "text-warning")}>
             {together.ok
@@ -985,9 +1035,9 @@ export function CostruisciOrario({
           defaultName={
             insiemeEdit.edit.from === "uso"
               ? "Tutte le sedi · ritoccato"
-              : insiemeEdit.mode === "scratch"
-                ? "Tutte le sedi · da zero e ritoccato"
-                : "Tutte le sedi · migliorato e ritoccato"
+              : `Tutte le sedi · ${insiemeEdit.mode === "scratch" ? "da zero" : "migliorato"}${
+                  insiemeEdit.versione ? ` (${insiemeEdit.versione})` : ""
+                } e ritoccato`
           }
           data={rawData}
           onClose={() => setInsiemeEditDialog(null)}
@@ -1005,7 +1055,10 @@ export function CostruisciOrario({
           onRetry={proposeTogether}
           onEdit={(after) => openInsiemeEdit("proposta", after)}
           onClose={() => setInsieme(null)}
-          onSaved={(n) => setInsieme((v) => (v ? { ...v, savedIn: n } : v))}
+          onSaved={(n) => setInsieme((v) => (v ? { ...v, savedIn: n, savedVersion: v.version } : v))}
+          onVersion={(i) =>
+            setInsieme((v) => (v?.versions?.[i] ? { ...v, result: v.versions[i], version: i } : v))
+          }
         />
       )}
 
@@ -2462,15 +2515,25 @@ function Segmented<T extends string>({
   options,
   onChange,
   disabled,
+  grid,
 }: {
   label: string;
   value: T;
   options: { value: T; label: string }[];
   onChange: (v: T) => void;
   disabled?: boolean;
+  /** sul telefono in due colonne uguali (con 4 voci, due file pari invece di una voce sola a capo) */
+  grid?: boolean;
 }) {
   return (
-    <div role="radiogroup" aria-label={label} className="inline-flex flex-wrap rounded-lg bg-muted p-1">
+    <div
+      role="radiogroup"
+      aria-label={label}
+      className={cn(
+        "rounded-lg bg-muted p-1",
+        grid ? "grid w-full grid-cols-2 gap-0.5 sm:inline-flex sm:w-auto sm:flex-wrap sm:gap-0" : "inline-flex flex-wrap",
+      )}
+    >
       {options.map((o) => (
         <button
           key={o.value}
@@ -4167,7 +4230,14 @@ function ReportPanel({
 
 /** «Tutte le sedi insieme»: la proposta del motore, l'insieme da cui viene e il confronto con l'attuale. */
 type InsiemeResult = {
+  /** la proposta mostrata: quella della versione scelta */
   result: SolveResult;
+  /** le versioni calcolate insieme (una o tre, `versionKeys` di INSIEME_VERSIONI) e quella scelta */
+  versions?: SolveResult[];
+  versionKeys?: InsiemeVersione["key"][];
+  version?: number;
+  /** la versione salvata nello slot `savedIn` */
+  savedVersion?: number;
   /** i dati di tutte le sedi insieme (con l'orario in uso, o con lo slot aperto), per i ritocchi */
   joint: InsiemeData;
   map: InsiemeMap;
@@ -4191,7 +4261,92 @@ type InsiemeEdit = {
   mode: SolveMode;
   base?: PersistedData;
   baseTeachers?: Teacher[];
+  /** dalla proposta: la versione scelta (per il nome dello slot) */
+  versione?: string;
 };
+
+/** La versione mostrata della proposta per tutte le sedi (non c'è per uno slot aperto). */
+function versioneOf(v: InsiemeResult): InsiemeVersione | undefined {
+  const key = v.versionKeys?.[v.version ?? 0];
+  return INSIEME_VERSIONI.find((x) => x.key === key);
+}
+
+type VersioniScelta = "tutte" | InsiemeVersione["key"];
+const VERSIONI_SCELTE: { value: VersioniScelta; label: string }[] = [
+  { value: "tutte", label: "Tutte e tre" },
+  { value: "plesso", label: "Giorni in un plesso" },
+  { value: "equilibrato", label: "Equilibrato" },
+  { value: "buche", label: "Meno ore buche" },
+];
+/** la scelta delle versioni, ricordata su questo dispositivo */
+const VERSIONI_KEY = "gestione-docenti-multisede-versioni";
+
+/**
+ * Le versioni della proposta per tutte le sedi, una riga ciascuna con i suoi numeri (giorni divisi tra due sedi
+ * per primi): toccandone una, sotto si vede quella.
+ */
+function VersioniBox({
+  rows,
+  current,
+  value,
+  onChange,
+}: {
+  rows: { label: string; report: TimetableReport }[];
+  current: TimetableReport;
+  value: number;
+  onChange: (i: number) => void;
+}) {
+  const nums = (r: TimetableReport) => [
+    { n: r.docenti.mixed.length, one: "giorno diviso tra due plessi", many: "giorni divisi tra due plessi" },
+    { n: r.gapsTotal, one: "ora buca", many: "ore buche" },
+    { n: r.docenti.five.length, one: "giornata con 5 lezioni", many: "giornate con 5 lezioni" },
+    { n: r.docenti.span6.length, one: "giornata dalla 1ª alla 6ª", many: "giornate dalla 1ª alla 6ª" },
+  ];
+  return (
+    <div className="mt-4 rounded-xl border border-border bg-card px-4 py-3">
+      <p className="text-sm font-medium">Tre versioni</p>
+      <p className="mt-0.5 text-[13px] text-muted-foreground">
+        Più peso ai giorni in un solo plesso, oppure meno ore buche. Tocca una versione per vederla qui sotto; «Usa»,
+        «Salva» e «Ritocca» valgono per quella scelta. Nell’orario in uso:{" "}
+        {nums(current)
+          .map((x) => `${x.n} ${x.n === 1 ? x.one : x.many}`)
+          .join(", ")}
+        .
+      </p>
+      <div role="radiogroup" aria-label="Versione della proposta" className="mt-2.5 grid gap-1.5">
+        {rows.map((r, i) => {
+          const hard = hardCount(r.report);
+          return (
+            <button
+              key={i}
+              type="button"
+              role="radio"
+              aria-checked={i === value}
+              onClick={() => onChange(i)}
+              className={cn(
+                "flex min-h-11 flex-col gap-0.5 rounded-lg border px-3 py-2 text-left",
+                i === value ? "border-primary bg-primary/10" : "border-border hover:bg-muted",
+              )}
+            >
+              <span className="text-sm font-medium">{r.label}</span>
+              <span className="text-[13px] text-muted-foreground">
+                {nums(r.report)
+                  .map((x) => `${x.n} ${x.n === 1 ? x.one : x.many}`)
+                  .join(" · ")}
+                {hard > 0 && (
+                  <span className="text-destructive">
+                    {" "}
+                    · {hard} {hard === 1 ? "vincolo da sistemare" : "vincoli da sistemare"}
+                  </span>
+                )}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 /** La proposta per tutte le sedi: riepilogo, confronto, vista generale e i tasti per tutte le sedi. */
 function InsiemeProposta({
@@ -4204,6 +4359,7 @@ function InsiemeProposta({
   onEdit,
   onClose,
   onSaved,
+  onVersion,
 }: {
   sectionRef: React.RefObject<HTMLElement | null>;
   data: PersistedData;
@@ -4214,26 +4370,41 @@ function InsiemeProposta({
   onEdit: (after: PersistedData) => void;
   onClose: () => void;
   onSaved: (n: number) => void;
+  onVersion: (i: number) => void;
 }) {
   const store = useAppStore();
-  const lessons = useMemo(() => splitInsieme(value.map, value.result.slots), [value]);
-  // l'orario di ogni sede come sarà salvato (con «Da zero» le ore a disposizione nelle buche) e i suoi numeri:
-  // tutte le sedi insieme e, sede per sede, come li conta l'app di quella sede (le ore nelle altre sedi sono ×)
-  const final = useMemo(() => {
-    const parts = value.slot ? insiemeParts(value.slot.base, lessons, "improve") : insiemeParts(data, lessons, value.mode);
-    const after = withInsiemeParts(data, parts);
-    const joint = buildInsieme(after).joint;
-    return {
-      parts,
-      after,
-      joint,
-      total: evaluateCurrent(joint),
-      sedi: allSedi(after).map((x) => {
-        const view = withOtherSedi(switchSede(after, x.id));
+  // le versioni calcolate insieme (o la proposta sola, o lo slot aperto)
+  const results = useMemo(() => value.versions ?? [value.result], [value.versions, value.result]);
+  // l'orario di ogni sede come sarà salvato (con «Da zero» le ore a disposizione nelle buche) e i suoi numeri di
+  // tutte le sedi insieme, per ogni versione
+  const finals = useMemo(
+    () =>
+      results.map((res) => {
+        const lessons = splitInsieme(value.map, res.slots);
+        const parts = value.slot
+          ? insiemeParts(value.slot.base, lessons, "improve")
+          : insiemeParts(data, lessons, value.mode);
+        const after = withInsiemeParts(data, parts);
+        const joint = buildInsieme(after).joint;
+        return { lessons, parts, after, joint, total: evaluateCurrent(joint) };
+      }),
+    [data, results, value.map, value.slot, value.mode],
+  );
+  const version = value.versions ? (value.version ?? 0) : 0;
+  const versione = versioneOf(value);
+  const chosen = finals[version] ?? finals[0]!;
+  const lessons = chosen.lessons;
+  // e, sede per sede, come li conta l'app di quella sede (le ore nelle altre sedi sono ×)
+  const final = useMemo(
+    () => ({
+      ...chosen,
+      sedi: allSedi(chosen.after).map((x) => {
+        const view = withOtherSedi(switchSede(chosen.after, x.id));
         return { id: x.id, name: sedeName(x.data.settings), view, report: evaluateCurrent(view) };
       }),
-    };
-  }, [data, lessons, value]);
+    }),
+    [chosen],
+  );
   const inUse = useMemo(
     () => ({
       total: evaluateCurrent(buildInsieme(data).joint),
@@ -4249,9 +4420,7 @@ function InsiemeProposta({
   const [dialog, setDialog] = useState<"save" | "use" | null>(null);
   const name = value.slot
     ? value.slot.name
-    : value.mode === "scratch"
-      ? "Tutte le sedi · da zero"
-      : "Tutte le sedi · migliorato";
+    : `Tutte le sedi · ${value.mode === "scratch" ? "da zero" : "migliorato"}${versione ? ` (${versione.short})` : ""}`;
   const warnings = [...value.notes, ...value.result.report.warnings];
 
   function pick(n: number, slotName: string) {
@@ -4314,7 +4483,7 @@ function InsiemeProposta({
           <span className="hidden text-[13px] text-muted-foreground sm:inline">
             {value.slot
               ? "Aperto dallo slot, tutte le sedi"
-              : value.savedIn
+              : value.savedIn && (value.savedVersion ?? 0) === version
                 ? `Salvata nello slot ${value.savedIn}`
                 : "Non ancora salvata"}
           </span>
@@ -4367,6 +4536,7 @@ function InsiemeProposta({
         «Ritocca a mano» sposta le lezioni in tutte le sedi insieme, anche a catena da una sede all’altra. Le ore a
         disposizione si sistemano sede per sede quando la usi o la salvi
         {value.mode === "scratch" ? ", anche nelle ore buche" : ""}.
+        {versione && value.versions?.length === 1 ? ` Versione «${versione.label}».` : ""}
       </p>
       {warnings.length > 0 && (
         <ul className="mt-2 flex list-disc flex-col gap-1 pl-5 text-[13px] text-warning">
@@ -4374,6 +4544,18 @@ function InsiemeProposta({
             <li key={i}>{w}</li>
           ))}
         </ul>
+      )}
+
+      {value.versions && value.versions.length > 1 && (
+        <VersioniBox
+          rows={finals.map((f, i) => ({
+            label: INSIEME_VERSIONI.find((x) => x.key === value.versionKeys?.[i])?.label ?? `Versione ${i + 1}`,
+            report: f.total,
+          }))}
+          current={inUse.total}
+          value={version}
+          onChange={onVersion}
+        />
       )}
 
       <ReportPanel

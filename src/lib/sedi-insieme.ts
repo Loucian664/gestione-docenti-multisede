@@ -27,6 +27,24 @@ import { slotPart, slotsWithLessons, timetablePart, withPart, type TimetablePart
 
 export type InsiemeData = PersistedData & { insieme: InsiemeInfo };
 
+/**
+ * Le versioni della proposta per tutte le sedi, calcolate insieme: quanto pesa un giorno diviso tra due sedi (o qui
+ * e nell'altro plesso). Più peso, meno giorni divisi, ma qualche ora buca e giornata da 5 lezioni in più (sulle 6
+ * sedi vere, 19/10/2026: circa 19, 25 e 31 giorni divisi). Decisione dell'utente: tre versioni, si sceglie dopo.
+ */
+export const INSIEME_VERSIONI = [
+  { key: "plesso", label: "Massima priorità ai giorni in un plesso", short: "giorni in un plesso", mixedW: 3000 },
+  { key: "equilibrato", label: "Equilibrato", short: "equilibrato", mixedW: 2000 },
+  { key: "buche", label: "Meno ore buche", short: "meno ore buche", mixedW: 800 },
+] as const;
+
+export type InsiemeVersione = (typeof INSIEME_VERSIONI)[number];
+
+/** I dati di tutte le sedi con il peso dei giorni divisi di una versione. */
+export function withMixedWeight(joint: InsiemeData, mixedW: number): InsiemeData {
+  return { ...joint, insieme: { ...joint.insieme, mixedW } };
+}
+
 export type InsiemeMap = {
   sedi: { id: string; name: string }[];
   /** classe dell'insieme → sede e classe vera */
