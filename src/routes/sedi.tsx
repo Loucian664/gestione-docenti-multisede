@@ -8,11 +8,12 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useAppStore, snapshot } from "@/lib/store";
-import { backupJson, parseBackupJson } from "@/lib/export";
+import { backupJson, orarioDownloadName, parseBackupJson } from "@/lib/export";
 import { shareOrSave, toastSave } from "@/lib/share-file";
 import {
   allSedi,
   canRemoveSede,
+  exportSede,
   missingBySede,
   nameMatches,
   pickSede,
@@ -23,7 +24,7 @@ import {
 import { missingText, type MissingTeacher } from "@/lib/build-timetable";
 import { teacherName } from "@/lib/coverage";
 import { DAY_SHORT, type PersistedData, type SedeData, type Teacher } from "@/lib/types";
-import { FileUp, Plus } from "lucide-react";
+import { FileDown, FileUp, Plus } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/sedi")({ component: SediPage });
@@ -104,6 +105,22 @@ function SediPage() {
               toast.message(`Sede in uso: ${sedeName(s.data.settings)}`);
             }}
             onEdit={() => setEditing(s.id)}
+            onExport={() => {
+              // il backup della sola sede, per l'app della singola scuola
+              const name = sedeName(s.data.settings);
+              void shareOrSave(
+                orarioDownloadName(name, `backup-sede-${store.selectedDate}`, "json"),
+                backupJson(exportSede(data, s.id)),
+                "application/json",
+              ).then((outcome) => {
+                toastSave(outcome, "backup");
+                if (outcome !== "cancelled")
+                  toast.message(`Backup di ${name} pronto`, {
+                    description:
+                      "Nell’app della scuola: Impostazioni → Importa backup. Sostituisce tutto, anche assenze e sostituzioni: va fatto a inizio anno.",
+                  });
+              });
+            }}
           />
         ))}
       </div>
@@ -147,12 +164,14 @@ function SedeCard({
   missing,
   onUse,
   onEdit,
+  onExport,
 }: {
   sede: SedeEntry;
   shared: number;
   missing: MissingTeacher[];
   onUse: () => void;
   onEdit: () => void;
+  onExport: () => void;
 }) {
   const { settings, classes, teachers } = sede.data;
   const tp = classes.filter((c) => c.tempo === "TP").length;
@@ -184,6 +203,14 @@ function SedeCard({
         {!sede.active && <Button onClick={onUse}>Usa questa sede</Button>}
         <Button variant="outline" onClick={onEdit}>
           Modifica
+        </Button>
+        <Button
+          variant="outline"
+          onClick={onExport}
+          title="Il backup di questa sede per l’app della singola scuola"
+        >
+          <FileDown aria-hidden />
+          Esporta sede
         </Button>
       </div>
     </section>
