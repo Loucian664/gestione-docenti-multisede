@@ -19,6 +19,7 @@ import { isTimetableTeacher, applyTeacherCattedre } from "./build-timetable";
 import { isTpPeriodId } from "./periods";
 import { OFFICIAL_NAME, activeSlotOf, slotPart, timetableKey, withPart, type TimetablePart } from "./saved-timetables";
 import { todayIso } from "./dates";
+import { startNewSchoolYear as startNewSchoolYearIn } from "./school-years";
 import {
   createDurableStorage,
   noteUserMutation,
@@ -36,12 +37,15 @@ import {
   newSedeData,
   pickSede,
   removeSede as removeSedeFrom,
+  removeTeacherRefs,
+  replaceTeacherSedi,
   sedeAsData,
   sedeIdOf,
   setSchoolYear as setSchoolYearIn,
   saveTeacherSedi as saveTeacherSediIn,
   setTeacherSedi as setTeacherSediIn,
   type CardRow,
+  type TeacherRef,
   switchSede as switchSedeTo,
   syncPersonFields,
 } from "./sedi";
@@ -88,7 +92,20 @@ type Actions = {
     sedeIds: string[],
     drop?: Record<string, string[]>,
   ) => { teacherId: string; blocked: string[] };
+  /** Solo nella sede in uso, anche chi non è più in servizio: le sue ore in orario, le sue assenze e le ore che ha coperto. */
   removeTeacher: (id: string) => void;
+  /** Come `removeTeacher`, per le schede indicate (sede e id): una persona in più sedi o chi non è più in servizio. */
+  removeTeachers: (refs: TeacherRef[]) => void;
+  /**
+   * Un'altra persona al posto del docente dal giorno indicato, in tutte le sue sedi o (`everywhere` false) solo in
+   * quella in uso (vedi `replaceTeacherSedi`).
+   */
+  replaceTeacher: (
+    id: string,
+    name: { lastName: string; firstName: string },
+    fromDate: string,
+    everywhere?: boolean,
+  ) => boolean;
   addClass: (c: Omit<SchoolClass, "id">) => void;
   updateClass: (id: string, patch: Partial<SchoolClass>) => void;
   removeClass: (id: string) => void;
@@ -154,6 +171,13 @@ type Actions = {
   /** Le sedi in cui insegna il docente della sede in uso; restituisce le sedi da cui non si è potuto togliere. */
   setTeacherSedi: (teacherId: string, sedeIds: string[]) => string[];
   importData: (data: PersistedData, fileName?: string) => void;
+  /**
+   * Nuovo anno scolastico, in tutte le sedi: l’anno in corso va in archivio con tutte le sedi; assenze, sostituzioni
+   * e chi non è più in servizio ripartono da zero; restano docenti, classi, orario (anche gli slot), campanelle e
+   * impostazioni, con l’anno scolastico nuovo.
+   */
+  startNewSchoolYear: (schoolYear: string) => void;
+  removeArchivedYear: (id: string) => void;
   resetDemo: () => void;
   clearAll: () => void;
 };
@@ -170,6 +194,7 @@ export function snapshot(state: AppStore): PersistedData {
     substitutions: state.substitutions,
     selectedDate: state.selectedDate,
     cattedre: state.cattedre,
+    formerTeachers: state.formerTeachers,
     cattedraBackup: state.cattedraBackup,
     cattedraDispBackup: state.cattedraDispBackup,
     savedTimetables: state.savedTimetables,
@@ -178,6 +203,7 @@ export function snapshot(state: AppStore): PersistedData {
     savedAt: state.savedAt,
     origin: state.origin,
     importedBackupName: state.importedBackupName,
+    archivedYears: state.archivedYears,
     sedeId: state.sedeId,
     altreSedi: state.altreSedi,
     ordineSedi: state.ordineSedi,
@@ -413,17 +439,19 @@ export const useAppStore = create<AppStore>()(
           return { teacherId, blocked: out.blocked };
         },
 
-        removeTeacher: (id) =>
-          save({
-            teachers: get().teachers.filter((t) => t.id !== id),
-            slots: get().slots.filter((s) => s.teacherId !== id),
-            absences: get().absences.filter((a) => a.teacherId !== id),
-            // le ore che copriva come sostituto tornano da coprire
-            substitutions: get().substitutions.filter((s) => s.substituteId !== id),
-            cattedre: (get().cattedre ?? []).map((x) =>
-              x.teacherId === id ? { ...x, teacherId: "" } : x,
-            ),
-          }),
+        removeTeacher: (id) => {
+          const state = snapshot(get());
+          save(removeTeacherRefs(state, [{ sedeId: sedeIdOf(state), teacherId: id }]));
+        },
+
+        removeTeachers: (refs) => save(removeTeacherRefs(snapshot(get()), refs)),
+
+        replaceTeacher: (id, name, fromDate, everywhere = true) => {
+          const next = replaceTeacherSedi(snapshot(get()), id, name, fromDate, everywhere);
+          if (!next) return false;
+          save(next);
+          return true;
+        },
 
         addClass: (c) => save({ classes: [...get().classes, { ...c, id: uid("c") }] }),
 
@@ -751,12 +779,17 @@ export const useAppStore = create<AppStore>()(
             savedTimetables: data.savedTimetables ?? [],
             activeSlot: data.activeSlot ?? 0,
             officialBackup: data.officialBackup,
+            archivedYears: data.archivedYears ?? [],
             savedAt: Date.now(),
             origin: "user",
             importedBackupName,
           });
           writePersistSync(snapshot(get()), { force: true });
         },
+
+        startNewSchoolYear: (schoolYear) => save(startNewSchoolYearIn(snapshot(get()), schoolYear)),
+
+        removeArchivedYear: (id) => save({ archivedYears: (get().archivedYears ?? []).filter((y) => y.id !== id) }),
 
         resetDemo: () => {
           noteUserMutation();
@@ -767,6 +800,7 @@ export const useAppStore = create<AppStore>()(
             savedTimetables: [],
             activeSlot: 0,
             officialBackup: undefined,
+            archivedYears: [],
             savedAt: Date.now(),
             origin: "seed",
             importedBackupName: undefined,
@@ -785,6 +819,7 @@ export const useAppStore = create<AppStore>()(
             savedTimetables: [],
             activeSlot: 0,
             officialBackup: undefined,
+            archivedYears: [],
             savedAt: Date.now(),
             origin: "user",
             importedBackupName: undefined,
@@ -811,6 +846,7 @@ export const useAppStore = create<AppStore>()(
         substitutions: state.substitutions,
         selectedDate: state.selectedDate,
         cattedre: state.cattedre,
+        formerTeachers: state.formerTeachers,
         cattedraBackup: state.cattedraBackup,
         cattedraDispBackup: state.cattedraDispBackup,
         savedTimetables: state.savedTimetables,
@@ -819,6 +855,7 @@ export const useAppStore = create<AppStore>()(
         savedAt: state.savedAt,
         origin: state.origin,
         importedBackupName: state.importedBackupName,
+        archivedYears: state.archivedYears,
         sedeId: state.sedeId,
         altreSedi: state.altreSedi,
         ordineSedi: state.ordineSedi,

@@ -15,21 +15,29 @@ import {
   allSedi,
   canRemoveRecord,
   cattedraTotal,
+  formerPersons,
+  historyIn,
   hoursIn,
   missingBySede,
   persons,
+  removalImpactSedi,
   sedeAsData,
   sedeIdOf,
   sedeName,
+  teacherRefs,
   type CardRow,
+  type FormerPerson,
+  type RemovalInSede,
   type SedeEntry,
+  type TeacherRef,
 } from "@/lib/sedi";
 import { DAY_SHORT, ROLE_LABELS, ACTIVITY_SUBJECTS, CURRICULAR_SUBJECTS, SUBJECTS, type DayOfWeek, type Teacher, type TeacherRole, type TimetableSlot } from "@/lib/types";
-import { Plus, Search, LayoutGrid } from "lucide-react";
+import { Plus, Search, LayoutGrid, Trash2, UserRoundPen } from "lucide-react";
 import { MissingTeachersBox } from "@/components/missing-teachers";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { corePeriods } from "@/lib/periods";
+import { formatItDate, isoDate } from "@/lib/dates";
 import {
   TEACHER_PALETTE,
   TONE_NAMES,
@@ -295,6 +303,7 @@ function DocentiPage() {
         </table>
       </div>
       {list.length === 0 && <p className="mt-4 text-sm text-muted-foreground">Nessun docente con questi filtri.</p>}
+      <FormerTeachers data={data} sedeFilter={sedeFilter} several={several} />
       {editing && (
         <TeacherDialog
           key={editing === "new" ? "new" : editing.id}
@@ -303,6 +312,218 @@ function DocentiPage() {
         />
       )}
     </div>
+  );
+}
+
+/**
+ * Chi non è più in servizio: resta per le assenze e le sostituzioni già segnate e per il report. Una riga per
+ * persona anche se ha lasciato più sedi.
+ */
+function FormerTeachers({
+  data,
+  sedeFilter,
+  several,
+}: {
+  data: ReturnType<typeof snapshot>;
+  sedeFilter: string;
+  several: boolean;
+}) {
+  const [removing, setRemoving] = useState<FormerPerson | null>(null);
+  const list = formerPersons(data).filter(
+    (p) => sedeFilter === ALL || p.records.some((r) => r.sedeId === sedeFilter),
+  );
+  if (!list.length) return null;
+  return (
+    <details className="paper-panel mt-4 rounded-xl">
+      <summary className="cursor-pointer px-4 py-3 text-sm font-medium">Non più in servizio ({list.length})</summary>
+      <ul className="divide-y divide-border border-t border-border">
+        {list.map((p) => (
+          <li key={p.key} className="flex items-center gap-2 py-2.5 pr-2 pl-4">
+            <div className="min-w-0 flex-1">
+              <span className="font-medium">{teacherName(p.records[0]!.teacher)}</span>
+              {formerLines(p, several).map((line) => (
+                <span key={line} className="block text-[13px] text-muted-foreground">
+                  {line}
+                </span>
+              ))}
+            </div>
+            <Button size="sm" variant="ghost" className="shrink-0" onClick={() => setRemoving(p)}>
+              <Trash2 />
+              Elimina
+            </Button>
+          </li>
+        ))}
+      </ul>
+      <p className="border-t border-border px-4 py-2.5 text-[12px] text-muted-foreground">
+        Restano qui per le assenze e le sostituzioni già segnate e per il report{several ? " di ogni sede" : ""}. Non
+        compaiono in Oggi, in Costruisci né tra i sostituti.
+      </p>
+      {removing && (
+        <RemoveTeacherDialog
+          name={teacherName(removing.records[0]!.teacher)}
+          refs={removing.records.map((r) => ({ sedeId: r.sedeId, teacherId: r.teacherId }))}
+          inService={false}
+          onCancel={() => setRemoving(null)}
+          onRemoved={() => setRemoving(null)}
+        />
+      )}
+    </details>
+  );
+}
+
+/** Da quando non è più in servizio e chi c'è al suo posto; con più sedi, dove. */
+function formerLines(p: FormerPerson, several: boolean): string[] {
+  const line = (r: FormerPerson["records"][number]) =>
+    `${r.teacher.leftOn ? `dal ${formatItDate(r.teacher.leftOn)}` : ""}${r.next ? ` · al suo posto ${teacherName(r.next)}` : ""}`;
+  const still = p.stillAt.length ? [`Insegna ancora a ${p.stillAt.join(", ")}`] : [];
+  const same = new Set(p.records.map(line)).size === 1;
+  if (!several || same) {
+    const first = `Non più in servizio ${line(p.records[0]!)}`.trim();
+    return several ? [first, p.records.map((r) => r.sedeName).join(" · "), ...still] : [first];
+  }
+  return [...p.records.map((r) => `${r.sedeName}: non più in servizio ${line(r)}`.trim()), ...still];
+}
+
+/** «3 assenze e 5 ore di sostituzione (fatte o ricevute)», senza le voci a zero. */
+function historyText(h: { absences: number; substitutions: number }): string {
+  return [
+    h.absences ? (h.absences === 1 ? "1 assenza" : `${h.absences} assenze`) : "",
+    h.substitutions
+      ? h.substitutions === 1
+        ? "1 ora di sostituzione (fatta o ricevuta)"
+        : `${h.substitutions} ore di sostituzione (fatte o ricevute)`
+      : "",
+  ]
+    .filter(Boolean)
+    .join(" e ");
+}
+
+/** Le conseguenze di «Elimina» in una sede, senza le voci a zero. */
+function impactItems(n: RemovalInSede): string[] {
+  return [
+    n.lessons === 1
+      ? "La sua ora in orario esce dall’orario: la classe resta senza docente in quell’ora."
+      : n.lessons > 1
+        ? `Le sue ${n.lessons} ore in orario escono dall’orario: le classi restano senza docente in quelle ore.`
+        : "",
+    n.absences === 1
+      ? "Si cancella la sua assenza: non compare più in Assenze né nel report."
+      : n.absences > 1
+        ? `Si cancellano le sue ${n.absences} assenze: non compaiono più in Assenze né nel report.`
+        : "",
+    n.coveredByThem === 1
+      ? "L’ora che ha coperto per un collega torna «da coprire» nel giorno in cui l’ha fatta e non conta più nel report."
+      : n.coveredByThem > 1
+        ? `Le ${n.coveredByThem} ore che ha coperto per i colleghi tornano «da coprire» nei giorni in cui le ha fatte e non contano più nel report.`
+        : "",
+    n.coveredForThem === 1
+      ? "L’ora che un collega ha coperto durante una sua assenza resta nel report di chi l’ha coperta."
+      : n.coveredForThem > 1
+        ? `Le ${n.coveredForThem} ore che i colleghi hanno coperto durante le sue assenze restano nel report di chi le ha coperte.`
+        : "",
+  ].filter(Boolean);
+}
+
+/**
+ * «Elimina»: prima di cancellare dice cosa si perde, sede per sede (solo quelle coinvolte) e voce per voce. Per chi è
+ * in servizio vale per la sede in uso; con `allRefs` (insegna in più sedi) si può scegliere tutte le sue sedi.
+ */
+function RemoveTeacherDialog({
+  name,
+  refs,
+  allRefs,
+  inService,
+  onCancel,
+  onRemoved,
+}: {
+  name: string;
+  refs: TeacherRef[];
+  allRefs?: TeacherRef[];
+  inService: boolean;
+  onCancel: () => void;
+  onRemoved: () => void;
+}) {
+  const store = useAppStore();
+  const data = snapshot(store);
+  const [everywhere, setEverywhere] = useState(false);
+  const canEverywhere = inService && (allRefs?.length ?? 0) > 1;
+  const chosen = everywhere && canEverywhere ? allRefs! : refs;
+  const impacts = removalImpactSedi(data, chosen);
+  const names = impacts.map((x) => x.sedeName);
+  const rest = canEverywhere
+    ? removalImpactSedi(
+        data,
+        allRefs!.filter((r) => !chosen.some((c) => c.sedeId === r.sedeId)),
+      ).map((x) => x.sedeName)
+    : [];
+  const severalSedi = allSedi(data).length > 1;
+  const groups = impacts.map((x) => ({ sede: x.sedeName, items: impactItems(x) })).filter((x) => x.items.length);
+  const withHistory = impacts.some((x) => x.absences + x.coveredByThem + x.coveredForThem > 0);
+  const where =
+    chosen.length > 1 ? ` di tutte le sue sedi (${names.join(", ")})` : severalSedi ? ` di ${names[0]}` : "";
+  return (
+    <Dialog open onOpenChange={(o) => !o && onCancel()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Eliminare {name}?</DialogTitle>
+        </DialogHeader>
+        <div className="grid gap-3 text-sm">
+          {canEverywhere && (
+            <label className="flex min-h-9 items-center gap-2 font-medium">
+              <input
+                type="checkbox"
+                className="size-4 accent-primary"
+                checked={everywhere}
+                onChange={(e) => setEverywhere(e.target.checked)}
+              />
+              Elimina da tutte le sue sedi ({removalImpactSedi(data, allRefs!).map((x) => x.sedeName).join(", ")})
+            </label>
+          )}
+          <p>
+            {name} esce {inService ? `dall’elenco dei docenti${where}` : `dall’elenco «Non più in servizio»${where}`}
+            {rest.length ? `; resta a ${rest.join(", ")}` : ""}.
+            {groups.length
+              ? " Inoltre:"
+              : ` Non ha ore in orario, assenze né sostituzioni segnate${chosen.length > 1 ? " in nessuna di queste sedi" : ""}.`}
+          </p>
+          {groups.map((g) => (
+            <div key={g.sede}>
+              {chosen.length > 1 && <p className="mb-1 font-medium">{g.sede}</p>}
+              <ul className="grid list-disc gap-1.5 pl-5">
+                {g.items.map((x) => (
+                  <li key={x}>{x}</li>
+                ))}
+              </ul>
+            </div>
+          ))}
+          {inService && withHistory && (
+            <p className="rounded-md bg-muted px-2.5 py-2 text-[12px] leading-snug">
+              Se al suo posto arriva un’altra persona, usa invece «Sostituisci docente»: assenze e sostituzioni già
+              segnate restano nel report.
+            </p>
+          )}
+          <p className="text-[12px] text-muted-foreground">
+            {(store.archivedYears?.length ?? 0) > 0 && "Gli anni in archivio non cambiano. "}
+            Non si può annullare. Per conservarne una copia, prima esporta il backup in Impostazioni.
+          </p>
+          <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border pt-3">
+            <Button variant="outline" onClick={onCancel}>
+              Annulla
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                store.removeTeachers(chosen);
+                toast.message(rest.length ? `Docente tolto da ${names.join(", ")}: resta a ${rest.join(", ")}.` : "Docente eliminato");
+                onRemoved();
+              }}
+            >
+              Elimina
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -393,6 +614,19 @@ function TeacherDialog({ value, onClose }: { value: Teacher | "new"; onClose: ()
       : [],
   );
   const [rows, setRows] = useState<{ sedeId: string; classId: string; subject: string; hours: string }[]>(initialRows);
+  // «card» la scheda; «rename» l'avviso sul nome cambiato; «replace» arriva un'altra persona al suo posto;
+  // «remove» l'avviso prima di eliminare
+  const [step, setStep] = useState<"card" | "rename" | "replace" | "remove">("card");
+  const [newName, setNewName] = useState({ lastName: "", firstName: "" });
+  const [fromDate, setFromDate] = useState(() => isoDate(new Date()));
+  // con più sedi si sostituisce in tutte le sue sedi, salvo scelta diversa
+  const [replaceAll, setReplaceAll] = useState(true);
+  // le schede della persona: quella qui e, se insegna in più sedi, le altre
+  const refsAll = current ? teacherRefs(data, current.id, true) : [];
+  const history = historyIn(data, refsAll);
+  const hasHistory = history.absences + history.substitutions > 0;
+  const nameChanged = !!current && (lastName.trim() !== current.lastName || firstName.trim() !== current.firstName);
+  const elsewhereNames = elsewhere.map((e) => sedeName(e.sede.data.settings));
   const hoursOf = (sedeId?: string) =>
     rows.filter((r) => !sedeId || r.sedeId === sedeId).reduce((n, r) => n + (Number(r.hours) || 0), 0);
   const assignedHours = hoursOf();
@@ -510,10 +744,14 @@ function TeacherDialog({ value, onClose }: { value: Teacher | "new"; onClose: ()
     );
   }
 
-  function save() {
+  /**
+   * Salva la scheda in tutte le sue sedi (con il nome `name`); restituisce cosa serve per l'avviso, o null senza
+   * cognome.
+   */
+  function commit(name: { lastName: string; firstName: string }) {
     const payload = {
-      lastName: lastName.trim(),
-      firstName: firstName.trim(),
+      lastName: name.lastName.trim(),
+      firstName: name.firstName.trim(),
       subjects: subjects
         .split(",")
         .map((s) => s.trim())
@@ -531,7 +769,7 @@ function TeacherDialog({ value, onClose }: { value: Teacher | "new"; onClose: ()
       preferSlots: current?.preferSlots ?? [],
       mustSlots: current?.mustSlots ?? [],
     };
-    if (!payload.lastName) return;
+    if (!payload.lastName) return null;
     let blocked: string[] = [];
     let elsewhereNote = "";
     const drop: Record<string, string[]> = {};
@@ -557,6 +795,18 @@ function TeacherDialog({ value, onClose }: { value: Teacher | "new"; onClose: ()
       }
     }
     if (blocked.length) toast.error(`Resta anche a ${blocked.join(", ")}: lì ha lezioni o cattedre.`);
+    return { payload, elsewhereNote, dropped, drop };
+  }
+
+  /** `sameName`: il nome è solo corretto, anche se ha già assenze o sostituzioni segnate. */
+  function save(sameName = false) {
+    if (!sameName && nameChanged && hasHistory && lastName.trim()) {
+      setStep("rename");
+      return;
+    }
+    const done = commit({ lastName, firstName });
+    if (!done) return;
+    const { payload, elsewhereNote, dropped, drop } = done;
     toast.success(
       payload.role === "potenziamento"
         ? "Docente salvato. Nelle ore in sede è disponibile per le sostituzioni."
@@ -587,6 +837,180 @@ function TeacherDialog({ value, onClose }: { value: Teacher | "new"; onClose: ()
     onClose();
   }
 
+  function openReplace() {
+    // il nome già scritto nella scheda è quello di chi arriva
+    setNewName(nameChanged ? { lastName: lastName.trim(), firstName: firstName.trim() } : { lastName: "", firstName: "" });
+    setStep("replace");
+  }
+
+  function replace() {
+    if (!current || !newName.lastName.trim() || !fromDate) return;
+    const everywhere = replaceAll || !elsewhere.length;
+    // le altre modifiche della scheda si salvano col nome di chi lascia, poi la scheda passa a chi arriva
+    if (!commit({ lastName: current.lastName, firstName: current.firstName })) return;
+    if (!store.replaceTeacher(current.id, newName, fromDate, everywhere)) return;
+    const who = teacherName(current);
+    toast.success(`${`${newName.lastName.trim()} ${newName.firstName.trim()}`.trim()} al posto di ${who}`, {
+      description: [
+        `Dal ${formatItDate(fromDate)}${elsewhere.length ? (everywhere ? ", in tutte le sue sedi" : `, solo a ${here}`) : ""}.`,
+        `Le assenze e le sostituzioni dei giorni prima restano a ${who}, in Docenti → Non più in servizio.`,
+        everywhere ? "" : `A ${elsewhereNames.join(", ")} resta ${who}.`,
+      ]
+        .filter(Boolean)
+        .join(" "),
+    });
+    warnLeftWithout();
+    onClose();
+  }
+
+  if (current && step === "remove") {
+    return (
+      <RemoveTeacherDialog
+        name={teacherName(current)}
+        refs={[{ sedeId: activeId, teacherId: current.id }]}
+        allRefs={refsAll}
+        inService
+        onCancel={() => setStep("card")}
+        onRemoved={() => {
+          // dopo, così l'avviso resta in primo piano
+          warnLeftWithout();
+          onClose();
+        }}
+      />
+    );
+  }
+
+  if (current && step === "rename") {
+    // con più sedi: dove risultano già
+    const sediWith =
+      refsAll.length > 1
+        ? refsAll
+            .filter((r) => {
+              const h = historyIn(data, [r]);
+              return h.absences + h.substitutions > 0;
+            })
+            .map((r) => sedeName(sedi.find((x) => x.id === r.sedeId)!.data.settings))
+        : [];
+    return (
+      <Dialog open onOpenChange={(o) => !o && onClose()}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Nome cambiato</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-3 text-sm">
+            <p>
+              Con il nome <span className="font-medium">{teacherName(current)}</span> risultano già:{" "}
+              {historyText(history)}
+              {sediWith.length ? ` (${sediWith.join(", ")})` : ""}.
+            </p>
+            <p className="text-muted-foreground">
+              Se è la stessa persona e correggi solo il nome, il nome nuovo compare anche in quelle già segnate e nel
+              report{refsAll.length > 1 ? ", in tutte le sue sedi" : ""}. Se al suo posto arriva un’altra persona, la
+              scheda passa a chi arriva e quelle già segnate restano a {teacherName(current)}.
+            </p>
+            <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
+              <Button variant="outline" onClick={() => setStep("card")}>
+                Indietro
+              </Button>
+              <Button variant="outline" className="ml-auto" onClick={() => save(true)}>
+                Correggi solo il nome
+              </Button>
+              <Button onClick={openReplace}>È un’altra persona</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  if (current && step === "replace") {
+    const everywhere = replaceAll || !elsewhere.length;
+    const refs = everywhere ? refsAll : refsAll.slice(0, 1);
+    // già segnate dalla data in poi, nelle sedi in cui si sostituisce
+    const later = { absences: 0, substitutions: 0 };
+    for (const r of refs) {
+      const sede = sedi.find((x) => x.id === r.sedeId)?.data;
+      if (!sede) continue;
+      later.absences += sede.absences.filter((a) => a.teacherId === r.teacherId && a.dateTo >= fromDate).length;
+      later.substitutions += sede.substitutions.filter(
+        (x) => x.date >= fromDate && (x.absentTeacherId === r.teacherId || x.substituteId === r.teacherId),
+      ).length;
+    }
+    const ready = !!newName.lastName.trim() && !!fromDate;
+    const who = teacherName(current);
+    return (
+      <Dialog open onOpenChange={(o) => !o && onClose()}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Sostituisci docente</DialogTitle>
+          </DialogHeader>
+          <form
+            className="grid gap-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              replace();
+            }}
+          >
+            <p className="text-sm text-muted-foreground">
+              Al posto di <span className="font-medium text-foreground">{who}</span> arriva un’altra persona: la scheda
+              (classi, ore, orario, disposizioni e preferenze) passa a lei
+              {elsewhere.length ? (everywhere ? " in tutte le sue sedi" : ` solo a ${here}`) : ""}. {who} va tra i
+              docenti «Non più in servizio» e conserva le assenze e le sostituzioni segnate prima della data
+              {elsewhere.length && everywhere ? ", sede per sede" : ""}: il report resta giusto.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Cognome di chi arriva">
+                <Input
+                  value={newName.lastName}
+                  onChange={(e) => setNewName((n) => ({ ...n, lastName: e.target.value }))}
+                  required
+                />
+              </Field>
+              <Field label="Nome">
+                <Input value={newName.firstName} onChange={(e) => setNewName((n) => ({ ...n, firstName: e.target.value }))} />
+              </Field>
+            </div>
+            <Field label="In servizio dal">
+              <Input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} required />
+            </Field>
+            {elsewhere.length > 0 && (
+              <div className="grid gap-1">
+                <label className="flex min-h-9 items-center gap-2 text-sm font-medium">
+                  <input
+                    type="checkbox"
+                    className="size-4 accent-primary"
+                    checked={replaceAll}
+                    onChange={(e) => setReplaceAll(e.target.checked)}
+                  />
+                  In tutte le sue sedi ({[here, ...elsewhereNames].join(", ")})
+                </label>
+                {!replaceAll && (
+                  <p className="text-[12px] leading-snug text-muted-foreground">
+                    Solo a {here}: lì la scheda diventa di un’altra persona; a {elsewhereNames.join(", ")} resta {who}.
+                  </p>
+                )}
+              </div>
+            )}
+            {later.absences + later.substitutions > 0 && fromDate && (
+              <p className="rounded-md bg-warning-soft px-2.5 py-2 text-[12px] leading-snug">
+                Dal {formatItDate(fromDate)} in poi risultano già: {historyText(later)}. Restano sulla scheda, cioè a chi
+                arriva.
+              </p>
+            )}
+            <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
+              <Button type="button" variant="outline" onClick={() => setStep("card")}>
+                Indietro
+              </Button>
+              <Button type="submit" className="ml-auto" disabled={!ready}>
+                Sostituisci
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent>
@@ -603,6 +1027,15 @@ function TeacherDialog({ value, onClose }: { value: Teacher | "new"; onClose: ()
               <Input value={firstName} onChange={(e) => setFirstName(e.target.value)} />
             </Field>
           </div>
+          {current && (
+            <div className="-mt-1 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+              <p className="text-[12px] text-muted-foreground">Al suo posto arriva un’altra persona?</p>
+              <Button type="button" size="sm" variant="outline" onClick={openReplace}>
+                <UserRoundPen />
+                Sostituisci docente
+              </Button>
+            </div>
+          )}
           <Field label="Materie (separate da virgola)">
             <Input value={subjects} onChange={(e) => setSubjects(e.target.value)} list="subjects-list" placeholder="Matematica, Mensa, Laboratorio" />
             <datalist id="subjects-list">
@@ -879,26 +1312,14 @@ function TeacherDialog({ value, onClose }: { value: Teacher | "new"; onClose: ()
           </p>
           <div className="sticky bottom-0 z-10 flex items-center gap-2 border-t border-border bg-popover pt-3">
             {!isNew && current && (
-              <Button
-                variant="outline"
-                onClick={() => {
-                  store.removeTeacher(current.id);
-                  warnLeftWithout();
-                  toast.message(
-                    elsewhere.length
-                      ? `Docente tolto da ${here}: resta a ${elsewhere.map((e) => sedeName(e.sede.data.settings)).join(", ")}.`
-                      : "Docente rimosso",
-                  );
-                  onClose();
-                }}
-              >
+              <Button variant="outline" onClick={() => setStep("remove")}>
                 Elimina
               </Button>
             )}
             <Button variant="outline" className="ml-auto" onClick={onClose}>
               Annulla
             </Button>
-            <Button onClick={save}>Salva</Button>
+            <Button onClick={() => save()}>Salva</Button>
           </div>
         </div>
       </DialogContent>

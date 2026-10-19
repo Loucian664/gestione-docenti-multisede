@@ -1,13 +1,17 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useMemo } from "react";
 import { PageHeader } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { NativeSelect } from "@/components/ui/native-select";
 import { useAppStore, snapshot } from "@/lib/store";
 import { officialData } from "@/lib/saved-timetables";
+import { withFormerTeachers } from "@/lib/replace-teacher";
 import { loadByTeacher, absencesByReason, eccedenteLines, teacherShort } from "@/lib/coverage";
-import { formatItDate, monthRange, schoolYearRange } from "@/lib/dates";
+import { formatItDate, isoDate, monthRange, schoolYearRange } from "@/lib/dates";
+import { archivedSedi, archivedYearData, archivedYearLabels } from "@/lib/school-years";
+import { allSedi, sedeIdOf, sedeName } from "@/lib/sedi";
 import { reportXlsx, eccedenteXlsx, eccedentePdf, schoolFileTag } from "@/lib/export";
 import { shareOrSaveFile, shareJpeg, toastSave, openPdfTab } from "@/lib/share-file";
 import { jpegBlobToPdf } from "@/lib/pdf";
@@ -16,15 +20,53 @@ import { ABSENCE_REASONS } from "@/lib/types";
 import { Download, Images as ImageIcon, FileText } from "lucide-react";
 import { toast } from "sonner";
 
-export const Route = createFileRoute("/report")({ component: ReportPage });
+type ReportSearch = { anno?: string; dal?: string; al?: string };
+
+const isIso = (x: unknown): x is string => typeof x === "string" && /^\d{4}-\d{2}-\d{2}$/.test(x);
+
+export const Route = createFileRoute("/report")({
+  component: ReportPage,
+  // l'anno in archivio e il periodo restano scelti anche cambiando sede in alto (la pagina riparte)
+  validateSearch: (raw: Record<string, unknown>): ReportSearch => ({
+    anno: typeof raw.anno === "string" ? raw.anno : undefined,
+    dal: isIso(raw.dal) ? raw.dal : undefined,
+    al: isIso(raw.al) ? raw.al : undefined,
+  }),
+});
 
 function ReportPage() {
   const store = useAppStore();
-  // le sostituzioni fatte riguardano l'orario in vigore (slot 0)
-  const data = officialData(snapshot(store));
-  const initial = monthRange(data.selectedDate);
-  const [from, setFrom] = useState(initial.from);
-  const [to, setTo] = useState(initial.to);
+  const navigate = useNavigate();
+  const search = Route.useSearch();
+  const now = snapshot(store);
+  const several = allSedi(now).length > 1;
+  const archived = store.archivedYears ?? [];
+  const yearLabels = archivedYearLabels(archived);
+  // nessun anno = l'anno in corso; altrimenti un anno in archivio, così com'era (solo da consultare), della sede in uso
+  const year = archived.find((y) => y.id === search.anno);
+  const yearData = year ? archivedYearData(year, sedeIdOf(now), sedeName(now.settings)) : null;
+  // le sostituzioni fatte riguardano l'orario in vigore (slot 0); nei conteggi anche chi non è più in servizio
+  const data =
+    yearData ??
+    (year
+      ? // quell'anno la sede non c'era: niente da contare
+        { ...officialData(now), absences: [], substitutions: [], formerTeachers: [] }
+      : withFormerTeachers(officialData(now)));
+  const initial = year
+    ? schoolYearRange(year.schoolYear, isoDate(new Date(year.archivedAt)))
+    : monthRange(data.selectedDate);
+  const from = search.dal ?? initial.from;
+  const to = search.al ?? initial.to;
+
+  function go(next: ReportSearch) {
+    void navigate({ to: "/report", search: next, replace: true });
+  }
+  const setFrom = (dal: string) => go({ ...search, dal });
+  const setTo = (al: string) => go({ ...search, al });
+  /** Un anno in archivio si apre con tutto l'anno; quello in corso con il mese. */
+  function chooseYear(id: string) {
+    go(archived.some((y) => y.id === id) ? { anno: id } : {});
+  }
 
   const loads = useMemo(() => loadByTeacher(data, from, to), [data, from, to]);
   const absenceRows = useMemo(
@@ -146,6 +188,19 @@ function ReportPage() {
       />
 
       <div className="mb-5 flex min-w-0 flex-wrap items-end gap-3">
+        {archived.length > 0 && (
+          <div className="flex min-w-0 flex-col gap-1.5">
+            <Label htmlFor="year">Anno scolastico</Label>
+            <NativeSelect id="year" className="w-48" value={year?.id ?? ""} onChange={(e) => chooseYear(e.target.value)}>
+              <option value="">{store.settings.schoolYear} (in corso)</option>
+              {[...archived].reverse().map((y) => (
+                <option key={y.id} value={y.id}>
+                  {yearLabels.get(y.id)}
+                </option>
+              ))}
+            </NativeSelect>
+          </div>
+        )}
         <div className="flex min-w-0 flex-col gap-1.5">
           <Label htmlFor="from">Dal</Label>
           <Input id="from" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
@@ -155,6 +210,20 @@ function ReportPage() {
           <Input id="to" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
         </div>
       </div>
+
+      {year && (
+        <p className="mb-5 rounded-md bg-muted px-3 py-2 text-[13px] leading-snug">
+          {yearData
+            ? `Anno in archivio dal ${formatItDate(isoDate(new Date(year.archivedAt)))}: docenti, classi e orario${
+                several ? ` di ${sedeName(data.settings)}` : ""
+              } sono quelli di allora. Si consulta e si esporta, non si modifica.${
+                several ? " Per un’altra sede, sceglila in alto: l’anno resta questo." : ""
+              }`
+            : `Nell’anno ${yearLabels.get(year.id)} ${sedeName(now.settings)} non c’era. In archivio ci sono: ${archivedSedi(year)
+                .map((x) => x.name)
+                .join(", ")}; scegli una di queste sedi in alto.`}
+        </p>
+      )}
 
       <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <MiniStat label="Ore coperte" value={totals.total} />

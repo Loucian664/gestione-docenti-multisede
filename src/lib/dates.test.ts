@@ -8,6 +8,7 @@ import {
   formatItFileDate,
   formatLong,
   monthSchoolDays,
+  nextSchoolYear,
   toSchoolDay,
 } from "./dates.ts";
 import { dayNameUpper } from "./types.ts";
@@ -66,5 +67,17 @@ describe("calendario delle assenze", () => {
     assert.equal(aug.length % 6, 0);
     assert.ok(aug.every((d) => toSchoolDay(d) !== null));
     assert.equal(monthSchoolDays("2026-08-10", false)[0], "2026-08-03");
+  });
+});
+
+describe("nuovo anno scolastico", () => {
+  it("passa all'anno dopo tenendo il separatore", () => {
+    assert.equal(nextSchoolYear("2026/2027"), "2027/2028");
+    assert.equal(nextSchoolYear("A.S. 2026-2027"), "A.S. 2027-2028");
+  });
+
+  it("senza anno riconoscibile parte dall'anno in corso", () => {
+    assert.equal(nextSchoolYear("", "2027-07-10"), "2027/2028");
+    assert.equal(nextSchoolYear("boh", "2026-10-19"), "2027/2028");
   });
 });

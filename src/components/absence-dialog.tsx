@@ -21,7 +21,11 @@ export function AbsenceDialog({
   onOpenChange: (v: boolean) => void;
   initial?: Absence | null;
 }) {
-  const teachers = useAppStore((s) => s.teachers);
+  const current = useAppStore((s) => s.teachers);
+  const formerTeachers = useAppStore((s) => s.formerTeachers);
+  // chi non è più in servizio compare solo quando si modifica una sua assenza già segnata
+  const former = initial ? (formerTeachers ?? []).find((t) => t.id === initial.teacherId) : undefined;
+  const teachers = former ? [...current, former] : current;
   const settings = useAppStore((s) => s.settings);
   const periods = visiblePeriods(settings).filter((p) => !isMensaPeriod(p));
   const selectedDate = useAppStore((s) => s.selectedDate);
@@ -87,6 +91,7 @@ export function AbsenceDialog({
                 .map((t) => (
                   <option key={t.id} value={t.id}>
                     {teacherName(t)}
+                    {t.leftOn ? " (non più in servizio)" : ""}
                   </option>
                 ))}
             </NativeSelect>
