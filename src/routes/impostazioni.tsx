@@ -19,6 +19,7 @@ import { shareOrSave, toastSave } from "@/lib/share-file";
 import type { PersistedData } from "@/lib/types";
 import { allSedi, formerPersons, sedeName } from "@/lib/sedi";
 import { nextSchoolYear } from "@/lib/dates";
+import { archivedCounts, archivedYearLabels } from "@/lib/school-years";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/impostazioni")({ component: ImpostazioniPage });
@@ -31,7 +32,11 @@ function ImpostazioniPage() {
   const [clearStep, setClearStep] = useState<1 | 2>(1);
   const [pendingImport, setPendingImport] = useState<{ data: PersistedData; name: string } | null>(null);
   const [newYear, setNewYear] = useState<string | null>(null);
+  const [removingYear, setRemovingYear] = useState<string | null>(null);
   const sedi = allSedi(snapshot(store));
+  const archived = store.archivedYears ?? [];
+  const yearLabels = archivedYearLabels(archived);
+  const sameYear = (newYear ?? "").trim() === store.settings.schoolYear.trim();
 
   function exportBackup() {
     void shareOrSave(
@@ -152,9 +157,39 @@ function ImpostazioniPage() {
       <section className="paper-panel mb-4 rounded-xl p-5">
         <h2 className="font-display text-lg">Nuovo anno scolastico</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Cancella assenze e sostituzioni dell’anno finito{sedi.length > 1 ? ", in tutte le sedi insieme" : ""}; docenti,
-          classi e orario restano. Poi in Docenti elimini chi non torna e aggiungi chi arriva.
+          L’anno finito va in archivio{sedi.length > 1 ? " con tutte le sedi insieme, ognuna con i suoi dati," : ""} e si
+          consulta in Report; assenze e sostituzioni ripartono da zero, docenti, classi e orario restano. Poi in Docenti
+          elimini chi non torna e aggiungi chi arriva.
         </p>
+        {archived.length > 0 && (
+          <>
+            <h3 className="mt-4 text-sm font-medium">Anni in archivio</h3>
+            <ul className="mt-1 flex flex-col">
+              {[...archived].reverse().map((y) => {
+                const n = archivedCounts(y);
+                return (
+                  <li
+                    key={y.id}
+                    className="flex min-w-0 items-center justify-between gap-3 border-b border-border py-1.5 last:border-0"
+                  >
+                    <span className="min-w-0 text-sm">
+                      {yearLabels.get(y.id)}
+                      <span className="text-muted-foreground">
+                        {" "}
+                        · {countText(n.absences, "assenza", "assenze")},{" "}
+                        {countText(n.substitutions, "sostituzione", "sostituzioni")}
+                        {n.sedi > 1 ? ` · ${n.sedi} sedi` : ""}
+                      </span>
+                    </span>
+                    <Button size="sm" variant="ghost" onClick={() => setRemovingYear(y.id)}>
+                      Elimina
+                    </Button>
+                  </li>
+                );
+              })}
+            </ul>
+          </>
+        )}
         <div className="mt-4">
           <Button
             variant="outline"
@@ -243,9 +278,11 @@ function ImpostazioniPage() {
             <DialogTitle>Iniziare il nuovo anno scolastico?</DialogTitle>
             <DialogDescription>
               {newYearText(
+                store.settings.schoolYear,
                 sedi.reduce((n, x) => n + x.data.absences.length, 0),
                 sedi.reduce((n, x) => n + x.data.substitutions.length, 0),
                 formerPersons(snapshot(store)).length,
+                sedi.length > 1,
               )}
             </DialogDescription>
           </DialogHeader>
@@ -267,16 +304,17 @@ function ImpostazioniPage() {
               </ul>
             )}
             <p>
-              Restano docenti, classi, orario (anche gli orari salvati negli slot
-              {sedi.length > 1 ? ", compresi quelli di tutte le sedi insieme" : ""}),{" "}
+              Assenze e sostituzioni ripartono da zero. Restano docenti, classi, orario (anche gli orari salvati negli
+              slot{sedi.length > 1 ? ", compresi quelli di tutte le sedi insieme" : ""}),{" "}
               {sedi.length > 1 ? "campanelle e impostazioni di ogni sede" : "campanella e impostazioni"}. Dopo, in
-              Docenti, elimini chi non torna e aggiungi chi arriva.
+              Docenti, elimini chi non torna e aggiungi chi arriva: gli anni in archivio non cambiano.
             </p>
-            <Field label={sedi.length > 1 ? "Anno scolastico (tutte le sedi)" : "Anno scolastico"}>
+            <Field label={sedi.length > 1 ? "Nuovo anno scolastico (tutte le sedi)" : "Nuovo anno scolastico"}>
               <Input value={newYear ?? ""} onChange={(e) => setNewYear(e.target.value)} />
             </Field>
+            {sameYear && <p className="text-[12px] text-destructive">Scrivi un anno diverso da quello in corso.</p>}
             <p className="text-[12px] text-muted-foreground">
-              Non si può annullare. Per conservare l’anno finito, prima esporta il backup.
+              Non si può annullare. Se vuoi anche una copia su file, prima esporta il backup.
             </p>
           </div>
           <div className="flex flex-wrap justify-end gap-2 border-t border-border pt-3">
@@ -289,6 +327,7 @@ function ImpostazioniPage() {
             <Button
               variant="destructive"
               className="min-h-11"
+              disabled={sameYear || !(newYear ?? "").trim()}
               onClick={() => {
                 store.startNewSchoolYear(newYear ?? "");
                 setNewYear(null);
@@ -296,6 +335,37 @@ function ImpostazioniPage() {
               }}
             >
               Inizia il nuovo anno
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={removingYear !== null} onOpenChange={(o) => !o && setRemovingYear(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Eliminare l’anno {yearLabels.get(removingYear ?? "")} dall’archivio?</DialogTitle>
+            <DialogDescription>
+              Le sue assenze e sostituzioni{sedi.length > 1 ? ", di tutte le sedi," : ""} non si potranno più consultare
+              in Report. L’anno in corso non cambia. Non si può annullare: se vuoi una copia, prima esporta il backup.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button variant="outline" className="min-h-11 sm:mr-auto" onClick={exportBackup}>
+              Esporta backup
+            </Button>
+            <Button variant="outline" className="min-h-11" onClick={() => setRemovingYear(null)}>
+              Annulla
+            </Button>
+            <Button
+              variant="destructive"
+              className="min-h-11"
+              onClick={() => {
+                if (removingYear) store.removeArchivedYear(removingYear);
+                setRemovingYear(null);
+                toast.message("Anno eliminato dall’archivio");
+              }}
+            >
+              Elimina
             </Button>
           </div>
         </DialogContent>
@@ -330,14 +400,28 @@ function ImpostazioniPage() {
   );
 }
 
-function newYearText(absences: number, substitutions: number, former: number): string {
-  const parts = [
-    absences === 1 ? "1 assenza" : `${absences} assenze`,
-    substitutions === 1 ? "1 sostituzione" : `${substitutions} sostituzioni`,
-  ];
-  if (former > 0) parts.push(former === 1 ? "1 docente non più in servizio" : `${former} docenti non più in servizio`);
-  const list = parts.length === 3 ? `${parts[0]}, ${parts[1]} e ${parts[2]}` : `${parts[0]} e ${parts[1]}`;
-  return `Da cancellare: ${list}. Assenze e report ripartono da zero.`;
+function countText(n: number, one: string, many: string): string {
+  return n === 1 ? `1 ${one}` : `${n} ${many}`;
+}
+
+function newYearText(year: string, absences: number, substitutions: number, former: number, several: boolean): string {
+  const name = year.trim() || "in corso";
+  if (absences + substitutions === 0) {
+    const left =
+      former === 0
+        ? ""
+        : former === 1
+          ? " Il docente non più in servizio esce dall’elenco."
+          : ` I ${former} docenti non più in servizio escono dall’elenco.`;
+    return `L’anno ${name} non ha assenze né sostituzioni${several ? " in nessuna sede" : ""}: non c’è niente da mettere in archivio.${left}`;
+  }
+  const left =
+    former === 0
+      ? ""
+      : former === 1
+        ? " Il docente non più in servizio esce dall’elenco e resta nell’anno in archivio."
+        : ` I ${former} docenti non più in servizio escono dall’elenco e restano nell’anno in archivio.`;
+  return `L’anno ${name} va in archivio${several ? ", con tutte le sedi," : ""} con ${countText(absences, "assenza", "assenze")} e ${countText(substitutions, "sostituzione", "sostituzioni")}: lo ritrovi in Report, scegliendo l’anno, così com’è oggi.${left}`;
 }
 
 /** Le voci di una sede per la finestra del nuovo anno, senza quelle a zero. */

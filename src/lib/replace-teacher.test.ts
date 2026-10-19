@@ -14,9 +14,9 @@ import {
   removeTeacherRefs,
   replaceTeacherSedi,
   sedeIdOf,
-  startNewSchoolYear,
   teacherRefs,
 } from "./sedi.ts";
+import { startNewSchoolYear } from "./school-years.ts";
 import { snapshot, useAppStore } from "./store.ts";
 import type { Absence, PersistedData, SedeData, Substitution, Teacher } from "./types.ts";
 

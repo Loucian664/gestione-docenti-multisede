@@ -655,12 +655,16 @@ export function autoAwayCells(data: PersistedData, t: Teacher): ElsewhereCell[] 
   return elsewhereCells(data, t).filter((c) => !own.some((a) => a.day === c.day && a.periodId === c.periodId));
 }
 
+/** Una scheda senza il collegamento con le altre sedi (persona in comune, ore delle sedi eliminate). */
+const unlinked = ({ personId: _personId, removedSedi: _removed, ...t }: Teacher): Teacher => t;
+
 /**
  * «Esporta sede»: il backup di una sede per l'app della singola scuola, che lo apre come un suo backup (con
  * «Importa backup», che sostituisce tutto: a inizio anno). Chi insegna anche in altre sedi è «Su più plessi» con
  * le × dove lì è occupato: tutta la giornata nei giorni in cui qui non ha ore, le ore vere nei giorni divisi
  * (l'ora per spostarsi la lascia l'app della scuola, accanto alla ×). Senza le altre sedi né le voci che servono
- * solo qui (persona in comune, ore delle sedi eliminate, slot di tutte le sedi).
+ * solo qui (persona in comune, ore delle sedi eliminate, slot di tutte le sedi). Chi non è più in servizio e gli anni
+ * in archivio ci sono, con i dati di questa sede.
  */
 export function exportSede(data: PersistedData, sedeId: string): PersistedData {
   const d = switchSede(data, sedeId);
@@ -686,8 +690,21 @@ export function exportSede(data: PersistedData, sedeId: string): PersistedData {
   return {
     ...d,
     teachers,
-    formerTeachers: d.formerTeachers?.map(({ personId: _personId, removedSedi: _removed, ...x }) => x),
+    formerTeachers: d.formerTeachers?.map(unlinked),
     savedTimetables: (d.savedTimetables ?? []).map(({ insieme: _insieme, ...x }) => x),
+    // gli anni in archivio con i dati di questa sede sola, come quelli dell'app della singola scuola
+    archivedYears: (data.archivedYears ?? []).flatMap((y) => {
+      const list = [{ id: y.sedeId || FIRST_SEDE_ID, data: y.data }, ...(y.altreSedi ?? [])];
+      const name = sedeName(d.settings);
+      const sede = list.find((x) => x.id === sedeId) ?? list.find((x) => sedeName(x.data.settings) === name);
+      if (!sede) return [];
+      const archived = {
+        ...sede.data,
+        teachers: sede.data.teachers.map(unlinked),
+        formerTeachers: sede.data.formerTeachers?.map(unlinked),
+      };
+      return [{ id: y.id, schoolYear: y.schoolYear, archivedAt: y.archivedAt, data: archived }];
+    }),
     sedeId: undefined,
     altreSedi: undefined,
     ordineSedi: undefined,
@@ -845,16 +862,4 @@ export function formerPersons(data: PersistedData): FormerPerson[] {
   }
   const name = (p: FormerPerson) => `${p.records[0]!.teacher.lastName} ${p.records[0]!.teacher.firstName}`;
   return [...rows.values()].sort((a, b) => name(a).localeCompare(name(b), "it"));
-}
-
-/**
- * Nuovo anno scolastico, in tutte le sedi insieme: via assenze, sostituzioni e chi non è più in servizio; restano
- * docenti, classi, orari (anche negli slot), campanelle e impostazioni. Senza anno scritto resta quello di prima.
- */
-export function startNewSchoolYear(data: PersistedData, schoolYear: string): PersistedData {
-  let next = setSchoolYear(data, schoolYear.trim() || data.settings.schoolYear);
-  for (const s of allSedi(next)) {
-    next = editSede(next, s.id, (sede) => ({ ...sede, absences: [], substitutions: [], formerTeachers: [] }));
-  }
-  return next;
 }
