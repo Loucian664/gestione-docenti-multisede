@@ -43,6 +43,7 @@ import {
   setSchoolYear as setSchoolYearIn,
   saveTeacherSedi as saveTeacherSediIn,
   setTeacherSedi as setTeacherSediIn,
+  startNewSchoolYear as startNewSchoolYearIn,
   type CardRow,
   type TeacherRef,
   switchSede as switchSedeTo,
@@ -170,6 +171,11 @@ type Actions = {
   /** Le sedi in cui insegna il docente della sede in uso; restituisce le sedi da cui non si è potuto togliere. */
   setTeacherSedi: (teacherId: string, sedeIds: string[]) => string[];
   importData: (data: PersistedData, fileName?: string) => void;
+  /**
+   * Nuovo anno scolastico, in tutte le sedi: via assenze, sostituzioni e chi non è più in servizio; restano docenti,
+   * classi, orario (anche gli slot), campanelle e impostazioni, con l’anno scolastico nuovo.
+   */
+  startNewSchoolYear: (schoolYear: string) => void;
   resetDemo: () => void;
   clearAll: () => void;
 };
@@ -776,6 +782,8 @@ export const useAppStore = create<AppStore>()(
           });
           writePersistSync(snapshot(get()), { force: true });
         },
+
+        startNewSchoolYear: (schoolYear) => save(startNewSchoolYearIn(snapshot(get()), schoolYear)),
 
         resetDemo: () => {
           noteUserMutation();

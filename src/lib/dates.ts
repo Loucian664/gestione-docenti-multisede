@@ -167,3 +167,12 @@ export function schoolYearRange(label: string, fallbackIso = todayIso()): { from
   const start = month >= 9 ? y : y - 1;
   return { from: `${start}-09-01`, to: `${start + 1}-08-31` };
 }
+
+/** L’anno dopo: "2026/2027" → "2027/2028" (il resto del testo non cambia). Senza un anno riconoscibile, quello dell’anno solare. */
+export function nextSchoolYear(label: string, fallbackIso = todayIso()): string {
+  const re = /(20\d{2})(\s*[/\-–]\s*)(20\d{2})/;
+  if (re.test(label)) return label.replace(re, (_, a: string, sep: string, b: string) => `${Number(a) + 1}${sep}${Number(b) + 1}`).trim();
+  const { from } = schoolYearRange("", fallbackIso);
+  const y = Number(from.slice(0, 4)) + 1;
+  return `${y}/${y + 1}`;
+}
