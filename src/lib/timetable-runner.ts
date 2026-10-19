@@ -33,10 +33,14 @@ function better(a: SolveResult, b: SolveResult | null): boolean {
   return !b || lessScore(a.report.score, b.report.score);
 }
 
-/** Quante ricerche in parallelo: una per processore, lasciandone uno alla pagina (al massimo 6). */
+/**
+ * Quante ricerche in parallelo: una per processore, lasciandone uno alla pagina; al massimo 6, oppure 12 sui
+ * computer che ne dichiarano più di 8 (un PC con Firefox). Safari, e su iPhone e iPad ogni browser, ne dichiara
+ * al massimo 8: lì il carico resta quello di sempre (decisione dell'utente: niente calore in più).
+ */
 function workerCount(): number {
   const cores = typeof navigator !== "undefined" ? navigator.hardwareConcurrency || 2 : 2;
-  return Math.max(1, Math.min(6, cores - 1));
+  return Math.max(1, Math.min(cores > 8 ? 12 : 6, cores - 1));
 }
 
 /**
