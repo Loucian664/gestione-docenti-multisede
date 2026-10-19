@@ -503,6 +503,7 @@ function RemoveTeacherDialog({
             </p>
           )}
           <p className="text-[12px] text-muted-foreground">
+            {(store.archivedYears?.length ?? 0) > 0 && "Gli anni in archivio non cambiano. "}
             Non si può annullare. Per conservarne una copia, prima esporta il backup in Impostazioni.
           </p>
           <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border pt-3">

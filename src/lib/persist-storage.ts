@@ -347,6 +347,19 @@ export function mergeSlices(a: PersistSlice, b: PersistSlice): PersistSlice {
     else classMap.set(c.id, preferB ? c : prev);
   }
 
+  // assenze, sostituzioni e docenti non più in servizio già messi in archivio con «Nuovo anno scolastico» non
+  // tornano nell'anno in corso, in nessuna sede
+  const archivedYears = byId(a.archivedYears, b.archivedYears, preferB).sort((x, y) => x.archivedAt - y.archivedAt);
+  const archivedIds = new Set(
+    archivedYears.flatMap((y) =>
+      [y.data, ...(y.altreSedi ?? []).map((x) => x.data)].flatMap((d) =>
+        [...(d.absences ?? []), ...(d.substitutions ?? []), ...(d.formerTeachers ?? [])].map((x) => x.id),
+      ),
+    ),
+  );
+  const current = <T extends { id: string }>(list: T[]) => list.filter((x) => !archivedIds.has(x.id));
+  const altreSedi = preferB ? b.altreSedi ?? a.altreSedi : a.altreSedi ?? b.altreSedi;
+
   return {
     settings: {
       ...(preferB ? b.settings : a.settings),
@@ -358,10 +371,11 @@ export function mergeSlices(a: PersistSlice, b: PersistSlice): PersistSlice {
     teachers: byId(a.teachers, b.teachers, preferB),
     classes: [...classMap.values()],
     slots: byId(a.slots, b.slots, preferB),
-    absences: byId(a.absences, b.absences, preferB),
-    substitutions: byId(a.substitutions, b.substitutions, preferB),
+    absences: current(byId(a.absences, b.absences, preferB)),
+    substitutions: current(byId(a.substitutions, b.substitutions, preferB)),
     cattedre: byCattedra(a.cattedre, b.cattedre, preferB),
-    formerTeachers: byId(a.formerTeachers, b.formerTeachers, preferB),
+    formerTeachers: current(byId(a.formerTeachers, b.formerTeachers, preferB)),
+    archivedYears,
     cattedraBackup: preferB ? b.cattedraBackup ?? a.cattedraBackup : a.cattedraBackup ?? b.cattedraBackup,
     cattedraDispBackup: preferB
       ? b.cattedraDispBackup ?? a.cattedraDispBackup
@@ -376,7 +390,17 @@ export function mergeSlices(a: PersistSlice, b: PersistSlice): PersistSlice {
       ? b.importedBackupName || a.importedBackupName
       : a.importedBackupName || b.importedBackupName,
     sedeId: a.sedeId ?? b.sedeId,
-    altreSedi: preferB ? b.altreSedi ?? a.altreSedi : a.altreSedi ?? b.altreSedi,
+    altreSedi: !archivedIds.size
+      ? altreSedi
+      : altreSedi?.map((x) => ({
+          id: x.id,
+          data: {
+            ...x.data,
+            absences: current(x.data.absences ?? []),
+            substitutions: current(x.data.substitutions ?? []),
+            formerTeachers: x.data.formerTeachers && current(x.data.formerTeachers),
+          },
+        })),
     ordineSedi: preferB ? b.ordineSedi ?? a.ordineSedi : a.ordineSedi ?? b.ordineSedi,
   };
 }
