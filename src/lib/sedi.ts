@@ -846,3 +846,15 @@ export function formerPersons(data: PersistedData): FormerPerson[] {
   const name = (p: FormerPerson) => `${p.records[0]!.teacher.lastName} ${p.records[0]!.teacher.firstName}`;
   return [...rows.values()].sort((a, b) => name(a).localeCompare(name(b), "it"));
 }
+
+/**
+ * Nuovo anno scolastico, in tutte le sedi insieme: via assenze, sostituzioni e chi non è più in servizio; restano
+ * docenti, classi, orari (anche negli slot), campanelle e impostazioni. Senza anno scritto resta quello di prima.
+ */
+export function startNewSchoolYear(data: PersistedData, schoolYear: string): PersistedData {
+  let next = setSchoolYear(data, schoolYear.trim() || data.settings.schoolYear);
+  for (const s of allSedi(next)) {
+    next = editSede(next, s.id, (sede) => ({ ...sede, absences: [], substitutions: [], formerTeachers: [] }));
+  }
+  return next;
+}

@@ -14,6 +14,7 @@ import {
   removeTeacherRefs,
   replaceTeacherSedi,
   sedeIdOf,
+  startNewSchoolYear,
   teacherRefs,
 } from "./sedi.ts";
 import { snapshot, useAppStore } from "./store.ts";
@@ -380,6 +381,41 @@ describe("più sedi: elimina docente", () => {
       // restano l'assenza dopo la data (della scheda) e quella del collega
       assert.equal(sede.absences.length, 2);
     }
+  });
+});
+
+describe("più sedi: nuovo anno scolastico", () => {
+  it("nuovo anno in tutte le sedi: via assenze, sostituzioni e chi non è più in servizio; il resto resta", () => {
+    const { d, here, bId } = twoSedi();
+    const before = replaceTeacherSedi(d, here.id, { lastName: "Nuova", firstName: "Persona" }, FROM, true)!;
+    const after = startNewSchoolYear(before, " 2027/2028 ");
+    for (const s of allSedi(after)) {
+      assert.deepEqual([s.data.absences, s.data.substitutions, s.data.formerTeachers], [[], [], []]);
+      assert.equal(s.data.settings.schoolYear, "2027/2028");
+    }
+    for (const id of [sedeIdOf(d), bId]) {
+      const a = allSedi(before).find((s) => s.id === id)!.data;
+      const b = allSedi(after).find((s) => s.id === id)!.data;
+      assert.deepEqual([b.teachers, b.classes, b.slots, b.savedTimetables, b.settings.periods], [
+        a.teachers,
+        a.classes,
+        a.slots,
+        a.savedTimetables,
+        a.settings.periods,
+      ]);
+    }
+    // senza anno scritto resta quello di prima
+    assert.equal(startNewSchoolYear(after, "  ").settings.schoolYear, "2027/2028");
+  });
+
+  it("dal negozio: nuovo anno in tutte le sedi", () => {
+    const st = () => useAppStore.getState();
+    const { d, bId } = twoSedi();
+    st().importData(d);
+    st().startNewSchoolYear("2027/2028");
+    assert.deepEqual([st().absences, sedeB(snapshot(st()), bId).absences], [[], []]);
+    assert.equal(sedeB(snapshot(st()), bId).settings.schoolYear, "2027/2028");
+    st().resetDemo();
   });
 });
 
