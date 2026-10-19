@@ -66,7 +66,7 @@
 
 - Test di `src/lib`: per ogni `src/lib/*.test.ts`
   `node_modules/.bin/rolldown <file> --platform node --format esm --file <cartella>/<nome>.mjs`,
-  poi `node --test <cartella>/*.mjs` (169 test al 19/10/2026). `npm test` non li esegue.
+  poi `node --test <cartella>/*.mjs` (197 test al 19/10/2026). `npm test` non li esegue.
 - `npx tsc --noEmit`: nessun errore (dal 19/10/2026); deve restare così.
 - `GITHUB_PAGES=true BASE_PATH=/gestione-docenti-multisede/ npm run build:pages` deve riuscire.
 - Nei test del motore usa l'orologio finto (`now: ticks()` in `src/lib/timetable-solver.test.ts`), così
@@ -102,6 +102,8 @@ Una copia di prova, non il codice vero:
 - `src/lib/saved-timetables.ts` e `src/components/save-slots.tsx`: slot (0 = orario in vigore, 1–5 prove).
 - `src/components/costruisci-orario.tsx`: scheda Costruisci.
 - `src/lib/export.ts`, `xlsx.ts`, `pdf.ts`, `sheet-image.ts`: backup, Excel, PDF, immagini.
+- `src/lib/replace-teacher.ts`: «Sostituisci docente» in una sede e docenti non più in servizio (`formerTeachers`,
+  `findAnyTeacher`, `withFormerTeachers`); `src/lib/school-years.ts`: nuovo anno scolastico e archivio degli anni.
 - `src/routes/`: pagine Oggi (`index`), Orario, Assenze, Docenti, Classi, Sedi, Report, Impostazioni.
 
 ## Più sedi: com'è oggi
@@ -169,6 +171,20 @@ docenti, orario in uso, orari salvati (senza il codice `insieme`), assenze e sos
 «Su più plessi» con × su tutta la giornata nei giorni solo altrove e × sulle ore vere nei giorni divisi; via `personId`,
 `removedSedi`, `altreSedi`, `sedeId`. Sulle 6 sedi vere i numeri del file aperto da solo coincidono con «Numeri di» di
 quella sede. Da costruire: «Riporta sede».
+
+Docenti che cambiano (19/10, dall'app di Rombiolo, adattati alle sedi): «Sostituisci docente» nella scheda vale per tutte
+le sedi della persona (stesso nome e data; la scheda resta collegata, con un `personId` nuovo) o, togliendo la spunta, solo
+per la sede in uso (`replaceTeacherSedi`). Chi lascia va nei `formerTeachers` di ogni sede (voce di sede in `SEDE_KEYS`)
+con le assenze e le coperture di prima, e tiene il `personId` di prima; in Docenti «Non più in servizio» ha una riga per
+persona (`formerPersons`, con «Insegna ancora a…»). «Nome cambiato» compare se ha storia in una sua sede (`historyIn`).
+«Elimina» apre l'avviso con le conseguenze sede per sede (`removalImpactSedi`): di solito solo la sede in uso, con la
+spunta «Elimina da tutte le sue sedi» ovunque (`removeTeacherRefs`); per chi non è più in servizio, tutta la sua storia
+in tutte le sedi. «Nuovo anno scolastico» (Impostazioni) vale per tutte le sedi insieme: l'anno finito va in
+`archivedYears` (voce di tutto l'archivio, non di una sede: `data` è la sede in uso quel giorno, come nell'app di
+Rombiolo, le altre in `altreSedi`), poi assenze, sostituzioni e non più in servizio ripartono da zero in ogni sede. In
+Report l'anno in archivio vale per la sede scelta in alto (`archivedYearData`; anno e periodo stanno nell'indirizzo,
+`?anno=&dal=&al=`, così restano cambiando sede). «Esporta sede» porta chi non è più in servizio e gli anni in archivio
+di quella sede, senza `personId`.
 
 Eliminare una sede (pagina Sedi, due avvisi): si cancellano classi, orario, docenti solo lì, orari salvati e
 assenze. I docenti in comune conservano le ore di quella sede (`removedSedi`: nome, ore, giorno), perché nella
