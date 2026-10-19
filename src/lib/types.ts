@@ -84,6 +84,10 @@ export type Teacher = {
   cardRows?: { classId: string; subject: string; hours: number }[];
   /** Stessa persona in più sedi: le sue schede nelle varie sedi hanno lo stesso valore. */
   personId?: string;
+  /** Solo per chi non è più in servizio (`formerTeachers`): il primo giorno in cui non c'è più. */
+  leftOn?: string;
+  /** Solo per chi non è più in servizio: la scheda passata a chi l'ha sostituito (classi, ore, orario). */
+  replacedBy?: string;
 };
 
 export type SchoolClass = {
@@ -191,6 +195,29 @@ export type SavedTimetable = {
   insieme?: string;
 };
 
+/** I dati di una sede in un anno in archivio. */
+export type ArchivedSedeData = Pick<
+  PersistedData,
+  "settings" | "teachers" | "formerTeachers" | "classes" | "slots" | "absences" | "substitutions" | "cattedre"
+>;
+
+/**
+ * Un anno scolastico finito, messo da parte con «Nuovo anno scolastico» così com'era quel giorno, per tutte le sedi
+ * insieme: di ognuna assenze, sostituzioni e i docenti, le classi e l'orario in vigore a cui si riferiscono. Si consulta
+ * in Report, non si modifica. `data` è la sede in uso quel giorno (`sedeId`), come nell'app di Rombiolo, che vede
+ * solo quella; le altre sono in `altreSedi`.
+ */
+export type ArchivedYear = {
+  id: string;
+  schoolYear: string;
+  archivedAt: number;
+  data: ArchivedSedeData;
+  sedeId?: string;
+  altreSedi?: { id: string; data: ArchivedSedeData }[];
+  /** L'ordine delle sedi quel giorno. */
+  ordineSedi?: string[];
+};
+
 export type PersistedData = {
   settings: Settings;
   teachers: Teacher[];
@@ -200,6 +227,11 @@ export type PersistedData = {
   substitutions: Substitution[];
   selectedDate: string;
   cattedre?: Cattedra[];
+  /**
+   * Docenti non più in servizio (di questa sede): restano per le assenze e le coperture già segnate (report), fuori
+   * da tutto il resto. Chi era in più sedi ha una scheda in ognuna, con lo stesso `personId`.
+   */
+  formerTeachers?: Teacher[];
   cattedraBackup?: TimetableSlot[];
   /** Disposizioni prima dell'ultima proposta di Costruisci (per Annulla). */
   cattedraDispBackup?: Record<string, { day: DayOfWeek; periodId: string }[]>;
@@ -215,6 +247,8 @@ export type PersistedData = {
   origin?: "seed" | "user";
   /** Last imported backup filename, if any. */
   importedBackupName?: string;
+  /** Anni scolastici finiti, dal più vecchio, con tutte le sedi (non è una voce di una sede sola). */
+  archivedYears?: ArchivedYear[];
   /**
    * Sede in uso: i suoi dati sono quelli qui sopra (impostazioni, docenti, classi, orario…), come
    * nell'archivio di un plesso solo. Assente in un backup dell'app di Rombiolo: c'è una sede sola.
@@ -236,6 +270,7 @@ export type SedeData = Pick<
   | "absences"
   | "substitutions"
   | "cattedre"
+  | "formerTeachers"
   | "cattedraBackup"
   | "cattedraDispBackup"
   | "savedTimetables"

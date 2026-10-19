@@ -8,6 +8,7 @@ import { AbsenceDialog } from "@/components/absence-dialog";
 import { useAppStore, snapshot } from "@/lib/store";
 import { officialData } from "@/lib/saved-timetables";
 import { dayCoverage, teacherName, teacherShort } from "@/lib/coverage";
+import { allTeachers, findAnyTeacher } from "@/lib/replace-teacher";
 import { ABSENCE_REASONS, type Absence } from "@/lib/types";
 import {
   formatItFileDate,
@@ -49,7 +50,7 @@ function AssenzePage() {
   function removeWithUndo(a: Absence) {
     const removed = store.removeAbsence(a.id);
     if (!removed) return;
-    const t = data.teachers.find((x) => x.id === a.teacherId);
+    const t = findAnyTeacher(data, a.teacherId);
     toast(`Assenza di ${t ? teacherName(t) : "un docente rimosso"} eliminata`, {
       duration: 8000,
       action: { label: "Annulla", onClick: () => store.restoreAbsence(removed) },
@@ -184,9 +185,9 @@ function AssenzePage() {
               const selected = iso === data.selectedDate;
               const today = iso === todayIso();
               const names = summary.absences
-                .map((a) => data.teachers.find((t) => t.id === a.teacherId))
+                .map((a) => findAnyTeacher(data, a.teacherId))
                 .filter((t): t is NonNullable<typeof t> => Boolean(t))
-                .map((t) => teacherShort(t, data.teachers));
+                .map((t) => teacherShort(t, allTeachers(data)));
               const tone =
                 summary.needs.length === 0
                   ? "idle"
@@ -265,7 +266,7 @@ function AssenzePage() {
         ) : (
           <ul className="flex flex-col gap-2">
             {list.map((a) => {
-              const t = data.teachers.find((x) => x.id === a.teacherId);
+              const t = findAnyTeacher(data, a.teacherId);
               const reason = ABSENCE_REASONS.find((r) => r.value === a.reason)?.label;
               return (
                 <li key={a.id} className="paper-panel flex items-center gap-1 rounded-xl pr-2">

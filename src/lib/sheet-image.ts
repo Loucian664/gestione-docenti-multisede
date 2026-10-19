@@ -14,6 +14,7 @@ import {
   teacherSurname,
   teacherSlotAt,
 } from "./coverage";
+import { allTeachers, findAnyTeacher } from "./replace-teacher";
 import { formatItDate, formatLong } from "./dates";
 import { ABSENCE_REASONS, dayNameUpper, DAY_SHORT, SUBSTITUTION_TYPES, type DayOfWeek, type PersistedData } from "./types";
 import { hourMark, isMensaLesson, isMensaPeriod, isRestrictedTpPeriod, visiblePeriods } from "./periods";
@@ -408,8 +409,8 @@ export async function bachecaJpeg(data: PersistedData, date: string): Promise<Bl
       const cls = data.classes.find((c) => c.id === shift.classId);
       const code = (cls?.name ?? "?").replace(/ª\s*/g, "").replace(/\s+/g, "");
       const names = [...new Set(shift.needs.map((n) => {
-        const t = data.teachers.find((x) => x.id === n.absence.teacherId);
-        const name = t ? teacherSurname(t, data.teachers) : "?";
+        const t = findAnyTeacher(data, n.absence.teacherId);
+        const name = t ? teacherSurname(t, allTeachers(data)) : "?";
         return n.absence.reason === "assemblea_sindacale" ? `${name} (assemblea)` : name;
       }))].sort((a, b) => a.localeCompare(b, "it"));
       ctx.fillStyle = INK;
@@ -436,16 +437,16 @@ export async function bachecaJpeg(data: PersistedData, date: string): Promise<Bl
     y += 28;
     for (const n of g.items) {
       const cls = data.classes.find((c) => c.id === n.slot.classId);
-      const absent = data.teachers.find((t) => t.id === n.absence.teacherId);
-      const absentName = absent ? teacherSurname(absent, data.teachers) : "—";
+      const absent = findAnyTeacher(data, n.absence.teacherId);
+      const absentName = absent ? teacherSurname(absent, allTeachers(data)) : "—";
       const absentLabel =
         n.absence.reason === "assemblea_sindacale" ? `${absentName} (assemblea)` : absentName;
-      const sub = data.teachers.find((t) => t.id === n.substitution?.substituteId);
+      const sub = findAnyTeacher(data, n.substitution?.substituteId);
       const copre =
         n.substitution?.type === "divisione"
           ? "classe divisa"
           : sub
-            ? teacherSurname(sub, data.teachers)
+            ? teacherSurname(sub, allTeachers(data))
             : "da assegnare";
       const tipo =
         n.substitution?.type && n.substitution.type !== "divisione"
