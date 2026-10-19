@@ -1,5 +1,6 @@
 import { eachIsoInRange, formatDayMonth, formatDayName, formatItDate, formatItFileDate, formatLong, isWeekend, toSchoolDay } from "./dates";
 import { coverageNeeds, isCovered, isShiftType, classShifts, eccedenteLines, teacherName, teacherSurname, absencesByReason, absencesOnDate, type CoverageNeed, type ClassShift } from "./coverage";
+import { allTeachers, findAnyTeacher } from "./replace-teacher";
 import type { PersistedData, SubstitutionType } from "./types";
 import { ABSENCE_REASONS, SUBSTITUTION_TYPES } from "./types";
 import { classTimetableSheet, XLSX_S } from "./class-grid";
@@ -36,8 +37,8 @@ export function orarioDownloadName(schoolName: string, stem: string, ext: string
 }
 
 function findTeacher(data: PersistedData, id: string | null) {
-  if (!id) return null;
-  return data.teachers.find((t) => t.id === id) ?? null;
+  // anche chi non è più in servizio: assenze e coperture dei giorni passati
+  return findAnyTeacher(data, id) ?? null;
 }
 
 function findClass(data: PersistedData, id: string) {
@@ -64,9 +65,9 @@ export function substitutionsXlsx(data: PersistedData, date: string): File {
       period?.label ?? "",
       cls?.name ?? "",
       n.slot.subject,
-      absent ? teacherSurname(absent, data.teachers) : "",
+      absent ? teacherSurname(absent, allTeachers(data)) : "",
       reason,
-      n.substitution?.type === "divisione" ? "(classe divisa)" : sub ? teacherSurname(sub, data.teachers) : "",
+      n.substitution?.type === "divisione" ? "(classe divisa)" : sub ? teacherSurname(sub, allTeachers(data)) : "",
       shiftPhrase(data, date, n.key) || typeLabel(n.substitution?.type ?? null),
       n.substitution?.notes ?? "",
     ]);
@@ -140,9 +141,9 @@ export function assemblySummary(data: PersistedData, date: string): string | nul
   const names = [
     ...new Set(
       marked
-        .map((a) => data.teachers.find((t) => t.id === a.teacherId))
+        .map((a) => findAnyTeacher(data, a.teacherId))
         .filter((t): t is NonNullable<typeof t> => Boolean(t))
-        .map((t) => teacherSurname(t, data.teachers)),
+        .map((t) => teacherSurname(t, allTeachers(data))),
     ),
   ].sort((a, b) => a.localeCompare(b, "it"));
   const clocks = classShifts(data, date)
@@ -216,9 +217,9 @@ export function absencesRangeXlsx(data: PersistedData, from: string, to: string)
         dayStart ? formatDayName(n.date).toLocaleUpperCase("it-IT") : "",
         period?.label ?? "",
         classCode(cls?.name ?? ""),
-        absent ? teacherSurname(absent, data.teachers) : "",
+        absent ? teacherSurname(absent, allTeachers(data)) : "",
         reason,
-        n.substitution?.type === "divisione" ? "classe divisa" : sub ? teacherSurname(sub, data.teachers) : "",
+        n.substitution?.type === "divisione" ? "classe divisa" : sub ? teacherSurname(sub, allTeachers(data)) : "",
         phrase ? "" : typeLabel(n.substitution?.type ?? null, true),
         n.absence.notes ?? "",
         stato,
@@ -419,7 +420,7 @@ function dailySheetBody(data: PersistedData, date: string, needs: CoverageNeed[]
       const sub = findTeacher(data, n.substitution?.substituteId ?? null);
       let who = "DA COPRIRE";
       if (n.substitution?.type === "divisione") who = "classe divisa";
-      else if (sub) who = teacherSurname(sub, data.teachers);
+      else if (sub) who = teacherSurname(sub, allTeachers(data));
       const tipo =
         n.substitution?.type && n.substitution.type !== "divisione"
           ? typeLabel(n.substitution.type, true)
@@ -429,7 +430,7 @@ function dailySheetBody(data: PersistedData, date: string, needs: CoverageNeed[]
         sort: period?.index ?? 0,
         ora: (period?.label ?? n.slot.periodId).toUpperCase(),
         cls: classCode(cls?.name ?? "?"),
-        absent: withAssembly(absent ? teacherSurname(absent, data.teachers) : "?", n.absence.reason),
+        absent: withAssembly(absent ? teacherSurname(absent, allTeachers(data)) : "?", n.absence.reason),
         tail: `copre ${who}${tipo ? ` (${tipo})` : ""}`,
       };
     });
@@ -447,7 +448,7 @@ function dailySheetBody(data: PersistedData, date: string, needs: CoverageNeed[]
       const t = findTeacher(data, n.absence.teacherId);
       if (!people.has(n.absence.teacherId)) {
         people.set(n.absence.teacherId, {
-          name: t ? teacherSurname(t, data.teachers) : "?",
+          name: t ? teacherSurname(t, allTeachers(data)) : "?",
           reason: n.absence.reason,
         });
       }

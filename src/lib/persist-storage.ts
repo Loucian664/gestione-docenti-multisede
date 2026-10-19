@@ -361,6 +361,7 @@ export function mergeSlices(a: PersistSlice, b: PersistSlice): PersistSlice {
     absences: byId(a.absences, b.absences, preferB),
     substitutions: byId(a.substitutions, b.substitutions, preferB),
     cattedre: byCattedra(a.cattedre, b.cattedre, preferB),
+    formerTeachers: byId(a.formerTeachers, b.formerTeachers, preferB),
     cattedraBackup: preferB ? b.cattedraBackup ?? a.cattedraBackup : a.cattedraBackup ?? b.cattedraBackup,
     cattedraDispBackup: preferB
       ? b.cattedraDispBackup ?? a.cattedraDispBackup

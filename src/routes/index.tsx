@@ -39,6 +39,7 @@ import {
   type ClassShift,
   type CoverageNeed,
 } from "@/lib/coverage";
+import { allTeachers, findAnyTeacher } from "@/lib/replace-teacher";
 import { dailySheetCopyPlain, dailySheetHeading, dailySheetHtml, dailySheetText, substitutionsXlsx } from "@/lib/export";
 import { copyText, shareOrSaveFile, shareJpeg, toastSave, openPdfTab } from "@/lib/share-file";
 import { textToPdf } from "@/lib/pdf";
@@ -377,14 +378,14 @@ function OggiPage() {
               .map((n) => {
                 const cls = data.classes.find((c) => c.id === n.slot.classId);
                 const per = data.settings.periods.find((p) => p.id === n.slot.periodId);
-                const absent = data.teachers.find((t) => t.id === n.absence.teacherId);
+                const absent = findAnyTeacher(data, n.absence.teacherId);
                 return (
                   <li key={n.key}>
                     <button
                       type="button"
                       onClick={() => setAssignNeed(n)}
                       aria-label={`${per?.label ?? "Ora"} · ${cls?.name ?? "classe"} · assente ${
-                        absent ? teacherShort(absent, data.teachers) : "—"
+                        absent ? teacherShort(absent, allTeachers(data)) : "—"
                       }`}
                       className="h-8 whitespace-nowrap rounded-full border border-destructive/30 bg-card px-3 text-[13px] font-medium text-destructive transition-colors duration-150 hover:bg-destructive/10"
                     >
@@ -422,7 +423,7 @@ function OggiPage() {
           <h2 className="mb-2 font-display text-lg">Docenti assenti</h2>
           <ul className="flex flex-col gap-2">
             {absences.map((a) => {
-              const t = data.teachers.find((x) => x.id === a.teacherId);
+              const t = findAnyTeacher(data, a.teacherId);
               const reason = ABSENCE_REASONS.find((r) => r.value === a.reason)?.label;
               return (
                 <li key={a.id} className="paper-panel flex items-center justify-between gap-3 rounded-lg px-4 py-3">
@@ -434,7 +435,7 @@ function OggiPage() {
                       {a.dateFrom !== a.dateTo ? ` · fino al ${a.dateTo}` : ""}
                     </p>
                   </div>
-                  <Badge variant="warning">{t ? teacherShort(t, data.teachers) : ""}</Badge>
+                  <Badge variant="warning">{t ? teacherShort(t, allTeachers(data)) : ""}</Badge>
                 </li>
               );
             })}
@@ -472,8 +473,8 @@ function OggiPage() {
             <ul className="grid gap-2 md:max-[1100px]:grid-cols-2">
               {items.map((n) => {
                 const cls = data.classes.find((c) => c.id === n.slot.classId);
-                const absent = data.teachers.find((t) => t.id === n.absence.teacherId);
-                const sub = data.teachers.find((t) => t.id === n.substitution?.substituteId);
+                const absent = findAnyTeacher(data, n.absence.teacherId);
+                const sub = findAnyTeacher(data, n.substitution?.substituteId);
                 const ok = isCovered(n);
                 const shift = shifts.find((s) => s.applied && s.needs.some((x) => x.key === n.key));
                 const tipo =
@@ -499,7 +500,7 @@ function OggiPage() {
                       <p className="mt-1 text-[13px] text-muted-foreground">{n.slot.subject}</p>
                       <p className="mt-3 text-sm">
                         <span className="text-muted-foreground">Assente </span>
-                        {absent ? teacherShort(absent, data.teachers) : "—"}
+                        {absent ? teacherShort(absent, allTeachers(data)) : "—"}
                       </p>
                       {shift ? (
                         <p className="text-sm">{shift.phrase}</p>
@@ -508,7 +509,7 @@ function OggiPage() {
                           {n.substitution?.type === "divisione" || sub ? (
                             <>
                               <span className="text-muted-foreground">Copre </span>
-                              {n.substitution?.type === "divisione" || !sub ? "classe divisa" : teacherShort(sub, data.teachers)}
+                              {n.substitution?.type === "divisione" || !sub ? "classe divisa" : teacherShort(sub, allTeachers(data))}
                             </>
                           ) : (
                             <span className="text-muted-foreground">Sostituto da assegnare</span>

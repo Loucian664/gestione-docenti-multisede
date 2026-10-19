@@ -20,6 +20,7 @@ import {
   type RankedSubstitute,
   type SubstituteBucket,
 } from "@/lib/coverage";
+import { findAnyTeacher } from "@/lib/replace-teacher";
 import { toast } from "sonner";
 import { teacherDotColor } from "@/lib/teacher-palette";
 
@@ -113,7 +114,7 @@ export function AssignSheet({
   const active = need;
   const period = data.settings.periods.find((p) => p.id === active.slot.periodId);
   const cls = data.classes.find((c) => c.id === active.slot.classId);
-  const absent = data.teachers.find((t) => t.id === active.absence.teacherId);
+  const absent = findAnyTeacher(data, active.absence.teacherId);
   const q = query.trim().toLowerCase();
   const filtered = q
     ? ranked.filter((r) => {
@@ -143,7 +144,7 @@ export function AssignSheet({
 
   const divisione = SUBSTITUTION_TYPES.find((t) => t.value === "divisione");
   // Chi copre già l'ora (dati salvati, non la scelta in corso)
-  const coveringTeacher = coveredNow ? data.teachers.find((t) => t.id === current?.substituteId) : undefined;
+  const coveringTeacher = coveredNow ? findAnyTeacher(data, current?.substituteId) : undefined;
   const coveringType = SUBSTITUTION_TYPES.find((t) => t.value === current?.type)?.label;
   /** cosa vuol dire il tipo di copertura scelto */
   const typeHint = SUBSTITUTION_TYPES.find((t) => t.value === type)?.hint;
