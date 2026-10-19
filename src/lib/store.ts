@@ -244,13 +244,38 @@ function teacherCardData(
   return { teacherId, data: syncPersonFields({ ...state, teachers, cattedre }, teacherId) };
 }
 
-/** Classe tolta da una sede, con le sue lezioni e cattedre. */
-function withoutClass(sede: SedeData, id: string): SedeData {
+/** C'è un'assenza del docente sostituito in quel giorno e a quell'ora? */
+function absentFor(absences: Absence[], s: Substitution): boolean {
+  return absences.some(
+    (a) =>
+      a.teacherId === s.absentTeacherId &&
+      s.date >= a.dateFrom &&
+      s.date <= a.dateTo &&
+      (a.allDay || a.periodIds.includes(s.periodId)),
+  );
+}
+
+/**
+ * Classe tolta da una sede, con le sue lezioni e cattedre e le righe delle schede dei docenti. `otherSede`: non è
+ * la sede in uso, dove le ore del docente sono quelle delle sue righe (senza le righe tolte).
+ */
+function withoutClass(sede: SedeData, id: string, otherSede: boolean): SedeData {
   return {
     ...sede,
     classes: sede.classes.filter((c) => c.id !== id),
     slots: sede.slots.filter((s) => s.classId !== id),
     cattedre: (sede.cattedre ?? []).filter((x) => x.classId !== id),
+    teachers: sede.teachers.map((t) => {
+      const gone = (t.cardRows ?? []).filter((r) => r.classId === id);
+      if (!gone.length && !t.assignedClassIds.includes(id)) return t;
+      const hours = gone.reduce((n, r) => n + r.hours, 0);
+      return {
+        ...t,
+        assignedClassIds: t.assignedClassIds.filter((c) => c !== id),
+        ...(t.cardRows ? { cardRows: t.cardRows.filter((r) => r.classId !== id) } : {}),
+        ...(otherSede && hours > 0 ? { weeklyHours: Math.max(0, (t.weeklyHours ?? 0) - hours) } : {}),
+      };
+    }),
   };
 }
 
@@ -393,6 +418,8 @@ export const useAppStore = create<AppStore>()(
             teachers: get().teachers.filter((t) => t.id !== id),
             slots: get().slots.filter((s) => s.teacherId !== id),
             absences: get().absences.filter((a) => a.teacherId !== id),
+            // le ore che copriva come sostituto tornano da coprire
+            substitutions: get().substitutions.filter((s) => s.substituteId !== id),
             cattedre: (get().cattedre ?? []).map((x) =>
               x.teacherId === id ? { ...x, teacherId: "" } : x,
             ),
@@ -403,12 +430,7 @@ export const useAppStore = create<AppStore>()(
         updateClass: (id, patch) =>
           save({ classes: get().classes.map((c) => (c.id === id ? { ...c, ...patch } : c)) }),
 
-        removeClass: (id) =>
-          save({
-            classes: get().classes.filter((c) => c.id !== id),
-            slots: get().slots.filter((s) => s.classId !== id),
-            cattedre: (get().cattedre ?? []).filter((x) => x.classId !== id),
-          }),
+        removeClass: (id) => get().removeClassIn(sedeIdOf(snapshot(get())), id),
 
         upsertSlot: (slot) => {
           const id = slot.id ?? `slot-${slot.classId}-${slot.day}-${slot.periodId}-${slot.teacherId}`;
@@ -434,8 +456,15 @@ export const useAppStore = create<AppStore>()(
           return id;
         },
 
-        updateAbsence: (id, patch) =>
-          save({ absences: get().absences.map((a) => (a.id === id ? { ...a, ...patch } : a)) }),
+        updateAbsence: (id, patch) => {
+          const before = get().absences;
+          const absences = before.map((a) => (a.id === id ? { ...a, ...patch } : a));
+          // le sostituzioni dei giorni o delle ore tolti dall'assenza non valgono più (cambiando solo il motivo resta tutto)
+          save({
+            absences,
+            substitutions: get().substitutions.filter((s) => !absentFor(before, s) || absentFor(absences, s)),
+          });
+        },
 
         removeAbsence: (id) => {
           const absences = get().absences;
@@ -680,7 +709,10 @@ export const useAppStore = create<AppStore>()(
             })),
           ),
 
-        removeClassIn: (sedeId, id) => save(editSede(snapshot(get()), sedeId, (sede) => withoutClass(sede, id))),
+        removeClassIn: (sedeId, id) => {
+          const state = snapshot(get());
+          save(editSede(state, sedeId, (sede) => withoutClass(sede, id, sedeId !== sedeIdOf(state))));
+        },
 
         moveClass: (fromSedeId, id, toSedeId) => {
           const state = snapshot(get());
@@ -689,7 +721,7 @@ export const useAppStore = create<AppStore>()(
           const cls = from?.classes.find((c) => c.id === id);
           if (!from || !cls) return false;
           if (classInUse(from, id)) return false;
-          let next = editSede(state, fromSedeId, (sede) => withoutClass(sede, id));
+          let next = editSede(state, fromSedeId, (sede) => withoutClass(sede, id, fromSedeId !== sedeIdOf(state)));
           next = editSede(next, toSedeId, (sede) => {
             const taken = sede.classes.some((c) => c.id === cls.id);
             return { ...sede, classes: [...sede.classes, taken ? { ...cls, id: uid("c") } : cls] };
@@ -707,9 +739,12 @@ export const useAppStore = create<AppStore>()(
         importData: (data, fileName) => {
           noteUserMutation();
           const importedBackupName = (fileName ?? data.importedBackupName)?.trim() || undefined;
-          // gli slot diventano quelli del file (nessuno se è un backup di prima)
+          const fixed = fixAllSedi(data);
+          // gli slot diventano quelli del file (nessuno se è un backup di prima); ogni voce della sede, anche
+          // quelle che il file non ha (pickSede), prende il posto di quella di prima
           set({
-            ...fixAllSedi(data),
+            ...fixed,
+            ...pickSede(fixed),
             // un backup dell'app di Rombiolo ha una sede sola
             sedeId: data.sedeId,
             ordineSedi: data.ordineSedi,
@@ -725,8 +760,10 @@ export const useAppStore = create<AppStore>()(
 
         resetDemo: () => {
           noteUserMutation();
+          const seed = buildSeed();
           set({
-            ...buildSeed(),
+            ...seed,
+            ...pickSede(seed),
             savedTimetables: [],
             activeSlot: 0,
             officialBackup: undefined,
@@ -741,6 +778,7 @@ export const useAppStore = create<AppStore>()(
           noteUserMutation();
           set({
             ...EMPTY_DATA,
+            ...pickSede(EMPTY_DATA),
             sedeId: undefined,
             altreSedi: [],
             ordineSedi: undefined,

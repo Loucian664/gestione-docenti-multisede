@@ -541,7 +541,7 @@ export function CostruisciOrario({
    * «Ritocca a mano» su tutte le sedi insieme, dalla proposta o dagli orari in uso: le mosse e le catene
    * possono passare da una sede all'altra, con le regole tra sedi.
    */
-  function openInsiemeEdit(from: EditState["from"]) {
+  function openInsiemeEdit(from: EditState["from"], after?: PersistedData) {
     let next: InsiemeEdit;
     if (from === "proposta" && insieme) {
       next = {
@@ -550,6 +550,8 @@ export function CostruisciOrario({
         map: insieme.map,
         mode: insieme.mode,
         base: insieme.slot?.base,
+        // come nella proposta: le ore a disposizione già nelle buche, così i numeri sono gli stessi
+        baseTeachers: after ? buildInsieme(after).joint.teachers : undefined,
       };
     } else {
       const built = buildInsieme(rawData);
@@ -961,6 +963,7 @@ export function CostruisciOrario({
           edit={insiemeEdit.edit}
           settings={insiemeEdit.joint.settings}
           teachersAll={insiemeEdit.joint.teachers}
+          baseTeachers={insiemeEdit.baseTeachers}
           classesAll={insiemeEdit.joint.classes}
           slots={insiemeEdit.joint.slots}
           cattedre={insiemeEdit.joint.cattedre}
@@ -1000,7 +1003,7 @@ export function CostruisciOrario({
           running={running}
           onStop={() => handleRef.current?.stop()}
           onRetry={proposeTogether}
-          onEdit={() => openInsiemeEdit("proposta")}
+          onEdit={(after) => openInsiemeEdit("proposta", after)}
           onClose={() => setInsieme(null)}
           onSaved={(n) => setInsieme((v) => (v ? { ...v, savedIn: n } : v))}
         />
@@ -4180,7 +4183,15 @@ type InsiemeResult = {
  * «Ritocca a mano» su tutte le sedi: i dati uniti, le lezioni con i ritocchi e il punto di partenza; `base`: i dati
  * con lo slot aperto (le sue ore a disposizione), se si parte da uno slot.
  */
-type InsiemeEdit = { edit: EditState; joint: InsiemeData; map: InsiemeMap; mode: SolveMode; base?: PersistedData };
+/** `baseTeachers`: dalla proposta, i docenti uniti con le ore a disposizione dove le mette la proposta */
+type InsiemeEdit = {
+  edit: EditState;
+  joint: InsiemeData;
+  map: InsiemeMap;
+  mode: SolveMode;
+  base?: PersistedData;
+  baseTeachers?: Teacher[];
+};
 
 /** La proposta per tutte le sedi: riepilogo, confronto, vista generale e i tasti per tutte le sedi. */
 function InsiemeProposta({
@@ -4200,7 +4211,7 @@ function InsiemeProposta({
   running: RunProgress | null;
   onStop: () => void;
   onRetry: () => void;
-  onEdit: () => void;
+  onEdit: (after: PersistedData) => void;
   onClose: () => void;
   onSaved: (n: number) => void;
 }) {
@@ -4328,7 +4339,7 @@ function InsiemeProposta({
                   Riprova
                 </Button>
               )}
-              <Button variant="outline" className="max-md:px-3" onClick={onEdit}>
+              <Button variant="outline" className="max-md:px-3" onClick={() => onEdit(final.after)}>
                 <span className="md:hidden">Ritocca</span>
                 <span className="hidden md:inline">Ritocca a mano</span>
               </Button>
