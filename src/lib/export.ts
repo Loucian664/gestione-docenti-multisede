@@ -552,7 +552,19 @@ export function parseBackupJson(raw: string): PersistedData {
   if (!data.settings || !Array.isArray(data.teachers) || !Array.isArray(data.classes)) {
     throw new Error("file non valido");
   }
-  return data;
+  // un backup senza orario, assenze o sostituzioni (molto vecchio o modificato a mano) si apre con quelle parti vuote
+  const lists = <T extends { slots?: unknown; absences?: unknown; substitutions?: unknown }>(x: T): T => ({
+    ...x,
+    slots: Array.isArray(x.slots) ? x.slots : [],
+    absences: Array.isArray(x.absences) ? x.absences : [],
+    substitutions: Array.isArray(x.substitutions) ? x.substitutions : [],
+  });
+  return {
+    ...lists(data),
+    ...(Array.isArray(data.altreSedi)
+      ? { altreSedi: data.altreSedi.filter((a) => a?.data).map((a) => ({ ...a, data: lists(a.data) })) }
+      : {}),
+  };
 }
 
 export async function docentiPdfZip(data: PersistedData): Promise<File> {

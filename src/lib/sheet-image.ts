@@ -215,8 +215,9 @@ async function paintExcelGrid(opts: {
   const canvas = document.createElement("canvas");
   canvas.width = Math.round(pageW * dpr);
   canvas.height = Math.round(pageH * dpr);
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("canvas");
+  const ctx2d = canvas.getContext("2d");
+  if (!ctx2d) throw new Error("canvas");
+  const ctx = ctx2d;
   ctx.scale(dpr, dpr);
   ctx.fillStyle = "#fff";
   ctx.fillRect(0, 0, pageW, pageH);
@@ -624,8 +625,9 @@ export async function orarioWeekJpeg(data: PersistedData): Promise<Blob> {
   const canvas = document.createElement("canvas");
   canvas.width = Math.round(pageW * dpr);
   canvas.height = Math.round(pageH * dpr);
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("canvas");
+  const ctx2d = canvas.getContext("2d");
+  if (!ctx2d) throw new Error("canvas");
+  const ctx = ctx2d;
   ctx.scale(dpr, dpr);
   ctx.fillStyle = "#fff";
   ctx.fillRect(0, 0, pageW, pageH);
@@ -901,8 +903,9 @@ export async function orarioScuolaJpeg(data: PersistedData, withTeachers: boolea
   const canvas = document.createElement("canvas");
   canvas.width = Math.round(width * dpr);
   canvas.height = Math.round(height * dpr);
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("canvas");
+  const ctx2d = canvas.getContext("2d");
+  if (!ctx2d) throw new Error("canvas");
+  const ctx = ctx2d;
   ctx.scale(dpr, dpr);
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, width, height);

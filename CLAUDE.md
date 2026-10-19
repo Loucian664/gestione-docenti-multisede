@@ -66,8 +66,8 @@
 
 - Test di `src/lib`: per ogni `src/lib/*.test.ts`
   `node_modules/.bin/rolldown <file> --platform node --format esm --file <cartella>/<nome>.mjs`,
-  poi `node --test <cartella>/*.mjs` (163 test al 18/10/2026). `npm test` non li esegue.
-- `npx tsc --noEmit`: 10 errori già presenti; non devono aumentare.
+  poi `node --test <cartella>/*.mjs` (167 test al 19/10/2026). `npm test` non li esegue.
+- `npx tsc --noEmit`: nessun errore (dal 19/10/2026); deve restare così.
 - `GITHUB_PAGES=true BASE_PATH=/gestione-docenti-multisede/ npm run build:pages` deve riuscire.
 - Nei test del motore usa l'orologio finto (`now: ticks()` in `src/lib/timetable-solver.test.ts`), così
   il risultato non dipende dalla velocità del computer. Il test «al massimo un'ora libera tra le
@@ -156,7 +156,8 @@ Ritocchi e «Trova»: una mossa che mette un docente su una ×, senza ora di spo
 contro le regole tra sedi non si può fare, anche se toglie altri vincoli (`dphys` in `PeekResult`).
 «Ritocca a mano» con «Tutte le sedi insieme» (dalla proposta o dagli orari in uso): lo stesso pannello dei
 ritocchi sui dati uniti (`insieme` passato a `Ritocchi`), classi con il nome della sede, catene tra sedi;
-«Salva nello slot…» e «Usa questo orario» valgono per tutte le sedi; i lucchetti lì non si cambiano.
+«Salva nello slot…» e «Usa questo orario» valgono per tutte le sedi; i lucchetti lì non si cambiano. Dalla proposta
+parte con le ore a disposizione dove le mette la proposta (`baseTeachers` da `final.after`), così i numeri coincidono.
 Scheda docente con più sedi: «Classi e materie» ha un riquadro per ogni sede spuntata in «Sedi in cui insegna»;
 salvando, ogni riga va nella scheda della persona in quella sede (`saveTeacherSedi`, `saveTeacherCardSedi` nello
 store) e un avviso dice cosa è cambiato nelle altre sedi. «Ore cattedra» è il totale di tutte le sedi

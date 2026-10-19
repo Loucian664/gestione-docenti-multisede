@@ -38,7 +38,7 @@ import { buildSeed, EMPTY_DATA } from "./seed.ts";
 import { buildInsieme } from "./sedi-insieme.ts";
 import { snapshot, useAppStore } from "./store.ts";
 import { solveTimetable, TimetableEditor } from "./timetable-solver.ts";
-import type { PersistedData, SedeData, Teacher } from "./types.ts";
+import type { PersistedData, SedeData, Substitution, Teacher } from "./types.ts";
 
 /** Senza le voci vuote (undefined), come nel salvataggio. */
 const plain = <T,>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
@@ -581,6 +581,99 @@ describe("sedi: salvataggio e backup", () => {
     const now = snapshot(useAppStore.getState());
     assert.equal(allSedi(now).length, 1);
     assert.equal(now.altreSedi?.length ?? 0, 0);
+  });
+
+  it("importando o cancellando tutto non restano le cattedre della sede di prima", () => {
+    const st = () => useAppStore.getState();
+    st().resetDemo();
+    const idNuova = st().addSede("Sede nuova");
+    st().switchSede(idNuova);
+    const file = backupJson(snapshot(st()));
+    st().resetDemo();
+    const cls = st().classes[0]!;
+    st().setCattedre([{ classId: cls.id, subject: "Italiano", teacherId: st().teachers[0]!.id, hours: 6 }]);
+    assert.equal((st().cattedre ?? []).length, 1);
+    st().importData(parseBackupJson(file), "sede-nuova.json");
+    assert.equal(sedeName(st().settings), "Sede nuova");
+    assert.equal((st().cattedre ?? []).length, 0);
+    st().resetDemo();
+    st().setCattedre([{ classId: cls.id, subject: "Italiano", teacherId: st().teachers[0]!.id, hours: 6 }]);
+    st().clearAll();
+    assert.equal((st().cattedre ?? []).length, 0);
+  });
+
+  it("un backup senza orario, assenze e sostituzioni si apre con quelle parti vuote", () => {
+    const st = () => useAppStore.getState();
+    const { slots: _s, absences: _a, substitutions: _u, altreSedi: _o, sedeId: _i, ordineSedi: _r, ...rest } = buildSeed();
+    const parsed = parseBackupJson(JSON.stringify(rest));
+    assert.deepEqual([parsed.slots, parsed.absences, parsed.substitutions], [[], [], []]);
+    st().importData(parsed, "vecchio.json");
+    assert.deepEqual([st().slots, st().absences, st().substitutions], [[], [], []]);
+  });
+
+  it("assenza accorciata o docente eliminato: le sostituzioni tolte tornano da coprire", () => {
+    const st = () => useAppStore.getState();
+    st().resetDemo();
+    const [assente, sostituto] = st().teachers;
+    const [p1, p2] = st().settings.periods;
+    const sub = (date: string, periodId: string, id: string): Substitution => ({
+      id,
+      date,
+      periodId,
+      classId: st().classes[0]!.id,
+      absentTeacherId: assente!.id,
+      substituteId: sostituto!.id,
+      type: "disposizione",
+      activity: "",
+      notes: "",
+      subject: "",
+    });
+    const id = st().addAbsence({
+      teacherId: assente!.id,
+      dateFrom: "2026-11-02",
+      dateTo: "2026-11-04",
+      reason: "malattia",
+      notes: "",
+      allDay: true,
+      periodIds: [],
+    });
+    useAppStore.setState({
+      substitutions: [
+        sub("2026-11-02", p1!.id, "s1"),
+        sub("2026-11-02", p2!.id, "s2"),
+        sub("2026-11-03", p1!.id, "s3"),
+        sub("2026-11-04", p1!.id, "s4"),
+      ],
+    });
+    const ids = () => st().substitutions.map((s) => s.id);
+    st().updateAbsence(id, { notes: "solo una nota" });
+    assert.deepEqual(ids(), ["s1", "s2", "s3", "s4"]);
+    st().updateAbsence(id, { dateTo: "2026-11-03" });
+    assert.deepEqual(ids(), ["s1", "s2", "s3"]);
+    st().updateAbsence(id, { allDay: false, periodIds: [p1!.id] });
+    assert.deepEqual(ids(), ["s1", "s3"]);
+    st().removeTeacher(sostituto!.id);
+    assert.deepEqual(ids(), []);
+  });
+
+  it("classe eliminata in un'altra sede: via anche le righe delle schede, e la sede si toglie al docente", () => {
+    const st = () => useAppStore.getState();
+    st().resetDemo();
+    const b = other(snapshot(st()));
+    const tb = b.data.teachers.find((t) => t.personId && (t.cardRows ?? []).some((r) => r.hours > 0))!;
+    const ta = st().teachers.find((t) => t.personId === tb.personId)!;
+    const rowsB = tb.cardRows!.filter((r) => r.hours > 0);
+    const before = cattedraTotal(snapshot(st()), ta);
+    for (const r of rowsB) st().removeClassIn(b.id, r.classId);
+    const now = snapshot(st());
+    const b1 = other(now).data;
+    const tb1 = b1.teachers.find((t) => t.id === tb.id)!;
+    assert.equal((tb1.cardRows ?? []).length, 0);
+    assert.equal(cattedraTotal(now, st().teachers.find((t) => t.id === ta.id)!), before - rowsB.reduce((n, r) => n + r.hours, 0));
+    assert.equal(persons(now).find((p) => p.key === `p:${tb.personId}`)!.records.find((r) => r.teacher.id === tb.id)!.hours, 0);
+    assert.equal(canRemoveRecord(b1, tb.id), true);
+    const senzaB = removeSede(now, b.id, "2026-10-18");
+    assert.equal((senzaB.teachers.find((t) => t.id === ta.id)!.removedSedi ?? []).length, 0);
   });
 
   it("nello store: cambio sede, classe in un'altra sede, sede nuova", () => {
