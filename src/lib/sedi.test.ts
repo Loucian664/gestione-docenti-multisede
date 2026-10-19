@@ -38,7 +38,7 @@ import { buildSeed, EMPTY_DATA } from "./seed.ts";
 import { buildInsieme } from "./sedi-insieme.ts";
 import { snapshot, useAppStore } from "./store.ts";
 import { solveTimetable, TimetableEditor } from "./timetable-solver.ts";
-import type { PersistedData, SedeData, Teacher } from "./types.ts";
+import type { PersistedData, SedeData, Substitution, Teacher } from "./types.ts";
 
 /** Senza le voci vuote (undefined), come nel salvataggio. */
 const plain = <T,>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
@@ -600,6 +600,15 @@ describe("sedi: salvataggio e backup", () => {
     st().setCattedre([{ classId: cls.id, subject: "Italiano", teacherId: st().teachers[0]!.id, hours: 6 }]);
     st().clearAll();
     assert.equal((st().cattedre ?? []).length, 0);
+  });
+
+  it("un backup senza orario, assenze e sostituzioni si apre con quelle parti vuote", () => {
+    const st = () => useAppStore.getState();
+    const { slots: _s, absences: _a, substitutions: _u, altreSedi: _o, sedeId: _i, ordineSedi: _r, ...rest } = buildSeed();
+    const parsed = parseBackupJson(JSON.stringify(rest));
+    assert.deepEqual([parsed.slots, parsed.absences, parsed.substitutions], [[], [], []]);
+    st().importData(parsed, "vecchio.json");
+    assert.deepEqual([st().slots, st().absences, st().substitutions], [[], [], []]);
   });
 
   it("classe eliminata in un'altra sede: via anche le righe delle schede, e la sede si toglie al docente", () => {
