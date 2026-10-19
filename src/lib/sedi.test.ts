@@ -583,6 +583,26 @@ describe("sedi: salvataggio e backup", () => {
     assert.equal(now.altreSedi?.length ?? 0, 0);
   });
 
+  it("classe eliminata in un'altra sede: via anche le righe delle schede, e la sede si toglie al docente", () => {
+    const st = () => useAppStore.getState();
+    st().resetDemo();
+    const b = other(snapshot(st()));
+    const tb = b.data.teachers.find((t) => t.personId && (t.cardRows ?? []).some((r) => r.hours > 0))!;
+    const ta = st().teachers.find((t) => t.personId === tb.personId)!;
+    const rowsB = tb.cardRows!.filter((r) => r.hours > 0);
+    const before = cattedraTotal(snapshot(st()), ta);
+    for (const r of rowsB) st().removeClassIn(b.id, r.classId);
+    const now = snapshot(st());
+    const b1 = other(now).data;
+    const tb1 = b1.teachers.find((t) => t.id === tb.id)!;
+    assert.equal((tb1.cardRows ?? []).length, 0);
+    assert.equal(cattedraTotal(now, st().teachers.find((t) => t.id === ta.id)!), before - rowsB.reduce((n, r) => n + r.hours, 0));
+    assert.equal(persons(now).find((p) => p.key === `p:${tb.personId}`)!.records.find((r) => r.teacher.id === tb.id)!.hours, 0);
+    assert.equal(canRemoveRecord(b1, tb.id), true);
+    const senzaB = removeSede(now, b.id, "2026-10-18");
+    assert.equal((senzaB.teachers.find((t) => t.id === ta.id)!.removedSedi ?? []).length, 0);
+  });
+
   it("nello store: cambio sede, classe in un'altra sede, sede nuova", () => {
     useAppStore.getState().resetDemo();
     const st = () => useAppStore.getState();
