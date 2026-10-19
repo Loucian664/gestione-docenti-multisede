@@ -653,6 +653,44 @@ export function autoAwayCells(data: PersistedData, t: Teacher): ElsewhereCell[] 
 }
 
 /**
+ * «Esporta sede»: il backup di una sede per l'app della singola scuola, che lo apre come un suo backup (con
+ * «Importa backup», che sostituisce tutto: a inizio anno). Chi insegna anche in altre sedi è «Su più plessi» con
+ * le × dove lì è occupato: tutta la giornata nei giorni in cui qui non ha ore, le ore vere nei giorni divisi
+ * (l'ora per spostarsi la lascia l'app della scuola, accanto alla ×). Senza le altre sedi né le voci che servono
+ * solo qui (persona in comune, ore delle sedi eliminate, slot di tutte le sedi).
+ */
+export function exportSede(data: PersistedData, sedeId: string): PersistedData {
+  const d = switchSede(data, sedeId);
+  const morning = d.settings.periods.filter((p) => !p.tpOnly);
+  const teachers = d.teachers.map((t) => {
+    const { personId: _personId, removedSedi, ...rest } = t;
+    const cells = elsewhereCells(d, t);
+    if (!cells.length) return removedSedi?.length ? { ...rest, otherPlesso: true } : rest;
+    const here = new Set([
+      ...d.slots.filter((s) => s.teacherId === t.id).map((s) => s.day),
+      ...(t.dispSlots ?? []).map((x) => x.day),
+    ]);
+    const away = new Map((t.awaySlots ?? []).map((a) => [`${a.day}|${a.periodId}`, a]));
+    const put = (day: DayOfWeek, periodId: string) => {
+      if (!away.has(`${day}|${periodId}`)) away.set(`${day}|${periodId}`, { day, periodId });
+    };
+    for (const c of cells) {
+      put(c.day, c.periodId);
+      if (!here.has(c.day)) for (const p of morning) put(c.day, p.id);
+    }
+    return { ...rest, otherPlesso: true, awaySlots: [...away.values()] };
+  });
+  return {
+    ...d,
+    teachers,
+    savedTimetables: (d.savedTimetables ?? []).map(({ insieme: _insieme, ...x }) => x),
+    sedeId: undefined,
+    altreSedi: undefined,
+    ordineSedi: undefined,
+  };
+}
+
+/**
  * I dati della sede in uso per Costruisci e i controlli: chi insegna anche in un'altra sede dell'archivio
  * è «su più plessi» e ha come × le ore che lì è occupato (l'ora di spostamento la lascia il motore).
  */

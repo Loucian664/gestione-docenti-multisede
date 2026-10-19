@@ -14,6 +14,7 @@ import {
   dropRemovedSede,
   editSede,
   elsewhereCells,
+  exportSede,
   importSede,
   linkedElsewhere,
   missingBySede,
@@ -37,7 +38,7 @@ import {
 import { buildSeed, EMPTY_DATA } from "./seed.ts";
 import { buildInsieme } from "./sedi-insieme.ts";
 import { snapshot, useAppStore } from "./store.ts";
-import { solveTimetable, TimetableEditor } from "./timetable-solver.ts";
+import { evaluateCurrent, solveTimetable, TimetableEditor } from "./timetable-solver.ts";
 import type { PersistedData, SedeData, Substitution, Teacher } from "./types.ts";
 
 /** Senza le voci vuote (undefined), come nel salvataggio. */
@@ -600,6 +601,44 @@ describe("sedi: salvataggio e backup", () => {
     st().setCattedre([{ classId: cls.id, subject: "Italiano", teacherId: st().teachers[0]!.id, hours: 6 }]);
     st().clearAll();
     assert.equal((st().cattedre ?? []).length, 0);
+  });
+
+  it("«Esporta sede»: un backup di una sede sola, con le × per le ore nelle altre sedi", () => {
+    const d = buildSeed();
+    const b = other(d);
+    const out = exportSede(d, b.id);
+    // solo quella sede, come un backup dell'app della singola scuola
+    assert.equal(out.altreSedi, undefined);
+    assert.equal(out.sedeId, undefined);
+    assert.deepEqual(
+      out.classes.map((c) => c.id),
+      b.data.classes.map((c) => c.id),
+    );
+    assert.deepEqual(out.slots, b.data.slots);
+    const morning = out.settings.periods.filter((p) => !p.tpOnly).map((p) => p.id);
+    const shared = b.data.teachers.filter((t) => t.personId && d.teachers.some((x) => x.personId === t.personId));
+    assert.ok(shared.length > 0);
+    for (const t of shared) {
+      const x = out.teachers.find((y) => y.id === t.id)!;
+      assert.equal(x.otherPlesso, true);
+      assert.equal(x.personId, undefined);
+      const away = new Set((x.awaySlots ?? []).map((a) => `${a.day}|${a.periodId}`));
+      const here = new Set(out.slots.filter((s) => s.teacherId === t.id).map((s) => s.day));
+      const elsewhere = d.slots.filter((s) => s.teacherId === d.teachers.find((y) => y.personId === t.personId)!.id);
+      for (const s of elsewhere) {
+        // giorno solo altrove: × su tutta la mattina; giorno diviso: × su quell'ora
+        if (!here.has(s.day)) for (const p of morning) assert.ok(away.has(`${s.day}|${p}`), `${s.day} ${p}`);
+        else assert.ok(away.has(`${s.day}|${s.periodId}`), `${s.day} ${s.periodId}`);
+      }
+      // mai una × su un'ora in cui insegna qui
+      for (const s of out.slots.filter((y) => y.teacherId === t.id)) assert.ok(!away.has(`${s.day}|${s.periodId}`));
+    }
+    // si apre come backup di una sede sola, con le stesse lezioni e senza lezioni su una ×
+    useAppStore.getState().importData(parseBackupJson(backupJson(out)), "sede.json");
+    const now = snapshot(useAppStore.getState());
+    assert.equal(allSedi(now).length, 1);
+    assert.equal(sedeName(now.settings), sedeName(b.data.settings));
+    assert.equal(evaluateCurrent(now).hard.away.length, 0);
   });
 
   it("un backup senza orario, assenze e sostituzioni si apre con quelle parti vuote", () => {
