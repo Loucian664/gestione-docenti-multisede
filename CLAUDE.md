@@ -66,7 +66,7 @@
 
 - Test di `src/lib`: per ogni `src/lib/*.test.ts`
   `node_modules/.bin/rolldown <file> --platform node --format esm --file <cartella>/<nome>.mjs`,
-  poi `node --test <cartella>/*.mjs` (168 test al 19/10/2026). `npm test` non li esegue.
+  poi `node --test <cartella>/*.mjs` (169 test al 19/10/2026). `npm test` non li esegue.
 - `npx tsc --noEmit`: nessun errore (dal 19/10/2026); deve restare così.
 - `GITHUB_PAGES=true BASE_PATH=/gestione-docenti-multisede/ npm run build:pages` deve riuscire.
 - Nei test del motore usa l'orologio finto (`now: ticks()` in `src/lib/timetable-solver.test.ts`), così
@@ -158,7 +158,13 @@ ogni ora ha il nome della sede (niente lettere: decisione dell'utente). In Orari
 Settimana hanno «Tutte le sedi» (sola lettura); in Docente, per chi insegna in più sedi, ogni ora porta il nome
 della sua sede, anche quelle della sede in uso, e ha il colore della sua sede (`sedeColor` in teacher-palette, dalla
 posizione nella pagina Sedi; tenue per le ore a disposizione), con la legenda sopra la griglia; nella vista Giorno le sedi vanno a capo su più file, in ordine, quante ne
-servono per la larghezza dello schermo (`righeSedi`). Da costruire: «Esporta sede» e «Riporta sede» (tappa 3).
+servono per la larghezza dello schermo (`righeSedi`).
+Tappa 3, «Esporta sede» (19/10): tasto nella scheda di ogni sede (pagina Sedi). `exportSede` in sedi.ts fa il backup di
+quella sede sola, che l'app della singola scuola apre con «Importa backup» (sostituisce tutto: a inizio anno): classi,
+docenti, orario in uso, orari salvati (senza il codice `insieme`), assenze e sostituzioni; chi insegna anche altrove è
+«Su più plessi» con × su tutta la giornata nei giorni solo altrove e × sulle ore vere nei giorni divisi; via `personId`,
+`removedSedi`, `altreSedi`, `sedeId`. Sulle 6 sedi vere i numeri del file aperto da solo coincidono con «Numeri di» di
+quella sede. Da costruire: «Riporta sede».
 
 Eliminare una sede (pagina Sedi, due avvisi): si cancellano classi, orario, docenti solo lì, orari salvati e
 assenze. I docenti in comune conservano le ore di quella sede (`removedSedi`: nome, ore, giorno), perché nella
@@ -253,7 +259,7 @@ riga mostra un avviso.
    scelta a mano per chi non ha classi (strumento, potenziamento); «Su più plessi» automatico. Orario
    una sede alla volta. Il backup dell'app di Rombiolo diventa la sede Rombiolo.
 2. Costruisci per tutte le sedi insieme, con le regole qui sopra.
-3. «Esporta sede»: un backup che si apre nell'app della singola scuola; docenti in comune «Su più
+3. «Esporta sede» (fatto il 19/10): un backup che si apre nell'app della singola scuola; docenti in comune «Su più
    plessi» con × su tutta la giornata nei giorni solo altrove e × sulle ore vere nei giorni divisi. Lì
    «Importa backup» sostituisce tutto (anche assenze e coperture): va fatto a inizio anno. Poi,
    facoltativo, «Riporta sede»: rimette qui l'orario migliorato, controllando i docenti in comune.
