@@ -17,7 +17,7 @@ import { useAppStore, snapshot } from "@/lib/store";
 import { backupJson, parseBackupJson } from "@/lib/export";
 import { shareOrSave, toastSave } from "@/lib/share-file";
 import type { PersistedData } from "@/lib/types";
-import { sedeName } from "@/lib/sedi";
+import { allSedi, sedeName } from "@/lib/sedi";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/impostazioni")({ component: ImpostazioniPage });
@@ -43,9 +43,10 @@ function ImpostazioniPage() {
         const current = snapshot(store);
         const curAt = Number(current.savedAt) || 0;
         const incAt = Number(parsed.savedAt) || 0;
+        // lavoro fatto in una qualunque sede, non solo in quella in uso
         const hasWork =
           current.origin === "user" &&
-          ((current.teachers?.length ?? 0) > 0 || (current.slots?.length ?? 0) > 0);
+          allSedi(current).some((x) => (x.data.teachers?.length ?? 0) > 0 || (x.data.slots?.length ?? 0) > 0);
         if (hasWork && curAt > 0 && incAt > 0 && incAt < curAt) {
           setPendingImport({ data: parsed, name: file.name });
           return;
