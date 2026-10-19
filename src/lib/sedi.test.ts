@@ -611,6 +611,51 @@ describe("sedi: salvataggio e backup", () => {
     assert.deepEqual([st().slots, st().absences, st().substitutions], [[], [], []]);
   });
 
+  it("assenza accorciata o docente eliminato: le sostituzioni tolte tornano da coprire", () => {
+    const st = () => useAppStore.getState();
+    st().resetDemo();
+    const [assente, sostituto] = st().teachers;
+    const [p1, p2] = st().settings.periods;
+    const sub = (date: string, periodId: string, id: string): Substitution => ({
+      id,
+      date,
+      periodId,
+      classId: st().classes[0]!.id,
+      absentTeacherId: assente!.id,
+      substituteId: sostituto!.id,
+      type: "disposizione",
+      activity: "",
+      notes: "",
+      subject: "",
+    });
+    const id = st().addAbsence({
+      teacherId: assente!.id,
+      dateFrom: "2026-11-02",
+      dateTo: "2026-11-04",
+      reason: "malattia",
+      notes: "",
+      allDay: true,
+      periodIds: [],
+    });
+    useAppStore.setState({
+      substitutions: [
+        sub("2026-11-02", p1!.id, "s1"),
+        sub("2026-11-02", p2!.id, "s2"),
+        sub("2026-11-03", p1!.id, "s3"),
+        sub("2026-11-04", p1!.id, "s4"),
+      ],
+    });
+    const ids = () => st().substitutions.map((s) => s.id);
+    st().updateAbsence(id, { notes: "solo una nota" });
+    assert.deepEqual(ids(), ["s1", "s2", "s3", "s4"]);
+    st().updateAbsence(id, { dateTo: "2026-11-03" });
+    assert.deepEqual(ids(), ["s1", "s2", "s3"]);
+    st().updateAbsence(id, { allDay: false, periodIds: [p1!.id] });
+    assert.deepEqual(ids(), ["s1", "s3"]);
+    st().removeTeacher(sostituto!.id);
+    assert.deepEqual(ids(), []);
+  });
+
   it("classe eliminata in un'altra sede: via anche le righe delle schede, e la sede si toglie al docente", () => {
     const st = () => useAppStore.getState();
     st().resetDemo();

@@ -244,6 +244,17 @@ function teacherCardData(
   return { teacherId, data: syncPersonFields({ ...state, teachers, cattedre }, teacherId) };
 }
 
+/** C'è un'assenza del docente sostituito in quel giorno e a quell'ora? */
+function absentFor(absences: Absence[], s: Substitution): boolean {
+  return absences.some(
+    (a) =>
+      a.teacherId === s.absentTeacherId &&
+      s.date >= a.dateFrom &&
+      s.date <= a.dateTo &&
+      (a.allDay || a.periodIds.includes(s.periodId)),
+  );
+}
+
 /**
  * Classe tolta da una sede, con le sue lezioni e cattedre e le righe delle schede dei docenti. `otherSede`: non è
  * la sede in uso, dove le ore del docente sono quelle delle sue righe (senza le righe tolte).
@@ -445,8 +456,15 @@ export const useAppStore = create<AppStore>()(
           return id;
         },
 
-        updateAbsence: (id, patch) =>
-          save({ absences: get().absences.map((a) => (a.id === id ? { ...a, ...patch } : a)) }),
+        updateAbsence: (id, patch) => {
+          const before = get().absences;
+          const absences = before.map((a) => (a.id === id ? { ...a, ...patch } : a));
+          // le sostituzioni dei giorni o delle ore tolti dall'assenza non valgono più (cambiando solo il motivo resta tutto)
+          save({
+            absences,
+            substitutions: get().substitutions.filter((s) => !absentFor(before, s) || absentFor(absences, s)),
+          });
+        },
 
         removeAbsence: (id) => {
           const absences = get().absences;
