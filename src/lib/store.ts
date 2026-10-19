@@ -36,6 +36,7 @@ import {
   newSedeData,
   pickSede,
   removeSede as removeSedeFrom,
+  removeTeacherRefs,
   replaceTeacherSedi,
   sedeAsData,
   sedeIdOf,
@@ -43,6 +44,7 @@ import {
   saveTeacherSedi as saveTeacherSediIn,
   setTeacherSedi as setTeacherSediIn,
   type CardRow,
+  type TeacherRef,
   switchSede as switchSedeTo,
   syncPersonFields,
 } from "./sedi";
@@ -89,7 +91,10 @@ type Actions = {
     sedeIds: string[],
     drop?: Record<string, string[]>,
   ) => { teacherId: string; blocked: string[] };
+  /** Solo nella sede in uso, anche chi non è più in servizio: le sue ore in orario, le sue assenze e le ore che ha coperto. */
   removeTeacher: (id: string) => void;
+  /** Come `removeTeacher`, per le schede indicate (sede e id): una persona in più sedi o chi non è più in servizio. */
+  removeTeachers: (refs: TeacherRef[]) => void;
   /**
    * Un'altra persona al posto del docente dal giorno indicato, in tutte le sue sedi o (`everywhere` false) solo in
    * quella in uso (vedi `replaceTeacherSedi`).
@@ -425,17 +430,12 @@ export const useAppStore = create<AppStore>()(
           return { teacherId, blocked: out.blocked };
         },
 
-        removeTeacher: (id) =>
-          save({
-            teachers: get().teachers.filter((t) => t.id !== id),
-            slots: get().slots.filter((s) => s.teacherId !== id),
-            absences: get().absences.filter((a) => a.teacherId !== id),
-            // le ore che copriva come sostituto tornano da coprire
-            substitutions: get().substitutions.filter((s) => s.substituteId !== id),
-            cattedre: (get().cattedre ?? []).map((x) =>
-              x.teacherId === id ? { ...x, teacherId: "" } : x,
-            ),
-          }),
+        removeTeacher: (id) => {
+          const state = snapshot(get());
+          save(removeTeacherRefs(state, [{ sedeId: sedeIdOf(state), teacherId: id }]));
+        },
+
+        removeTeachers: (refs) => save(removeTeacherRefs(snapshot(get()), refs)),
 
         replaceTeacher: (id, name, fromDate, everywhere = true) => {
           const next = replaceTeacherSedi(snapshot(get()), id, name, fromDate, everywhere);
