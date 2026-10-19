@@ -66,8 +66,8 @@
 
 - Test di `src/lib`: per ogni `src/lib/*.test.ts`
   `node_modules/.bin/rolldown <file> --platform node --format esm --file <cartella>/<nome>.mjs`,
-  poi `node --test <cartella>/*.mjs` (165 test al 19/10/2026). `npm test` non li esegue.
-- `npx tsc --noEmit`: 9 errori già presenti (tutti in `sheet-image.ts`); non devono aumentare.
+  poi `node --test <cartella>/*.mjs` (167 test al 19/10/2026). `npm test` non li esegue.
+- `npx tsc --noEmit`: nessun errore (dal 19/10/2026); deve restare così.
 - `GITHUB_PAGES=true BASE_PATH=/gestione-docenti-multisede/ npm run build:pages` deve riuscire.
 - Nei test del motore usa l'orologio finto (`now: ticks()` in `src/lib/timetable-solver.test.ts`), così
   il risultato non dipende dalla velocità del computer. Il test «al massimo un'ora libera tra le
