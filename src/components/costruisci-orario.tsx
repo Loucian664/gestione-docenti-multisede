@@ -4447,7 +4447,7 @@ function VersioniTable({
                   {g.title}
                 </th>
               </tr>
-              {g.rows.map((row) => (
+              {g.rows.map((row, ri) => (
                 <tr key={row.label} className="border-t border-border">
                   <td className="py-1.5 pr-2 leading-snug">{row.label}</td>
                   {hasCurrent && (
@@ -4466,7 +4466,12 @@ function VersioniTable({
                     return (
                       <td
                         key={vi}
-                        className={cn("whitespace-nowrap px-1 py-1.5 text-right tabular-nums", vi === value && "bg-primary/10")}
+                        className={cn(
+                          "whitespace-nowrap px-1 py-1.5 text-right tabular-nums",
+                          vi === value && "bg-primary/10",
+                          // la colonna scelta è stondata in alto (intestazione) e in fondo (ultima riga)
+                          vi === value && gi === groups[0]!.length - 1 && ri === g.rows.length - 1 && "rounded-b-md",
+                        )}
                       >
                         <span
                           className={cn(
