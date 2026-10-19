@@ -141,7 +141,11 @@ Giorni divisi tra due plessi (19/10, per l'utente la voce più delicata): con il
 Ritocchi). In Costruisci la riga «Versioni» (Tutte e tre o una sola, ricordata nel browser con
 `gestione-docenti-multisede-versioni`): con tutte e tre le ricerche si dividono tra le versioni (`runTimetableVersions`,
 ognuna riparte dalla migliore della sua versione) e sopra la proposta il riquadro «Tre versioni» (`VersioniBox`) le mette
-a confronto; Usa, Salva e Ritocca valgono per quella scelta. Sulle 6 sedi vere: circa 18-24, 24-26 e 29-33 giorni divisi.
+a confronto; Usa, Salva e Ritocca valgono per quella scelta. Il confronto è la tabella «Le tre versioni a confronto»
+(`VersioniTable`: in uso e le versioni affiancate, con «Numeri di»; il resoconto a due colonne sparisce con `noTable`); nella
+barra in alto i tre tasti delle versioni restano in vista e, cambiando versione, l'orario sotto non si sposta (`pickVersion`).
+Vista Docenti della proposta per tutte le sedi come con una sede sola (`InsiemeDocenti` → `TeacherWeekPreview` con `sedi`):
+sotto il nome le sedi del docente, accanto a ogni ora di chi è in più sedi il pallino e il nome della sede. Sulle 6 sedi vere: circa 18-24, 24-26 e 29-33 giorni divisi.
 Ricerche in parallelo: processori - 1, al massimo 6, o 12 se il browser ne dichiara più di 8 (PC con Firefox; Safari e
 ogni browser su iPhone e iPad ne dichiarano al massimo 8): decisione dell'utente, niente calore in più su iPad, MacBook e
 iPhone. Con 1-2 ricerche per versione una versione può restare con 1-2 vincoli rigidi (più spesso un obbligo di classe o
