@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Check, ChevronDown, Eraser, Lock, LockOpen, Save, Search, TriangleAlert, Undo2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -66,7 +66,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { teacherCell } from "@/lib/teacher-palette";
+import { sedeColor, teacherCell } from "@/lib/teacher-palette";
 import { corePeriods, isTpPeriodId } from "@/lib/periods";
 import {
   allSedi,
@@ -96,7 +96,7 @@ import {
   type InsiemeMap,
   type InsiemeVersione,
 } from "@/lib/sedi-insieme";
-import { ClasseGenerale, DocentiGenerale, GiornoGenerale, SettimanaGenerale } from "@/components/vista-generale";
+import { ClasseGenerale, GiornoGenerale, SettimanaGenerale } from "@/components/vista-generale";
 import { MissingTeachersBox, MissingTeachersDialog } from "@/components/missing-teachers";
 import { HardIssuesBox } from "@/components/vincoli-box";
 import { SAVE_SLOTS } from "@/lib/saved-timetables";
@@ -3352,6 +3352,7 @@ function TeacherWeekPreview({
   teachers,
   days,
   periods,
+  sedi,
 }: {
   data: PersistedData;
   /** per le ore buche (le stesse del confronto) */
@@ -3363,6 +3364,15 @@ function TeacherWeekPreview({
   teachers: Teacher[];
   days: DayOfWeek[];
   periods: { id: string; index: number }[];
+  /**
+   * «Tutte le sedi insieme» (dati uniti): la sede di ogni classe, le sedi di ogni docente e le sue × (quelle di chi
+   * è in più sedi stanno sede per sede). Chi è in più sedi ha il nome della sede accanto a ogni ora.
+   */
+  sedi?: {
+    of: (classId: string) => { name: string; color: string } | undefined;
+    teacher: (teacherId: string) => string[];
+    away: (teacherId: string) => { day: DayOfWeek; periodId: string }[];
+  };
 }) {
   const gapsOf = new Map(report.gapsByTeacher.map((g) => [g.id, g]));
   const has = (list: { day: DayOfWeek; periodId: string }[] | undefined, day: DayOfWeek, periodId: string) =>
@@ -3397,6 +3407,8 @@ function TeacherWeekPreview({
           {teachers.map((t) => {
             const g = gapsOf.get(t.id);
             const tDisp = disp[t.id] ?? t.dispSlots;
+            const tSedi = sedi?.teacher(t.id) ?? [];
+            const away = sedi ? sedi.away(t.id) : t.awaySlots;
             return (
               <tr key={t.id} className="border-b border-border align-top last:border-0">
                 <td className="sticky left-0 z-10 bg-card px-3 py-2">
@@ -3407,16 +3419,32 @@ function TeacherWeekPreview({
                       <span className="font-medium text-warning"> · {g.gaps === 1 ? "1 buca" : `${g.gaps} buche`}</span>
                     )}
                   </div>
+                  {tSedi.length > 0 && <div className="text-[11px] text-muted-foreground">{tSedi.join(" + ")}</div>}
                 </td>
                 {days.map((d) => (
                   <td key={d} className="px-2 py-2 text-[11px] font-normal leading-[1.35]">
                     {periods.map((p) => {
                       const slot = data.slots.find((s) => s.teacherId === t.id && s.day === d && s.periodId === p.id);
                       const cls = slot ? data.classes.find((c) => c.id === slot.classId) : null;
+                      // con tutte le sedi il nome della classe porta la sede (« · Rombiolo»): qui la sede va a parte
+                      const sede = slot && sedi ? sedi.of(slot.classId) : undefined;
                       if (slot)
                         return (
-                          <div key={p.id} className="text-foreground">
-                            {p.index} {cls?.name ?? ""} <span className="font-semibold">{slot.subject}</span>
+                          <div key={p.id} className={cn("text-foreground", sedi && "whitespace-nowrap")}>
+                            {p.index} {(sedi ? cls?.name.split(" · ")[0] : cls?.name) ?? ""}{" "}
+                            <span className="font-semibold">{slot.subject}</span>
+                            {sede && tSedi.length > 1 && (
+                              <span className="text-muted-foreground">
+                                {" "}
+                                ·{" "}
+                                <span
+                                  aria-hidden
+                                  className="inline-block size-2 rounded-full align-middle"
+                                  style={{ background: sede.color }}
+                                />{" "}
+                                {sede.name}
+                              </span>
+                            )}
                           </div>
                         );
                       if (isAdded(t.id, d, p.id))
@@ -3434,7 +3462,7 @@ function TeacherWeekPreview({
                       return (
                         <div key={p.id} className="text-ink-faint">
                           {p.index}{" "}
-                          {has(tDisp, d, p.id) ? "disp." : has(t.awaySlots, d, p.id) ? "altrove" : " —"}
+                          {has(tDisp, d, p.id) ? "disp." : has(away, d, p.id) ? "altrove" : " —"}
                         </div>
                       );
                     })}
@@ -4081,11 +4109,14 @@ function ReportPanel({
   data,
   hint,
   picker,
+  noTable,
 }: {
   current: TimetableReport | null;
   proposal: TimetableReport;
   /** edit: ritocchi a mano (la tabella si apre a richiesta) */
   mode: SolveMode | "edit";
+  /** senza la tabella del confronto (con le versioni c'è quella delle versioni) */
+  noTable?: boolean;
   /** nome della colonna dell'orario nuovo (es. «Slot 3») */
   label?: string;
   /** l'orario nuovo, per mostrare dove sono i vincoli non rispettati */
@@ -4204,7 +4235,7 @@ function ReportPanel({
         />
       )}
       {picker}
-      {mode === "edit" ? (
+      {noTable ? null : mode === "edit" ? (
         <details className="mt-3 border-t border-border pt-3">
           <summary className="cursor-pointer text-sm font-medium">Confronto voce per voce</summary>
           {table}
@@ -4282,67 +4313,178 @@ const VERSIONI_SCELTE: { value: VersioniScelta; label: string }[] = [
 const VERSIONI_KEY = "gestione-docenti-multisede-versioni";
 
 /**
- * Le versioni della proposta per tutte le sedi, una riga ciascuna con i suoi numeri (giorni divisi tra due sedi
- * per primi): toccandone una, sotto si vede quella.
+ * Vista Docenti della proposta per tutte le sedi: come con una sede sola (ogni giorno le ore una sotto l'altra,
+ * buche e disposizioni), con le sedi del docente e, per chi è in più sedi, la sede accanto a ogni ora.
  */
-function VersioniBox({
-  rows,
+function InsiemeDocenti({ data, joint, report }: { data: PersistedData; joint: InsiemeData; report: TimetableReport }) {
+  const [onlyShared, setOnlyShared] = useState(false);
+  const info = useMemo(() => {
+    const list = allSedi(data);
+    const byId = new Map(list.map((s, i) => [s.id, { name: sedeName(s.data.settings), color: sedeColor(i) }]));
+    const sedeIdOfClass = (classId: string) => classId.split("~")[0]!;
+    const tSedi = new Map<string, string[]>();
+    for (const t of joint.teachers) {
+      const ids = new Set(joint.slots.filter((x) => x.teacherId === t.id).map((x) => sedeIdOfClass(x.classId)));
+      tSedi.set(t.id, list.filter((s) => ids.has(s.id)).map((s) => sedeName(s.data.settings)));
+    }
+    const teachers = joint.teachers
+      .filter((t) => isTimetableTeacher(t) && (tSedi.get(t.id)?.length ?? 0) > 0)
+      .sort((a, b) => teacherName(a).localeCompare(teacherName(b), "it"));
+    return {
+      teachers,
+      sedi: {
+        of: (classId: string) => byId.get(sedeIdOfClass(classId)),
+        teacher: (id: string) => tSedi.get(id) ?? [],
+        // le × di chi è in più sedi stanno sede per sede; quelle degli altri nella scheda
+        away: (id: string) => [
+          ...(joint.insieme.sedeAway[id] ?? []),
+          ...(joint.teachers.find((t) => t.id === id)?.awaySlots ?? []),
+        ],
+      },
+    };
+  }, [data, joint]);
+  const shown = onlyShared ? info.teachers.filter((t) => info.sedi.teacher(t.id).length > 1) : info.teachers;
+  return (
+    <div>
+      <label className="flex min-h-9 items-center gap-2 text-[13px] text-muted-foreground">
+        <input
+          type="checkbox"
+          className="size-4 accent-primary"
+          checked={onlyShared}
+          onChange={(e) => setOnlyShared(e.target.checked)}
+        />
+        Solo i docenti in più sedi
+      </label>
+      <TeacherWeekPreview
+        data={joint}
+        report={report}
+        added={[]}
+        disp={{}}
+        teachers={shown}
+        days={joint.settings.days}
+        periods={corePeriods(joint.settings.periods)}
+        sedi={info.sedi}
+      />
+    </div>
+  );
+}
+
+/** nomi brevi delle versioni, per la barra in alto */
+const VERSIONE_BREVE: Record<InsiemeVersione["key"], string> = {
+  plesso: "Un plesso",
+  equilibrato: "Equilibrato",
+  buche: "Meno buche",
+};
+
+/**
+ * Le versioni della proposta per tutte le sedi a confronto: le voci del resoconto con l'orario in uso e le versioni
+ * una accanto all'altra (in verde e in rosso rispetto all'orario in uso); toccando il nome di una versione, sotto si
+ * vede quella.
+ */
+function VersioniTable({
   current,
+  versions,
   value,
   onChange,
+  picker,
 }: {
-  rows: { label: string; report: TimetableReport }[];
-  current: TimetableReport;
+  current: TimetableReport | null;
+  versions: { label: string; short: string; report: TimetableReport }[];
   value: number;
   onChange: (i: number) => void;
+  picker?: ReactNode;
 }) {
-  const nums = (r: TimetableReport) => [
-    { n: r.docenti.mixed.length, one: "giorno diviso tra due plessi", many: "giorni divisi tra due plessi" },
-    { n: r.gapsTotal, one: "ora buca", many: "ore buche" },
-    { n: r.docenti.five.length, one: "giornata con 5 lezioni", many: "giornate con 5 lezioni" },
-    { n: r.docenti.span6.length, one: "giornata dalla 1ª alla 6ª", many: "giornate dalla 1ª alla 6ª" },
-  ];
+  const groups = versions.map((v) => compareGroups(current, v.report));
+  const hasCurrent = Boolean(current && current.lessons > 0);
+  const cellOf = (vi: number, gi: number, label: string) => groups[vi]?.[gi]?.rows.find((r) => r.label === label);
   return (
-    <div className="mt-4 rounded-xl border border-border bg-card px-4 py-3">
-      <p className="text-sm font-medium">Tre versioni</p>
+    <div className="paper-panel mt-3 rounded-xl p-5">
+      <p className="text-sm font-medium">Le tre versioni a confronto</p>
       <p className="mt-0.5 text-[13px] text-muted-foreground">
-        Più peso ai giorni in un solo plesso, oppure meno ore buche. Tocca una versione per vederla qui sotto; «Usa»,
-        «Salva» e «Ritocca» valgono per quella scelta. Nell’orario in uso:{" "}
-        {nums(current)
-          .map((x) => `${x.n} ${x.n === 1 ? x.one : x.many}`)
-          .join(", ")}
-        .
+        Tocca il nome di una versione per vederla qui sotto (o usa i tasti nella barra in alto, che resta sempre in
+        vista). In verde ciò che migliora rispetto all’orario in uso, in rosso ciò che peggiora.
       </p>
-      <div role="radiogroup" aria-label="Versione della proposta" className="mt-2.5 grid gap-1.5">
-        {rows.map((r, i) => {
-          const hard = hardCount(r.report);
-          return (
-            <button
-              key={i}
-              type="button"
-              role="radio"
-              aria-checked={i === value}
-              onClick={() => onChange(i)}
-              className={cn(
-                "flex min-h-11 flex-col gap-0.5 rounded-lg border px-3 py-2 text-left",
-                i === value ? "border-primary bg-primary/10" : "border-border hover:bg-muted",
-              )}
-            >
-              <span className="text-sm font-medium">{r.label}</span>
-              <span className="text-[13px] text-muted-foreground">
-                {nums(r.report)
-                  .map((x) => `${x.n} ${x.n === 1 ? x.one : x.many}`)
-                  .join(" · ")}
-                {hard > 0 && (
-                  <span className="text-destructive">
-                    {" "}
-                    · {hard} {hard === 1 ? "vincolo da sistemare" : "vincoli da sistemare"}
-                  </span>
-                )}
-              </span>
-            </button>
-          );
-        })}
+      {picker}
+      <div className="mt-3">
+        <table className="w-full table-fixed border-collapse text-[13px] sm:text-sm">
+          <colgroup>
+            <col />
+            {hasCurrent && <col className="w-12 sm:w-20" />}
+            {versions.map((_, i) => (
+              <col key={i} className="w-[3.9rem] sm:w-28" />
+            ))}
+          </colgroup>
+          <thead>
+            <tr className="text-left text-[12px] text-muted-foreground">
+              <th className="pb-1 pr-2 font-medium" />
+              {hasCurrent && <th className="whitespace-nowrap px-1 pb-1 text-right align-bottom font-medium">In uso</th>}
+              {versions.map((v, i) => (
+                <th key={i} className={cn("px-1 pb-1 align-bottom", i === value && "rounded-t-md bg-primary/10")}>
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={i === value}
+                    onClick={() => onChange(i)}
+                    className={cn(
+                      "flex min-h-11 w-full items-end justify-end text-right text-[12px] leading-tight underline-offset-4",
+                      i === value ? "font-semibold text-foreground" : "font-medium text-muted-foreground underline",
+                    )}
+                  >
+                    <span className="sm:hidden">{v.short}</span>
+                    <span className="hidden sm:inline">{v.label}</span>
+                  </button>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          {groups[0]!.map((g, gi) => (
+            <tbody key={g.title}>
+              <tr>
+                <th
+                  colSpan={1 + (hasCurrent ? 1 : 0) + versions.length}
+                  className="pb-1 pt-4 text-left text-[13px] font-semibold text-foreground"
+                >
+                  {g.title}
+                </th>
+              </tr>
+              {g.rows.map((row) => (
+                <tr key={row.label} className="border-t border-border">
+                  <td className="py-1.5 pr-2 leading-snug">{row.label}</td>
+                  {hasCurrent && (
+                    <td className="whitespace-nowrap px-1 py-1.5 text-right tabular-nums text-muted-foreground">
+                      {row.cur === null ? "—" : (row.curText ?? row.cur)}
+                    </td>
+                  )}
+                  {versions.map((_, vi) => {
+                    const r = cellOf(vi, gi, row.label);
+                    const cmp =
+                      !r || r.cur === null || r.cur === r.prop
+                        ? 0
+                        : (r.better === "low" ? r.prop < r.cur : r.prop > r.cur)
+                          ? 1
+                          : -1;
+                    return (
+                      <td
+                        key={vi}
+                        className={cn("whitespace-nowrap px-1 py-1.5 text-right tabular-nums", vi === value && "bg-primary/10")}
+                      >
+                        <span
+                          className={cn(
+                            "inline-flex min-w-8 justify-end rounded-md px-1.5 py-0.5 font-medium",
+                            cmp > 0 && "bg-success-soft text-success",
+                            cmp < 0 && "bg-danger-soft text-destructive",
+                          )}
+                        >
+                          {r ? (r.propText ?? r.prop) : "—"}
+                        </span>
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          ))}
+        </table>
       </div>
     </div>
   );
@@ -4414,6 +4556,38 @@ function InsiemeProposta({
   );
   const [numbers, setNumbers] = useState("tutte");
   const pickedSede = final.sedi.find((x) => x.id === numbers) ?? null;
+  const manyVersions = (value.versions?.length ?? 0) > 1;
+  // cambiando versione l'orario sotto resta dove lo si sta guardando (sopra può cambiare l'altezza dei riquadri)
+  const viewsRef = useRef<HTMLDivElement>(null);
+  const keepTop = useRef<number | null>(null);
+  function pickVersion(i: number) {
+    const top = viewsRef.current?.getBoundingClientRect().top;
+    keepTop.current = top !== undefined && top < window.innerHeight ? top : null;
+    onVersion(i);
+  }
+  useLayoutEffect(() => {
+    const before = keepTop.current;
+    keepTop.current = null;
+    const el = viewsRef.current;
+    if (before === null || !el) return;
+    const delta = el.getBoundingClientRect().top - before;
+    if (Math.abs(delta) < 1) return;
+    // il primo contenitore che scorre (la pagina, o il riquadro centrale dell'app)
+    let box: HTMLElement | null = el.parentElement;
+    while (box && !(box.scrollHeight > box.clientHeight && /(auto|scroll)/.test(getComputedStyle(box).overflowY))) {
+      box = box.parentElement;
+    }
+    if (box) box.scrollTop += delta;
+    else window.scrollBy(0, delta);
+  }, [version]);
+  // con «Numeri di» una sede: ogni versione contata come nell'app di quella sede
+  const versionsSede = useMemo(
+    () =>
+      manyVersions && numbers !== "tutte"
+        ? finals.map((f) => evaluateCurrent(withOtherSedi(switchSede(f.after, numbers))))
+        : null,
+    [manyVersions, numbers, finals],
+  );
   const sedi = vistaSedi(final.after);
   const [view, setView] = useState<"giorno" | "settimana" | "docenti" | "classe">("giorno");
   const [day, setDay] = useState<DayOfWeek>(data.settings.days[0] ?? 1);
@@ -4477,6 +4651,35 @@ function InsiemeProposta({
         <h2 className={cn("min-w-0 font-display text-lg", !running && "mr-auto")}>
           {value.slot ? `Slot ${value.slot.n} · ${value.slot.name}` : "Proposta · tutte le sedi"}
         </h2>
+        {manyVersions && (
+          <div
+            role="radiogroup"
+            aria-label="Versione"
+            className="order-last grid w-full grid-cols-3 gap-1 rounded-lg bg-muted p-1 sm:w-auto sm:inline-grid"
+          >
+            {finals.map((f, i) => {
+              const key = value.versionKeys?.[i];
+              const n = f.total.docenti.mixed.length;
+              return (
+                <button
+                  key={i}
+                  type="button"
+                  role="radio"
+                  aria-checked={i === version}
+                  onClick={() => pickVersion(i)}
+                  title={`${n} ${n === 1 ? "giorno diviso" : "giorni divisi"} tra due plessi`}
+                  className={cn(
+                    "flex min-h-10 flex-col items-center justify-center rounded-md px-3 leading-tight",
+                    i === version ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  <span className="text-[13px] font-medium">{key ? VERSIONE_BREVE[key] : `Versione ${i + 1}`}</span>
+                  <span className="text-[11px]">{n === 1 ? "1 giorno diviso" : `${n} giorni divisi`}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
         {running ? (
           <SearchBar progress={running} className="min-w-0 flex-1 md:mr-auto md:flex-none" />
         ) : (
@@ -4546,19 +4749,22 @@ function InsiemeProposta({
         </ul>
       )}
 
-      {value.versions && value.versions.length > 1 && (
-        <VersioniBox
-          rows={finals.map((f, i) => ({
+      {manyVersions && (
+        <VersioniTable
+          versions={finals.map((f, i) => ({
             label: INSIEME_VERSIONI.find((x) => x.key === value.versionKeys?.[i])?.label ?? `Versione ${i + 1}`,
-            report: f.total,
+            short: VERSIONE_BREVE[value.versionKeys?.[i] ?? "plesso"] ?? `Versione ${i + 1}`,
+            report: versionsSede ? versionsSede[i]! : f.total,
           }))}
-          current={inUse.total}
+          current={pickedSede ? (inUse.sedi.get(pickedSede.id) ?? null) : inUse.total}
           value={version}
-          onChange={onVersion}
+          onChange={pickVersion}
+          picker={numbersPicker}
         />
       )}
 
       <ReportPanel
+        noTable={manyVersions}
         current={pickedSede ? (inUse.sedi.get(pickedSede.id) ?? null) : inUse.total}
         proposal={pickedSede ? pickedSede.report : final.total}
         mode={value.slot ? "edit" : value.mode}
@@ -4569,10 +4775,10 @@ function InsiemeProposta({
             ? "Questo orario non rispetta queste regole: si sistemano con «Ritocca a mano», anche con «Trova»."
             : undefined
         }
-        picker={numbersPicker}
+        picker={manyVersions ? undefined : numbersPicker}
       />
 
-      <div className="mt-4 flex flex-col gap-3">
+      <div ref={viewsRef} className="mt-4 flex flex-col gap-3">
         <Tabs
           className="flex-wrap overflow-visible"
           value={view}
@@ -4603,7 +4809,7 @@ function InsiemeProposta({
         )}
         {view === "giorno" && <GiornoGenerale sedi={sedi} day={day} />}
         {view === "settimana" && <SettimanaGenerale sedi={sedi} />}
-        {view === "docenti" && <DocentiGenerale sedi={sedi} />}
+        {view === "docenti" && <InsiemeDocenti data={final.after} joint={final.joint} report={final.total} />}
         {view === "classe" && <ClasseGenerale sedi={sedi} />}
       </div>
 
