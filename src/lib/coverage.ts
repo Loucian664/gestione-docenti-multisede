@@ -10,6 +10,7 @@ import type {
 } from "./types";
 import { ABSENCE_REASONS } from "./types";
 import { dateInRange, eachIsoInRange, isWeekend, monthRange, toSchoolDay } from "./dates";
+import { findAnyTeacher } from "./replace-teacher";
 import { isMensaPeriod } from "./periods";
 import { subjectParts } from "./subject-groups";
 
@@ -88,10 +89,13 @@ export function coverageNeeds(data: PersistedData, date: string): CoverageNeed[]
   const needs: CoverageNeed[] = [];
 
   for (const absence of absences) {
-    const teacher = data.teachers.find((t) => t.id === absence.teacherId);
+    // chi non è più in servizio: le sue ore sono quelle della scheda passata a chi l'ha sostituito
+    const former = data.formerTeachers?.find((t) => t.id === absence.teacherId);
+    const teacher = former ?? data.teachers.find((t) => t.id === absence.teacherId);
     if (teacher?.role === "sostegno") continue;
+    const owner = former?.replacedBy ?? absence.teacherId;
     const slots = data.slots.filter((s) => {
-      if (s.day !== day || s.teacherId !== absence.teacherId) return false;
+      if (s.day !== day || s.teacherId !== owner) return false;
       if (!absence.allDay && !absence.periodIds.includes(s.periodId)) return false;
       return true;
     });
@@ -749,8 +753,8 @@ export function loadByTeacher(data: PersistedData, from: string, to: string): Te
   }
   return [...map.values()].sort((a, b) => {
     if (b.total !== a.total) return b.total - a.total;
-    const ta = data.teachers.find((t) => t.id === a.teacherId);
-    const tb = data.teachers.find((t) => t.id === b.teacherId);
+    const ta = findAnyTeacher(data, a.teacherId);
+    const tb = findAnyTeacher(data, b.teacherId);
     return (
       (ta?.lastName ?? "").localeCompare(tb?.lastName ?? "", "it") ||
       (ta?.firstName ?? "").localeCompare(tb?.firstName ?? "", "it")
@@ -780,7 +784,7 @@ export function eccedenteLines(data: PersistedData, from: string, to: string): E
   return data.substitutions
     .filter((s) => s.type === "eccedente" && s.substituteId && s.date >= from && s.date <= to)
     .map((s) => {
-      const teacher = data.teachers.find((t) => t.id === s.substituteId);
+      const teacher = findAnyTeacher(data, s.substituteId);
       const cls = data.classes.find((c) => c.id === s.classId);
       const period = data.settings.periods.find((p) => p.id === s.periodId);
       return {

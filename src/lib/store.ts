@@ -36,6 +36,7 @@ import {
   newSedeData,
   pickSede,
   removeSede as removeSedeFrom,
+  replaceTeacherSedi,
   sedeAsData,
   sedeIdOf,
   setSchoolYear as setSchoolYearIn,
@@ -89,6 +90,16 @@ type Actions = {
     drop?: Record<string, string[]>,
   ) => { teacherId: string; blocked: string[] };
   removeTeacher: (id: string) => void;
+  /**
+   * Un'altra persona al posto del docente dal giorno indicato, in tutte le sue sedi o (`everywhere` false) solo in
+   * quella in uso (vedi `replaceTeacherSedi`).
+   */
+  replaceTeacher: (
+    id: string,
+    name: { lastName: string; firstName: string },
+    fromDate: string,
+    everywhere?: boolean,
+  ) => boolean;
   addClass: (c: Omit<SchoolClass, "id">) => void;
   updateClass: (id: string, patch: Partial<SchoolClass>) => void;
   removeClass: (id: string) => void;
@@ -170,6 +181,7 @@ export function snapshot(state: AppStore): PersistedData {
     substitutions: state.substitutions,
     selectedDate: state.selectedDate,
     cattedre: state.cattedre,
+    formerTeachers: state.formerTeachers,
     cattedraBackup: state.cattedraBackup,
     cattedraDispBackup: state.cattedraDispBackup,
     savedTimetables: state.savedTimetables,
@@ -424,6 +436,13 @@ export const useAppStore = create<AppStore>()(
               x.teacherId === id ? { ...x, teacherId: "" } : x,
             ),
           }),
+
+        replaceTeacher: (id, name, fromDate, everywhere = true) => {
+          const next = replaceTeacherSedi(snapshot(get()), id, name, fromDate, everywhere);
+          if (!next) return false;
+          save(next);
+          return true;
+        },
 
         addClass: (c) => save({ classes: [...get().classes, { ...c, id: uid("c") }] }),
 
@@ -811,6 +830,7 @@ export const useAppStore = create<AppStore>()(
         substitutions: state.substitutions,
         selectedDate: state.selectedDate,
         cattedre: state.cattedre,
+        formerTeachers: state.formerTeachers,
         cattedraBackup: state.cattedraBackup,
         cattedraDispBackup: state.cattedraDispBackup,
         savedTimetables: state.savedTimetables,

@@ -17,6 +17,7 @@ import {
   type MissingTeacher,
 } from "./build-timetable";
 import { todayIso } from "./dates";
+import { replaceTeacher } from "./replace-teacher";
 import { uid } from "./utils";
 
 /** Id della sede di un archivio che non ne ha ancora uno (un backup dell'app di Rombiolo). */
@@ -30,6 +31,7 @@ const SEDE_KEYS = [
   "absences",
   "substitutions",
   "cattedre",
+  "formerTeachers",
   "cattedraBackup",
   "cattedraDispBackup",
   "savedTimetables",
@@ -125,6 +127,7 @@ export function newSedeData(from: Settings, name: string): SedeData {
     absences: [],
     substitutions: [],
     cattedre: undefined,
+    formerTeachers: [],
     cattedraBackup: undefined,
     cattedraDispBackup: undefined,
     savedTimetables: [],
@@ -683,6 +686,7 @@ export function exportSede(data: PersistedData, sedeId: string): PersistedData {
   return {
     ...d,
     teachers,
+    formerTeachers: d.formerTeachers?.map(({ personId: _personId, removedSedi: _removed, ...x }) => x),
     savedTimetables: (d.savedTimetables ?? []).map(({ insieme: _insieme, ...x }) => x),
     sedeId: undefined,
     altreSedi: undefined,
@@ -706,4 +710,107 @@ export function withOtherSedi(data: PersistedData): PersistedData {
     return { ...t, otherPlesso: true, awaySlots: [...(t.awaySlots ?? []), ...extra] };
   });
   return changed ? { ...data, teachers } : data;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Chi lascia e chi arriva
+
+/** Una scheda docente in una sede (in servizio o no). */
+export type TeacherRef = { sedeId: string; teacherId: string };
+
+/** La scheda del docente nella sede in uso e, con `everywhere`, quelle della stessa persona nelle altre sedi. */
+export function teacherRefs(data: PersistedData, teacherId: string, everywhere: boolean): TeacherRef[] {
+  const t = data.teachers.find((x) => x.id === teacherId);
+  if (!t) return [];
+  const here = { sedeId: sedeIdOf(data), teacherId };
+  if (!everywhere) return [here];
+  return [here, ...linkedElsewhere(data, t).map((r) => ({ sedeId: r.sedeId, teacherId: r.teacher.id }))];
+}
+
+/** I dati di una scheda nella sua sede, come archivio di quella sede. */
+function refData(data: PersistedData, sedeId: string): PersistedData | null {
+  const sede = allSedi(data).find((s) => s.id === sedeId);
+  return sede ? sedeAsData(data, sede.data) : null;
+}
+
+/**
+ * «Sostituisci docente» con più sedi: nella sede in uso e, con `everywhere`, in tutte le sedi della persona. In
+ * ognuna la scheda resta (classi, ore, orario) e prende il nome nuovo; chi lascia va tra i non più in servizio di
+ * quella sede, con le assenze e le coperture dei giorni prima di `fromDate`. Chi lascia tiene il `personId` (è la
+ * stessa persona, che magari insegna ancora nelle altre sedi); le schede di chi arriva ne prendono uno nuovo, lo
+ * stesso in tutte le sedi sostituite.
+ */
+export function replaceTeacherSedi(
+  data: PersistedData,
+  teacherId: string,
+  name: { lastName: string; firstName: string },
+  fromDate: string,
+  everywhere: boolean,
+): PersistedData | null {
+  const refs = teacherRefs(data, teacherId, everywhere);
+  if (!refs.length) return null;
+  const personId = data.teachers.find((x) => x.id === teacherId)?.personId ? uid("p") : undefined;
+  let next = data;
+  for (const r of refs) {
+    const sede = refData(next, r.sedeId);
+    const out = sede && replaceTeacher(sede, r.teacherId, name, fromDate);
+    if (!out) return null;
+    const teachers = out.teachers.map((x) => {
+      if (x.id !== r.teacherId) return x;
+      const { personId: _old, ...rest } = x;
+      return personId ? { ...rest, personId } : rest;
+    });
+    next = editSede(next, r.sedeId, (s) => ({ ...s, ...out, teachers }));
+  }
+  return next;
+}
+
+/** Assenze e ore di sostituzione già segnate con la persona, in tutte le sue sedi. */
+export function historyIn(data: PersistedData, refs: TeacherRef[]): { absences: number; substitutions: number } {
+  const out = { absences: 0, substitutions: 0 };
+  for (const r of refs) {
+    const sede = refData(data, r.sedeId);
+    if (!sede) continue;
+    out.absences += sede.absences.filter((a) => a.teacherId === r.teacherId).length;
+    out.substitutions += sede.substitutions.filter(
+      (s) => s.absentTeacherId === r.teacherId || s.substituteId === r.teacherId,
+    ).length;
+  }
+  return out;
+}
+
+export type FormerPerson = {
+  key: string;
+  /** una per sede lasciata, nell'ordine delle sedi; `next` chi ha preso la scheda */
+  records: (TeacherRef & { sedeName: string; teacher: Teacher; next?: Teacher })[];
+  /** le sedi in cui la stessa persona insegna ancora (sostituita solo in alcune) */
+  stillAt: string[];
+};
+
+/** «Non più in servizio»: una riga per persona anche se ha lasciato più sedi. */
+export function formerPersons(data: PersistedData): FormerPerson[] {
+  const rows = new Map<string, FormerPerson>();
+  for (const s of allSedi(data)) {
+    for (const t of s.data.formerTeachers ?? []) {
+      const key = t.personId ? `p:${t.personId}` : `t:${s.id}:${t.id}`;
+      const row = rows.get(key) ?? { key, records: [], stillAt: [] };
+      row.records.push({
+        sedeId: s.id,
+        teacherId: t.id,
+        sedeName: sedeName(s.data.settings),
+        teacher: t,
+        next: s.data.teachers.find((x) => x.id === t.replacedBy),
+      });
+      rows.set(key, row);
+    }
+  }
+  for (const row of rows.values()) {
+    const personId = row.records[0]!.teacher.personId;
+    if (!personId) continue;
+    row.stillAt = allSedi(data)
+      .filter((s) => s.data.teachers.some((t) => t.personId === personId))
+      .map((s) => sedeName(s.data.settings));
+  }
+  const name = (p: FormerPerson) => `${p.records[0]!.teacher.lastName} ${p.records[0]!.teacher.firstName}`;
+  return [...rows.values()].sort((a, b) => name(a).localeCompare(name(b), "it"));
 }

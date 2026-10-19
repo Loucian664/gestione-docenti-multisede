@@ -84,6 +84,10 @@ export type Teacher = {
   cardRows?: { classId: string; subject: string; hours: number }[];
   /** Stessa persona in più sedi: le sue schede nelle varie sedi hanno lo stesso valore. */
   personId?: string;
+  /** Solo per chi non è più in servizio (`formerTeachers`): il primo giorno in cui non c'è più. */
+  leftOn?: string;
+  /** Solo per chi non è più in servizio: la scheda passata a chi l'ha sostituito (classi, ore, orario). */
+  replacedBy?: string;
 };
 
 export type SchoolClass = {
@@ -200,6 +204,11 @@ export type PersistedData = {
   substitutions: Substitution[];
   selectedDate: string;
   cattedre?: Cattedra[];
+  /**
+   * Docenti non più in servizio (di questa sede): restano per le assenze e le coperture già segnate (report), fuori
+   * da tutto il resto. Chi era in più sedi ha una scheda in ognuna, con lo stesso `personId`.
+   */
+  formerTeachers?: Teacher[];
   cattedraBackup?: TimetableSlot[];
   /** Disposizioni prima dell'ultima proposta di Costruisci (per Annulla). */
   cattedraDispBackup?: Record<string, { day: DayOfWeek; periodId: string }[]>;
@@ -236,6 +245,7 @@ export type SedeData = Pick<
   | "absences"
   | "substitutions"
   | "cattedre"
+  | "formerTeachers"
   | "cattedraBackup"
   | "cattedraDispBackup"
   | "savedTimetables"
