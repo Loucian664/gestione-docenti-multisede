@@ -317,25 +317,27 @@ function ImpostazioniPage() {
               Non si può annullare. Se vuoi anche una copia su file, prima esporta il backup.
             </p>
           </div>
-          <div className="flex flex-wrap justify-end gap-2 border-t border-border pt-3">
-            <Button variant="outline" className="min-h-11 sm:mr-auto" onClick={exportBackup}>
+          <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
+            <Button variant="outline" className="min-h-11 w-full sm:mr-auto sm:w-auto" onClick={exportBackup}>
               Esporta backup
             </Button>
-            <Button variant="outline" className="min-h-11" onClick={() => setNewYear(null)}>
-              Annulla
-            </Button>
-            <Button
-              variant="destructive"
-              className="min-h-11"
-              disabled={sameYear || !(newYear ?? "").trim()}
-              onClick={() => {
-                store.startNewSchoolYear(newYear ?? "");
-                setNewYear(null);
-                toast.message("Nuovo anno scolastico iniziato");
-              }}
-            >
-              Inizia il nuovo anno
-            </Button>
+            <div className="flex w-full gap-2 sm:w-auto">
+              <Button variant="outline" className="min-h-11" onClick={() => setNewYear(null)}>
+                Annulla
+              </Button>
+              <Button
+                variant="destructive"
+                className="min-h-11 flex-1 sm:flex-none"
+                disabled={sameYear || !(newYear ?? "").trim()}
+                onClick={() => {
+                  store.startNewSchoolYear(newYear ?? "");
+                  setNewYear(null);
+                  toast.message("Nuovo anno scolastico iniziato");
+                }}
+              >
+                Inizia il nuovo anno
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
@@ -349,24 +351,26 @@ function ImpostazioniPage() {
               in Report. L’anno in corso non cambia. Non si può annullare: se vuoi una copia, prima esporta il backup.
             </DialogDescription>
           </DialogHeader>
-          <div className="flex flex-wrap justify-end gap-2">
-            <Button variant="outline" className="min-h-11 sm:mr-auto" onClick={exportBackup}>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="outline" className="min-h-11 w-full sm:mr-auto sm:w-auto" onClick={exportBackup}>
               Esporta backup
             </Button>
-            <Button variant="outline" className="min-h-11" onClick={() => setRemovingYear(null)}>
-              Annulla
-            </Button>
-            <Button
-              variant="destructive"
-              className="min-h-11"
-              onClick={() => {
-                if (removingYear) store.removeArchivedYear(removingYear);
-                setRemovingYear(null);
-                toast.message("Anno eliminato dall’archivio");
-              }}
-            >
-              Elimina
-            </Button>
+            <div className="flex w-full gap-2 sm:w-auto">
+              <Button variant="outline" className="min-h-11" onClick={() => setRemovingYear(null)}>
+                Annulla
+              </Button>
+              <Button
+                variant="destructive"
+                className="min-h-11 flex-1 sm:flex-none"
+                onClick={() => {
+                  if (removingYear) store.removeArchivedYear(removingYear);
+                  setRemovingYear(null);
+                  toast.message("Anno eliminato dall’archivio");
+                }}
+              >
+                Elimina
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
