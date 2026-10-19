@@ -583,6 +583,25 @@ describe("sedi: salvataggio e backup", () => {
     assert.equal(now.altreSedi?.length ?? 0, 0);
   });
 
+  it("importando o cancellando tutto non restano le cattedre della sede di prima", () => {
+    const st = () => useAppStore.getState();
+    st().resetDemo();
+    const idNuova = st().addSede("Sede nuova");
+    st().switchSede(idNuova);
+    const file = backupJson(snapshot(st()));
+    st().resetDemo();
+    const cls = st().classes[0]!;
+    st().setCattedre([{ classId: cls.id, subject: "Italiano", teacherId: st().teachers[0]!.id, hours: 6 }]);
+    assert.equal((st().cattedre ?? []).length, 1);
+    st().importData(parseBackupJson(file), "sede-nuova.json");
+    assert.equal(sedeName(st().settings), "Sede nuova");
+    assert.equal((st().cattedre ?? []).length, 0);
+    st().resetDemo();
+    st().setCattedre([{ classId: cls.id, subject: "Italiano", teacherId: st().teachers[0]!.id, hours: 6 }]);
+    st().clearAll();
+    assert.equal((st().cattedre ?? []).length, 0);
+  });
+
   it("classe eliminata in un'altra sede: via anche le righe delle schede, e la sede si toglie al docente", () => {
     const st = () => useAppStore.getState();
     st().resetDemo();

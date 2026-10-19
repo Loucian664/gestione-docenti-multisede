@@ -719,9 +719,12 @@ export const useAppStore = create<AppStore>()(
         importData: (data, fileName) => {
           noteUserMutation();
           const importedBackupName = (fileName ?? data.importedBackupName)?.trim() || undefined;
-          // gli slot diventano quelli del file (nessuno se è un backup di prima)
+          const fixed = fixAllSedi(data);
+          // gli slot diventano quelli del file (nessuno se è un backup di prima); ogni voce della sede, anche
+          // quelle che il file non ha (pickSede), prende il posto di quella di prima
           set({
-            ...fixAllSedi(data),
+            ...fixed,
+            ...pickSede(fixed),
             // un backup dell'app di Rombiolo ha una sede sola
             sedeId: data.sedeId,
             ordineSedi: data.ordineSedi,
@@ -737,8 +740,10 @@ export const useAppStore = create<AppStore>()(
 
         resetDemo: () => {
           noteUserMutation();
+          const seed = buildSeed();
           set({
-            ...buildSeed(),
+            ...seed,
+            ...pickSede(seed),
             savedTimetables: [],
             activeSlot: 0,
             officialBackup: undefined,
@@ -753,6 +758,7 @@ export const useAppStore = create<AppStore>()(
           noteUserMutation();
           set({
             ...EMPTY_DATA,
+            ...pickSede(EMPTY_DATA),
             sedeId: undefined,
             altreSedi: [],
             ordineSedi: undefined,
