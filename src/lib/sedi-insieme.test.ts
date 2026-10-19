@@ -6,12 +6,14 @@ import { allSedi, editSede, sedeIdOf, switchSede, withOtherSedi } from "./sedi.t
 import {
   buildInsieme,
   canBuildTogether,
+  INSIEME_VERSIONI,
   insiemeParts,
   insiemeSlot,
   insiemeSlotData,
   righeSedi,
   splitInsieme,
   withInsiemeParts,
+  withMixedWeight,
 } from "./sedi-insieme.ts";
 import { snapshot, useAppStore } from "./store.ts";
 import {
@@ -21,6 +23,7 @@ import {
   solveTimetable,
   TimetableEditor,
   TimetableSolver,
+  WEIGHTS,
   type TimetableReport,
 } from "./timetable-solver.ts";
 import type { PersistedData, TimetableSlot } from "./types.ts";
@@ -226,6 +229,39 @@ describe("tutte le sedi insieme", () => {
     const res = solveTimetable(joint, { timeMs: 3000, seed: 5, now: ticks() });
     const after = withInsiemeParts(d, insiemeParts(d, splitInsieme(map, res.slots), "scratch"));
     assert.deepEqual(voci(evaluateCurrent(buildInsieme(after).joint)), sommaSedi(after));
+  });
+
+  it("tre versioni: il peso dei giorni divisi viaggia con i dati, il resto del conteggio non cambia", () => {
+    // dal più alto al più basso, tutti più del peso di prima (che faceva più giorni divisi dell'orario in uso)
+    const w = INSIEME_VERSIONI.map((v) => v.mixedW);
+    assert.deepEqual([...w].sort((a, b) => b - a), w);
+    assert.ok(w.every((x) => x > WEIGHTS.mixed));
+    // un docente di una sede sola «Su più plessi», con una × in un giorno in cui insegna: giorno diviso
+    let d = buildSeed();
+    const morning = d.settings.periods.filter((p) => !p.tpOnly);
+    const spot = d.teachers.filter(isTimetableTeacher).flatMap((t) =>
+      d.settings.days.flatMap((day) => {
+        const busy = new Set(d.slots.filter((x) => x.teacherId === t.id && x.day === day).map((x) => x.periodId));
+        const free = morning.find((p) => !busy.has(p.id));
+        return busy.size > 0 && free ? [{ t, day, free }] : [];
+      }),
+    )[0]!;
+    d = {
+      ...d,
+      teachers: d.teachers.map((x) =>
+        x.id === spot.t.id ? { ...x, otherPlesso: true, awaySlots: [{ day: spot.day, periodId: spot.free.id }] } : x,
+      ),
+    };
+    const { joint } = buildInsieme(d);
+    assert.equal(prepare(joint, "slots").mixedW, WEIGHTS.mixed);
+    assert.equal(prepare(withMixedWeight(joint, 3000), "slots").mixedW, 3000);
+    const base = evaluateCurrent(joint);
+    const heavy = evaluateCurrent(withMixedWeight(joint, 3000));
+    const n = base.docenti.mixed.length;
+    assert.ok(n >= 1);
+    assert.deepEqual(voci(heavy), voci(base));
+    assert.equal(heavy.docenti.mixed.length, n);
+    assert.ok(Math.abs(heavy.score.soft - base.score.soft - (3000 - WEIGHTS.mixed) * n) < 1);
   });
 
   it("l'ora per spostarsi tra due sedi non è un'ora buca; senza, è un vincolo non rispettato", () => {

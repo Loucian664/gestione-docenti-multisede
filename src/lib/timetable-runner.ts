@@ -15,6 +15,12 @@ export type RunHandle = {
   result: Promise<SolveResult>;
 };
 
+/** Più versioni della stessa ricerca insieme: un risultato per versione, nello stesso ordine. */
+export type RunVersionsHandle = {
+  stop: () => void;
+  result: Promise<SolveResult[]>;
+};
+
 type Score = { hard: number; pen: number; soft: number };
 
 function lessScore(a: Score, b: Score): boolean {
@@ -42,19 +48,34 @@ export function runTimetable(
   data: PersistedData,
   opts: { timeMs: number; mode: SolveMode; onProgress: (p: RunProgress) => void },
 ): RunHandle {
-  const n = workerCount();
+  const run = runTimetableVersions([data], opts);
+  return { stop: run.stop, result: run.result.then((r) => r[0]!) };
+}
+
+/**
+ * Più versioni insieme (gli stessi dati con pesi diversi): le ricerche si dividono tra le versioni, ognuna
+ * riparte dalla migliore della sua versione; il tempo e il carico restano quelli di una ricerca sola.
+ */
+export function runTimetableVersions(
+  versions: PersistedData[],
+  opts: { timeMs: number; mode: SolveMode; onProgress: (p: RunProgress) => void },
+): RunVersionsHandle {
+  const V = versions.length;
+  const n = Math.max(workerCount(), V);
+  // la versione di ogni ricerca
+  const group = Array.from({ length: n }, (_, i) => i % V);
   const baseSeed = (Date.now() ^ Math.floor(Math.random() * 1e9)) >>> 0;
   let workers: Worker[] = [];
   let stopped = false;
-  let fallback: RunHandle | null = null;
+  let fallbacks: RunHandle[] = [];
 
-  const result = new Promise<SolveResult>((resolve, reject) => {
+  const result = new Promise<SolveResult[]>((resolve, reject) => {
     const startInline = () => {
       for (const w of workers) w.terminate();
       workers = [];
-      fallback = runInline(data, { ...opts, seed: baseSeed });
-      if (stopped) fallback.stop();
-      fallback.result.then(resolve, reject);
+      fallbacks = versions.map((data, v) => runInline(data, { ...opts, seed: (baseSeed + v * 7919) >>> 0 }));
+      if (stopped) for (const f of fallbacks) f.stop();
+      Promise.all(fallbacks.map((f) => f.result)).then(resolve, reject);
     };
     try {
       for (let i = 0; i < n; i++) {
@@ -65,15 +86,16 @@ export function runTimetable(
       return;
     }
     const progress: (SolveProgress | null)[] = workers.map(() => null);
-    let best: SolveResult | null = null;
+    const best: (SolveResult | null)[] = versions.map(() => null);
     let finished = 0;
     let failed = 0;
-    // ricerca in parallelo: a fine giro ogni ricerca aspetta; quando aspettano tutte, ripartono dalla migliore
-    const sync = workers.length > 1;
+    // ricerca in parallelo: a fine giro ogni ricerca aspetta; quando aspettano tutte quelle della sua versione,
+    // ripartono dalla migliore della versione (le versioni restano indipendenti, così vengono diverse)
+    const size = versions.map((_, v) => group.filter((g) => g === v).length);
     const gone = workers.map(() => false);
     const waiting: ({ cells: number[]; score: Score } | null)[] = workers.map(() => null);
-    const release = () => {
-      const alive = workers.map((_, i) => i).filter((i) => !gone[i]);
+    const release = (v: number) => {
+      const alive = workers.map((_, i) => i).filter((i) => !gone[i] && group[i] === v);
       if (!alive.length || alive.some((i) => !waiting[i])) return;
       let top = waiting[alive[0]!]!;
       for (const i of alive) if (lessScore(waiting[i]!.score, top.score)) top = waiting[i]!;
@@ -99,7 +121,7 @@ export function runTimetable(
     const settle = () => {
       if (finished + failed < workers.length) return;
       for (const w of workers) w.terminate();
-      if (best) resolve(best);
+      if (best.every(Boolean)) resolve(best as SolveResult[]);
       else startInline();
     };
     workers.forEach((w, i) => {
@@ -114,17 +136,17 @@ export function runTimetable(
           report();
         } else if (msg.type === "sync") {
           waiting[i] = { cells: msg.cells, score: msg.score };
-          release();
+          release(group[i]!);
         } else if (msg.type === "done") {
           finished += 1;
           gone[i] = true;
-          if (better(msg.result, best)) best = msg.result;
-          release();
+          if (better(msg.result, best[group[i]!] ?? null)) best[group[i]!] = msg.result;
+          release(group[i]!);
           settle();
         } else {
           failed += 1;
           gone[i] = true;
-          release();
+          release(group[i]!);
           settle();
         }
       };
@@ -133,16 +155,16 @@ export function runTimetable(
         if (gone[i]) return;
         failed += 1;
         gone[i] = true;
-        release();
+        release(group[i]!);
         settle();
       };
       w.postMessage({
         type: "start",
-        data,
+        data: versions[group[i]!],
         timeMs: opts.timeMs,
         seed: (baseSeed + i * 7919) >>> 0,
         mode: opts.mode,
-        sync,
+        sync: size[group[i]!]! > 1,
       });
     });
   });
@@ -150,7 +172,7 @@ export function runTimetable(
   return {
     stop: () => {
       stopped = true;
-      if (fallback) fallback.stop();
+      for (const f of fallbacks) f.stop();
       for (const w of workers) w.postMessage({ type: "stop" });
     },
     result,
