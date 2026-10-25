@@ -323,12 +323,12 @@ function OrarioPage() {
                 size="sm"
                 variant="outline"
                 className="col-span-2 h-9 min-w-0 w-full px-1.5 text-[12px] md:h-8 md:w-auto md:px-3 md:text-[13px]"
-                title="Per classe + docenti"
-                onClick={() => saveJpegAsPdf(() => orarioClassiGridJpeg(data, true), `${fileStem("orario-classi-docenti")}.pdf`)}
+                title="Per classe + materie"
+                onClick={() => saveJpegAsPdf(() => orarioClassiGridJpeg(data, true), `${fileStem("orario-classi-materie")}.pdf`)}
               >
                 <Users />
-                <span className="md:hidden">+ docenti</span>
-                <span className="hidden md:inline">Per classe + docenti</span>
+                <span className="md:hidden">+ materie</span>
+                <span className="hidden md:inline">Per classe + materie</span>
               </Button>
               <Button
                 size="sm"
