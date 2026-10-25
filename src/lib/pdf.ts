@@ -1,3 +1,13 @@
+/**
+ * Indirizzo con cui il PDF si apre in una scheda del browser. Un indirizzo `blob:` non ha un nome di file: il
+ * lettore PDF del browser (in Firefox pdf.js) lo cerca nel frammento dopo il `#` e, se non lo trova, propone
+ * «document.pdf» quando si salva.
+ */
+export function pdfTabUrl(blobUrl: string, filename: string): string {
+  const name = /\.pdf$/i.test(filename) ? filename : `${filename}.pdf`;
+  return `${blobUrl}#${encodeURIComponent(name)}`;
+}
+
 /** Minimal WinAnsi PDF (A4) from plain text — no extra libraries. */
 
 const WINANSI: Record<string, number> = {

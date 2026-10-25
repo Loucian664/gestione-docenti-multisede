@@ -1,4 +1,5 @@
 import { toast } from "sonner";
+import { pdfTabUrl } from "./pdf";
 
 export type SaveOutcome = "shared" | "downloaded" | "copied" | "cancelled" | "failed";
 
@@ -245,7 +246,7 @@ export function openPdfTab(): {
       const pdf = new Blob([blob], { type: "application/pdf" });
       if (win && !win.closed) {
         const url = URL.createObjectURL(pdf);
-        win.location.replace(url);
+        win.location.replace(pdfTabUrl(url, filename));
         window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
         return "shared";
       }
