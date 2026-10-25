@@ -140,15 +140,74 @@ export function addSede(data: PersistedData, sede: SedeData): { data: PersistedD
   const taken = new Set(allSedi(data).map((s) => s.id));
   let id = uid("sede");
   while (taken.has(id)) id = uid("sede");
+  // le sedi che ci sono tengono il loro colore; la nuova prende la prima tinta libera
+  const base = freezeSedeColors(data);
+  const colori = { ...base.coloriSedi };
+  colori[id] = firstFreeColor(new Set(Object.values(colori)));
   return {
     id,
     data: {
-      ...data,
-      sedeId: sedeIdOf(data),
-      altreSedi: [...(data.altreSedi ?? []), { id, data: sede }],
-      ordineSedi: [...allSedi(data).map((s) => s.id), id],
+      ...base,
+      sedeId: sedeIdOf(base),
+      altreSedi: [...(base.altreSedi ?? []), { id, data: sede }],
+      ordineSedi: [...allSedi(base).map((s) => s.id), id],
+      coloriSedi: colori,
     },
   };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Ordine e colori delle sedi
+
+function firstFreeColor(used: Set<number>, preferred?: number): number {
+  if (preferred !== undefined && !used.has(preferred)) return preferred;
+  let n = 0;
+  while (used.has(n)) n += 1;
+  return n;
+}
+
+/** Il numero della tinta della sede: quello scelto, altrimenti quello della sua posizione. */
+export function sedeColorIndex(data: PersistedData, id: string): number {
+  const saved = data.coloriSedi?.[id];
+  if (saved !== undefined) return saved;
+  return Math.max(0, allSedi(data).findIndex((s) => s.id === id));
+}
+
+/** Ogni sede tiene il colore che ha adesso, anche se poi le sedi cambiano posto o ne arriva una nuova. */
+export function freezeSedeColors(data: PersistedData): PersistedData {
+  const sedi = allSedi(data);
+  const colori: Record<string, number> = {};
+  for (const s of sedi) {
+    const saved = data.coloriSedi?.[s.id];
+    if (saved !== undefined) colori[s.id] = saved;
+  }
+  const used = new Set(Object.values(colori));
+  sedi.forEach((s, i) => {
+    if (colori[s.id] !== undefined) return;
+    colori[s.id] = firstFreeColor(used, i);
+    used.add(colori[s.id]!);
+  });
+  return { ...data, coloriSedi: colori };
+}
+
+/** Sposta la sede di un posto (−1 prima, +1 dopo). I colori non cambiano. */
+export function moveSede(data: PersistedData, id: string, dir: -1 | 1): PersistedData {
+  const base = freezeSedeColors(data);
+  const order = allSedi(base).map((s) => s.id);
+  const from = order.indexOf(id);
+  const to = from + dir;
+  if (from < 0 || to < 0 || to >= order.length) return data;
+  [order[from], order[to]] = [order[to]!, order[from]!];
+  return { ...base, ordineSedi: order };
+}
+
+/** Le sedi in ordine alfabetico per nome. I colori non cambiano. */
+export function sortSediByName(data: PersistedData): PersistedData {
+  const base = freezeSedeColors(data);
+  const order = [...allSedi(base)]
+    .sort((a, b) => sedeName(a.data.settings).localeCompare(sedeName(b.data.settings), "it", { sensitivity: "base" }))
+    .map((s) => s.id);
+  return { ...base, ordineSedi: order };
 }
 
 /** Si elimina solo una sede senza classi, e mai l'ultima. */
@@ -198,14 +257,18 @@ export function removeSede(data: PersistedData, id: string, today = todayIso()):
       const trace = t.personId ? traces.get(t.personId) : undefined;
       return trace ? { ...t, removedSedi: [...(t.removedSedi ?? []), trace] } : t;
     });
-  let next = data;
+  // le altre sedi tengono il loro colore anche se questa sparisce
+  let next = freezeSedeColors(data);
   if (id === sedeIdOf(data)) {
     const other = allSedi(data).find((s) => s.id !== id);
     if (!other) return data;
-    next = switchSede(data, other.id);
+    next = switchSede(next, other.id);
   }
+  const colori = { ...next.coloriSedi };
+  delete colori[id];
   return {
     ...next,
+    coloriSedi: colori,
     teachers: mark(next.teachers),
     altreSedi: (next.altreSedi ?? [])
       .filter((a) => a.id !== id)
@@ -585,6 +648,109 @@ export function importSede(
   });
 }
 
+/** Quanto c'è in una sede: serve al riepilogo prima di aggiornarla da un backup. */
+export type SedeStats = { classes: number; teachers: number; lessons: number; absences: number; substitutions: number };
+
+export function sedeStats(sede: SedeData): SedeStats {
+  return {
+    classes: sede.classes.length,
+    teachers: sede.teachers.length,
+    lessons: sede.slots.length,
+    absences: sede.absences.length,
+    substitutions: sede.substitutions.length,
+  };
+}
+
+export type SedeUpdatePlan = {
+  before: SedeStats;
+  after: SedeStats;
+  /** docenti del backup che nella sede non c'erano (per cognome e nome) */
+  added: Teacher[];
+  /** docenti della sede che nel backup non ci sono: lasciano questa sede */
+  removed: Teacher[];
+  /** per i docenti nuovi, le persone con lo stesso cognome e nome già presenti in un'altra sede */
+  matches: ReturnType<typeof nameMatches>;
+};
+
+/** Cosa cambia aggiornando la sede `sedeId` con il backup `incoming`. */
+export function planSedeUpdate(data: PersistedData, sedeId: string, incoming: PersistedData): SedeUpdatePlan | null {
+  const sede = allSedi(data).find((s) => s.id === sedeId);
+  if (!sede) return null;
+  const next = pickSede(incoming);
+  const oldKeys = new Set(sede.data.teachers.map(personKey));
+  const newKeys = new Set(next.teachers.map(personKey));
+  const added = next.teachers.filter((t) => !oldKeys.has(personKey(t)));
+  return {
+    before: sedeStats(sede.data),
+    after: sedeStats(next),
+    added,
+    removed: sede.data.teachers.filter((t) => !newKeys.has(personKey(t))),
+    // chi è «nuovo» non ha lo stesso nome di nessuno in questa sede: le corrispondenze sono sempre di altre sedi
+    matches: nameMatches(data, added),
+  };
+}
+
+/**
+ * Sostituisce il contenuto della sede `sedeId` con quello del backup: classi, docenti, orario, orari salvati,
+ * campanella, assenze e sostituzioni. Restano della sede il nome, il posto, il colore e l'id (e il responsabile,
+ * se il backup non ne ha uno). I docenti con lo stesso cognome e nome tengono la loro persona in comune con le
+ * altre sedi; per i nuovi `links` dice a chi sono già in un'altra sede (come in `importSede`).
+ */
+export function updateSedeFromBackup(
+  data: PersistedData,
+  sedeId: string,
+  incoming: PersistedData,
+  links: { incomingId: string; sedeId: string; teacherId: string }[],
+): PersistedData {
+  const sede = allSedi(data).find((s) => s.id === sedeId);
+  if (!sede) return data;
+  let next = data;
+  const pidOf = new Map<string, string>();
+  for (const link of links) {
+    if (link.sedeId === sedeId) continue;
+    const target = allSedi(next).find((s) => s.id === link.sedeId)?.data.teachers.find((x) => x.id === link.teacherId);
+    if (!target) continue;
+    const personId = target.personId ?? uid("p");
+    if (!target.personId) {
+      next = editSede(next, link.sedeId, (other) => ({
+        ...other,
+        teachers: other.teachers.map((x) => (x.id === link.teacherId ? { ...x, personId } : x)),
+      }));
+    }
+    pidOf.set(link.incomingId, personId);
+  }
+  const before = new Map(sede.data.teachers.map((t) => [personKey(t), t]));
+  const source = pickSede(incoming);
+  const teachers = source.teachers.map((t) => {
+    const { personId: _personId, removedSedi: _removedSedi, ...rest } = t;
+    const key = personKey(t);
+    const prev = before.get(key);
+    // ogni scheda di prima si riusa una volta sola (omonimi nel backup)
+    before.delete(key);
+    if (prev) {
+      return {
+        ...rest,
+        ...(prev.personId ? { personId: prev.personId } : {}),
+        ...(prev.removedSedi?.length ? { removedSedi: prev.removedSedi } : {}),
+      };
+    }
+    const personId = pidOf.get(t.id);
+    return personId ? { ...rest, personId } : rest;
+  });
+  return editSede(next, sedeId, (cur) => ({
+    ...source,
+    settings: {
+      ...source.settings,
+      schoolName: cur.settings.schoolName,
+      schoolYear: data.settings.schoolYear,
+      responsabile: source.settings.responsabile?.trim() ? source.settings.responsabile : cur.settings.responsabile,
+    },
+    teachers,
+    savedTimetables: source.savedTimetables ?? [],
+    activeSlot: source.activeSlot ?? 0,
+  }));
+}
+
 // ---------------------------------------------------------------------------------------------
 // Ore nelle altre sedi
 
@@ -708,6 +874,7 @@ export function exportSede(data: PersistedData, sedeId: string): PersistedData {
     sedeId: undefined,
     altreSedi: undefined,
     ordineSedi: undefined,
+    coloriSedi: undefined,
   };
 }
 

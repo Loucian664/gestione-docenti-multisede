@@ -258,6 +258,11 @@ export type PersistedData = {
   altreSedi?: SedeArchive[];
   /** Ordine delle sedi nella pagina Sedi e nella scelta della sede (id). */
   ordineSedi?: string[];
+  /**
+   * Il colore di ogni sede (numero della tinta, id della sede → numero): resta alla sede anche se le sedi si
+   * riordinano. Senza voce, il colore è quello della posizione della sede.
+   */
+  coloriSedi?: Record<string, number>;
 };
 
 /** I dati che ogni sede ha per conto suo: tutto tranne data scelta e informazioni di salvataggio. */

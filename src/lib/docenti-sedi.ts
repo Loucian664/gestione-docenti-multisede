@@ -4,7 +4,7 @@
  * campanella della prima sede (le ore di campanelle diverse si toccano se i loro orari si sovrappongono).
  */
 import { isMensaLesson, isMensaPeriod, visiblePeriods } from "./periods";
-import { allSedi, overlaps, persons, sedeName } from "./sedi";
+import { allSedi, overlaps, persons, sedeColorIndex, sedeName } from "./sedi";
 import type { DayOfWeek, Period, PersistedData } from "./types";
 
 export type PersonCell =
@@ -17,8 +17,10 @@ export type PersonCell =
 export type PersonSede = {
   id: string;
   name: string;
-  /** posizione della sede nella pagina Sedi: dà il suo colore, come in Orario */
+  /** il numero del colore della sede, lo stesso che ha in Orario e nella pagina Sedi */
   index: number;
+  /** posizione della sede nella pagina Sedi: dà l'ordine con cui si elencano */
+  order: number;
   lessons: number;
   disp: number;
   classes: string[];
@@ -98,7 +100,8 @@ export function personSheets(data: PersistedData): PersonSheet[] {
       sedi.push({
         id: r.sedeId,
         name: r.sedeName || sedeName(r.sede.settings),
-        index: Math.max(0, order.indexOf(r.sedeId)),
+        index: sedeColorIndex(data, r.sedeId),
+        order: Math.max(0, order.indexOf(r.sedeId)),
         lessons,
         disp: disp.length,
         classes: [...classes].filter(Boolean).sort((a, b) => a.localeCompare(b, "it", { numeric: true })),
@@ -131,7 +134,7 @@ export function personSheets(data: PersistedData): PersonSheet[] {
       key: person.key,
       lastName: first.teacher.lastName,
       firstName: first.teacher.firstName,
-      sedi: sedi.sort((a, b) => a.index - b.index),
+      sedi: sedi.sort((a, b) => a.order - b.order),
       periods,
       cells,
       unplaced,

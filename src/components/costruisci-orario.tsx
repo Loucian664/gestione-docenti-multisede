@@ -75,6 +75,7 @@ import {
   blockingGroups,
   missingBySede,
   removedSediIssues,
+  sedeColorIndex,
   sedeName,
   switchSede,
   withOtherSedi,
@@ -4320,7 +4321,7 @@ function InsiemeDocenti({ data, joint, report }: { data: PersistedData; joint: I
   const [onlyShared, setOnlyShared] = useState(false);
   const info = useMemo(() => {
     const list = allSedi(data);
-    const byId = new Map(list.map((s, i) => [s.id, { name: sedeName(s.data.settings), color: sedeColor(i) }]));
+    const byId = new Map(list.map((s) => [s.id, { name: sedeName(s.data.settings), color: sedeColor(sedeColorIndex(data, s.id)) }]));
     const sedeIdOfClass = (classId: string) => classId.split("~")[0]!;
     const tSedi = new Map<string, string[]>();
     for (const t of joint.teachers) {

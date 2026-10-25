@@ -402,6 +402,7 @@ export function mergeSlices(a: PersistSlice, b: PersistSlice): PersistSlice {
           },
         })),
     ordineSedi: preferB ? b.ordineSedi ?? a.ordineSedi : a.ordineSedi ?? b.ordineSedi,
+    coloriSedi: preferB ? b.coloriSedi ?? a.coloriSedi : a.coloriSedi ?? b.coloriSedi,
   };
 }
 
