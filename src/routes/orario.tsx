@@ -142,6 +142,9 @@ function OrarioPage() {
     return `${stem}${trialFileTag(data)}-${schoolTag}`;
   }
 
+  // il PDF dei docenti ha le ore di tutte le sedi: il nome non è quello della sede in uso
+  const docentiPdfName = `orario-docenti${trialFileTag(data)}-${several ? "tutte-le-sedi" : schoolTag}.pdf`;
+
   async function currentOrarioJpeg(): Promise<{ blob: Blob; base: string }> {
     if (view === "settimana") {
       return { blob: await orarioWeekJpeg(data), base: fileStem("orario-settimanale") };
@@ -346,7 +349,7 @@ function OrarioPage() {
                   void (async () => {
                     try {
                       const pdf = await docentiPdf(data);
-                      toastSave(tab.show(`${fileStem("orario-docenti")}.pdf`, pdf), "pdf");
+                      toastSave(tab.show(docentiPdfName, pdf), "pdf");
                     } catch {
                       tab.cancel();
                       toast.error("Non sono riuscito a creare il PDF dei docenti.");
