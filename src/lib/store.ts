@@ -34,6 +34,7 @@ import {
   dropRemovedSede as dropRemovedSedeFrom,
   editSede,
   importSede as importSedeInto,
+  moveSede as moveSedeIn,
   newSedeData,
   pickSede,
   removeSede as removeSedeFrom,
@@ -41,6 +42,8 @@ import {
   replaceTeacherSedi,
   sedeAsData,
   sedeIdOf,
+  sortSediByName,
+  updateSedeFromBackup as updateSedeFromBackupIn,
   setSchoolYear as setSchoolYearIn,
   saveTeacherSedi as saveTeacherSediIn,
   setTeacherSedi as setTeacherSediIn,
@@ -156,6 +159,16 @@ type Actions = {
   addSede: (name: string) => string;
   /** Aggiunge come nuova sede quella in uso nel backup, collegando i docenti indicati; restituisce l'id. */
   importSede: (data: PersistedData, links: { incomingId: string; sedeId: string; teacherId: string }[]) => string;
+  /** Sostituisce il contenuto della sede con quello del backup (nome, posto, colore e id restano); restituisce lo stato di prima, per annullare. */
+  updateSedeFromBackup: (
+    sedeId: string,
+    data: PersistedData,
+    links: { incomingId: string; sedeId: string; teacherId: string }[],
+  ) => PersistedData;
+  /** Sposta la sede di un posto nell'ordine (−1 prima, +1 dopo). */
+  moveSede: (id: string, dir: -1 | 1) => void;
+  /** Le sedi in ordine alfabetico. */
+  sortSedi: () => void;
   updateSede: (id: string, patch: Partial<Settings>) => void;
   /** Mai l'ultima; i docenti in comune conservano le ore di quella sede (`removedSedi`). */
   removeSede: (id: string) => void;
@@ -207,6 +220,7 @@ export function snapshot(state: AppStore): PersistedData {
     sedeId: state.sedeId,
     altreSedi: state.altreSedi,
     ordineSedi: state.ordineSedi,
+    coloriSedi: state.coloriSedi,
   };
 }
 
@@ -717,6 +731,17 @@ export const useAppStore = create<AppStore>()(
           return id;
         },
 
+        updateSedeFromBackup: (sedeId, incoming, links) => {
+          const prev = snapshot(get());
+          const fixed = fixAllSedi({ ...incoming, altreSedi: [] });
+          save(updateSedeFromBackupIn(prev, sedeId, fixed, links));
+          return prev;
+        },
+
+        moveSede: (id, dir) => save(moveSedeIn(snapshot(get()), id, dir)),
+
+        sortSedi: () => save(sortSediByName(snapshot(get()))),
+
         updateSede: (id, patch) =>
           save(editSede(snapshot(get()), id, (sede) => ({ ...sede, settings: { ...sede.settings, ...patch } }))),
 
@@ -776,6 +801,7 @@ export const useAppStore = create<AppStore>()(
             // un backup dell'app di Rombiolo ha una sede sola
             sedeId: data.sedeId,
             ordineSedi: data.ordineSedi,
+            coloriSedi: data.coloriSedi,
             savedTimetables: data.savedTimetables ?? [],
             activeSlot: data.activeSlot ?? 0,
             officialBackup: data.officialBackup,
@@ -816,6 +842,7 @@ export const useAppStore = create<AppStore>()(
             sedeId: undefined,
             altreSedi: [],
             ordineSedi: undefined,
+            coloriSedi: undefined,
             savedTimetables: [],
             activeSlot: 0,
             officialBackup: undefined,
@@ -859,6 +886,7 @@ export const useAppStore = create<AppStore>()(
         sedeId: state.sedeId,
         altreSedi: state.altreSedi,
         ordineSedi: state.ordineSedi,
+        coloriSedi: state.coloriSedi,
       }),
     },
   ),

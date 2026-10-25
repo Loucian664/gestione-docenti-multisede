@@ -68,7 +68,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
         const merged = isSeedLike(current) ? incoming : mergeSlices(current, incoming);
         const fixed = withOrigin(applyOrganicoFixes(merged));
         // le sedi degli esempi non restano accanto ai dati salvati
-        useAppStore.setState({ sedeId: undefined, altreSedi: [], ordineSedi: undefined, ...fixed });
+        useAppStore.setState({ sedeId: undefined, altreSedi: [], ordineSedi: undefined, coloriSedi: undefined, ...fixed });
       } catch {
         // ignore corrupt storage
       }

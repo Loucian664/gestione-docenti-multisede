@@ -40,7 +40,7 @@ import { cn } from "@/lib/utils";
 import { ScrollGrid } from "@/components/scroll-grid";
 import { sedeColor, teacherCell } from "@/lib/teacher-palette";
 import { CostruisciOrario } from "@/components/costruisci-orario";
-import { allSedi, elsewhereCells, sedeIdOf, sedeName } from "@/lib/sedi";
+import { allSedi, elsewhereCells, sedeColorIndex, sedeIdOf, sedeName } from "@/lib/sedi";
 import { GiornoGenerale, SettimanaGenerale } from "@/components/vista-generale";
 import { vistaSedi } from "@/lib/sedi-insieme";
 import { BucheList } from "@/components/buche-list";
@@ -114,10 +114,10 @@ function OrarioPage() {
   const elsewhereLessons = elsewhere.filter((c) => c.label !== "disp.");
   const elsewhereSedi = [...new Set(elsewhere.map((c) => c.sedeName))];
   // chi insegna anche in altre sedi: ogni ora dice in quale sede è, anche quelle della sede in uso, e ogni
-  // sede ha il suo colore (dalla posizione nella pagina Sedi)
+  // sede ha il suo colore (lo stesso della pagina Sedi)
   const hereName = elsewhere.length > 0 ? sedeName(data.settings) : "";
   const sediOrder = allSedi(data).map((s) => s.id);
-  const colorOfSede = (id: string, tone?: 0 | 2) => sedeColor(Math.max(0, sediOrder.indexOf(id)), tone);
+  const colorOfSede = (id: string, tone?: 0 | 2) => sedeColor(sedeColorIndex(data, id), tone);
   const hereId = sedeIdOf(data);
   const sediLegend = hereName
     ? sediOrder

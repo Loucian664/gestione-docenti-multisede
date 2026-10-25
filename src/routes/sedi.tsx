@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useAppStore, snapshot } from "@/lib/store";
 import { backupJson, orarioDownloadName, parseBackupJson } from "@/lib/export";
+import { sedeColor } from "@/lib/teacher-palette";
 import { shareOrSave, toastSave } from "@/lib/share-file";
 import {
   allSedi,
@@ -17,14 +18,18 @@ import {
   missingBySede,
   nameMatches,
   pickSede,
+  planSedeUpdate,
+  sedeColorIndex,
   sedeContents,
   sedeName,
+  sortSediByName,
   type SedeEntry,
+  type SedeStats,
 } from "@/lib/sedi";
 import { missingText, type MissingTeacher } from "@/lib/build-timetable";
 import { teacherName } from "@/lib/coverage";
 import { DAY_SHORT, type PersistedData, type SedeData, type Teacher } from "@/lib/types";
-import { FileDown, FileUp, Plus } from "lucide-react";
+import { ArrowDownAZ, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, FileDown, FileUp, Plus, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/sedi")({ component: SediPage });
@@ -36,6 +41,8 @@ function SediPage() {
   const [editing, setEditing] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [pending, setPending] = useState<{ data: PersistedData; fileName: string } | null>(null);
+  // il backup scelto per aggiornare una sede che c'è già
+  const [updating, setUpdating] = useState<{ sedeId: string; data: PersistedData; fileName: string } | null>(null);
 
   // docenti che insegnano anche in un'altra sede (stessa persona)
   const sharedIds = new Map<string, Set<string>>();
@@ -51,16 +58,31 @@ function SediPage() {
     s.data.teachers.filter((t) => t.personId && (sharedIds.get(t.personId)?.size ?? 0) > 1).length;
   const missing = missingBySede(data);
 
-  function readBackup(file: File) {
+  function readBackup(file: File, sedeId?: string) {
     const reader = new FileReader();
     reader.onload = () => {
       try {
-        setPending({ data: parseBackupJson(String(reader.result)), fileName: file.name });
+        const parsed = parseBackupJson(String(reader.result));
+        if (sedeId) setUpdating({ sedeId, data: parsed, fileName: file.name });
+        else setPending({ data: parsed, fileName: file.name });
       } catch {
         toast.error("File non riconosciuto: seleziona il file di backup (.json), non il file Excel.");
       }
     };
     reader.readAsText(file);
+  }
+
+  function sortByName() {
+    const prev = snapshot(store);
+    const sorted = sortSediByName(prev);
+    if (sorted.ordineSedi?.join() === sedi.map((x) => x.id).join()) {
+      toast.message("Le sedi sono già in ordine alfabetico");
+      return;
+    }
+    store.sortSedi();
+    toast.message("Sedi in ordine alfabetico", {
+      action: { label: "Annulla", onClick: () => useAppStore.getState().importData(prev, prev.importedBackupName) },
+    });
   }
 
   return (
@@ -73,6 +95,10 @@ function SediPage() {
             <Button onClick={() => setAdding(true)}>
               <Plus />
               Aggiungi sede
+            </Button>
+            <Button variant="outline" onClick={sortByName} disabled={sedi.length < 2}>
+              <ArrowDownAZ />
+              Ordina A–Z
             </Button>
             <Button variant="outline" asChild>
               <label className="cursor-pointer">
@@ -94,10 +120,16 @@ function SediPage() {
         }
       />
       <div className="grid gap-4 md:grid-cols-2">
-        {sedi.map((s) => (
+        {sedi.map((s, i) => (
           <SedeCard
             key={s.id}
             sede={s}
+            color={sedeColor(sedeColorIndex(data, s.id))}
+            first={i === 0}
+            last={i === sedi.length - 1}
+            single={sedi.length < 2}
+            onMove={(dir) => store.moveSede(s.id, dir)}
+            onUpdate={(file) => readBackup(file, s.id)}
             shared={sharedCount(s)}
             missing={missing.find((m) => m.sedeId === s.id)?.items ?? []}
             onUse={() => {
@@ -126,6 +158,15 @@ function SediPage() {
       </div>
       {editing && <SedeDialog key={editing} sedeId={editing} onClose={() => setEditing(null)} />}
       {adding && <AddSedeDialog onClose={() => setAdding(false)} />}
+      {updating && (
+        <UpdateSedeDialog
+          key={updating.sedeId}
+          sedeId={updating.sedeId}
+          incoming={updating.data}
+          fileName={updating.fileName}
+          onClose={() => setUpdating(null)}
+        />
+      )}
       {pending && (
         <ImportSedeDialog incoming={pending.data} fileName={pending.fileName} onClose={() => setPending(null)} />
       )}
@@ -160,26 +201,96 @@ function campanellaLabel(sede: SedeData): string {
 
 function SedeCard({
   sede,
+  color,
+  first,
+  last,
+  single,
   shared,
   missing,
+  onMove,
   onUse,
   onEdit,
   onExport,
+  onUpdate,
 }: {
   sede: SedeEntry;
+  /** il colore della sede: resta suo anche se le sedi cambiano posto */
+  color: string;
+  first: boolean;
+  last: boolean;
+  single: boolean;
   shared: number;
   missing: MissingTeacher[];
+  onMove: (dir: -1 | 1) => void;
   onUse: () => void;
   onEdit: () => void;
   onExport: () => void;
+  onUpdate: (file: File) => void;
 }) {
   const { settings, classes, teachers } = sede.data;
   const tp = classes.filter((c) => c.tempo === "TP").length;
   return (
     <section className="paper-panel flex flex-col rounded-xl p-5">
-      <div className="flex flex-wrap items-center gap-2">
-        <h2 className="font-display text-xl">{sedeName(settings)}</h2>
-        {sede.active && <Badge>In uso</Badge>}
+      <div className="flex items-start gap-2">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+          <span
+            aria-hidden
+            className="size-4 shrink-0 rounded-full border border-border"
+            style={{ background: color }}
+            title="Il colore di questa sede negli orari dei docenti"
+          />
+          <h2 className="font-display text-xl">{sedeName(settings)}</h2>
+          {sede.active && <Badge>In uso</Badge>}
+        </div>
+        {!single && (
+          <div className="-mr-2 -mt-2 flex shrink-0">
+            {/* una colonna sul telefono: su e giù; due colonne dal tablet in su: prima e dopo */}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="md:hidden"
+              disabled={first}
+              onClick={() => onMove(-1)}
+              aria-label={`Sposta «${sedeName(settings)}» più in alto`}
+              title="Sposta più in alto"
+            >
+              <ChevronUp />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="md:hidden"
+              disabled={last}
+              onClick={() => onMove(1)}
+              aria-label={`Sposta «${sedeName(settings)}» più in basso`}
+              title="Sposta più in basso"
+            >
+              <ChevronDown />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="max-md:hidden"
+              disabled={first}
+              onClick={() => onMove(-1)}
+              aria-label={`Sposta «${sedeName(settings)}» prima`}
+              title="Sposta prima"
+            >
+              <ChevronLeft />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="max-md:hidden"
+              disabled={last}
+              onClick={() => onMove(1)}
+              aria-label={`Sposta «${sedeName(settings)}» dopo`}
+              title="Sposta dopo"
+            >
+              <ChevronRight />
+            </Button>
+          </div>
+        )}
       </div>
       <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
         <Row label="Responsabile">{settings.responsabile.trim() || <span className="text-muted-foreground">non indicato</span>}</Row>
@@ -217,6 +328,27 @@ function SedeCard({
         >
           <FileDown aria-hidden className="max-sm:hidden" />
           Esporta sede
+        </Button>
+        <Button
+          variant="outline"
+          className="max-sm:basis-full"
+          asChild
+          title="Sostituisce il contenuto di questa sede con quello di un backup, senza eliminarla"
+        >
+          <label className="cursor-pointer">
+            <RefreshCw aria-hidden />
+            Aggiorna da backup
+            <input
+              type="file"
+              accept=".json,application/json,text/plain"
+              className="sr-only"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) onUpdate(file);
+                e.target.value = "";
+              }}
+            />
+          </label>
         </Button>
       </div>
     </section>
@@ -508,6 +640,158 @@ function ImportSedeDialog({
               Annulla
             </Button>
             <Button onClick={confirm}>Aggiungi sede</Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** «3 → 5» (uguale: «5»); in arancione quando c'è qualcosa che si perde */
+function statRow(label: string, before: number, after: number, warn = false): ReactNode {
+  const same = before === after;
+  return (
+    <Row key={label} label={label}>
+      {same ? after : `${before} → ${after}`}
+      {warn && before > 0 && <span className="text-warning"> · sostituite da quelle del file</span>}
+    </Row>
+  );
+}
+
+function namesList(list: Teacher[]): string {
+  const names = list.map(teacherName);
+  return names.length <= 8 ? names.join(", ") : `${names.slice(0, 8).join(", ")} e altri ${names.length - 8}`;
+}
+
+function UpdateSedeDialog({
+  sedeId,
+  incoming,
+  fileName,
+  onClose,
+}: {
+  sedeId: string;
+  incoming: PersistedData;
+  fileName: string;
+  onClose: () => void;
+}) {
+  const store = useAppStore();
+  const data = snapshot(store);
+  const entry = allSedi(data).find((s) => s.id === sedeId);
+  const plan = planSedeUpdate(data, sedeId, incoming);
+  const matches = plan?.matches ?? [];
+  const [linked, setLinked] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(matches.map((m) => [m.incoming.id, true])),
+  );
+  if (!entry || !plan) return null;
+  const name = sedeName(entry.data.settings);
+  const fileSede = sedeName(pickSede(incoming).settings);
+  const otherName = fileSede.trim().toLowerCase() !== name.trim().toLowerCase();
+  const several = (incoming.altreSedi?.length ?? 0) > 0;
+  const { before, after } = plan;
+  const lost = (k: keyof SedeStats) => before[k] > 0;
+
+  function exportBackup() {
+    void shareOrSave(
+      `gestione-docenti-backup-${store.selectedDate}.json`,
+      backupJson(snapshot(store)),
+      "application/json",
+    ).then((outcome) => toastSave(outcome, "backup"));
+  }
+
+  function confirm() {
+    const links = matches
+      .filter((m) => linked[m.incoming.id])
+      .map((m) => ({ incomingId: m.incoming.id, sedeId: m.matches[0]!.sedeId, teacherId: m.matches[0]!.teacher.id }));
+    const prev = store.updateSedeFromBackup(sedeId, incoming, links);
+    toast.success(`Sede «${name}» aggiornata da ${fileName}`, {
+      action: { label: "Annulla", onClick: () => useAppStore.getState().importData(prev, prev.importedBackupName) },
+    });
+    onClose();
+  }
+
+  const otherSedi = (t: Teacher) =>
+    matches
+      .find((m) => m.incoming.id === t.id)
+      ?.matches.map((x) => x.sedeName)
+      .join(", ");
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader className="sticky top-0 z-10 mb-0 bg-popover pb-4">
+          <DialogTitle>Aggiorna «{name}» da backup</DialogTitle>
+          <DialogDescription>
+            Il contenuto della sede viene sostituito con quello del file: classi, docenti, orario, orari salvati,
+            campanella, assenze e sostituzioni. Restano il nome, il posto, il colore e, se il file non ne indica uno,
+            il responsabile.
+            {several ? " Il backup contiene più sedi: prendo solo quella che era in uso." : ""}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-3">
+          {otherName && (
+            <p className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-[13px] text-warning">
+              Il file è della sede «{fileSede}», non di «{name}»: controlla di aver scelto il file giusto.
+            </p>
+          )}
+          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+            {statRow("Classi", before.classes, after.classes)}
+            {statRow("Docenti", before.teachers, after.teachers)}
+            {statRow("Ore di lezione", before.lessons, after.lessons)}
+            {statRow("Assenze", before.absences, after.absences, lost("absences"))}
+            {statRow("Sostituzioni", before.substitutions, after.substitutions, lost("substitutions"))}
+          </dl>
+          {plan.added.length > 0 && (
+            <p className="text-[13px]">
+              <span className="font-medium">Docenti nuovi ({plan.added.length}):</span>{" "}
+              <span className="text-muted-foreground">{namesList(plan.added)}</span>
+            </p>
+          )}
+          {plan.removed.length > 0 && (
+            <p className="text-[13px]">
+              <span className="font-medium">Non più in questa sede ({plan.removed.length}):</span>{" "}
+              <span className="text-muted-foreground">{namesList(plan.removed)}</span>
+            </p>
+          )}
+          {matches.length > 0 && (
+            <div>
+              <h3 className="text-sm font-medium">Docenti nuovi già presenti in altre sedi</h3>
+              <p className="mt-0.5 text-[13px] text-muted-foreground">
+                Stesso cognome e nome: se è la stessa persona, l’app la tratta come docente in comune (× automatiche e
+                ora di spostamento). Togli la spunta se è un omonimo.
+              </p>
+              <ul className="mt-2 flex flex-col gap-1">
+                {matches.map((m) => (
+                  <li key={m.incoming.id}>
+                    <label className="flex min-h-10 items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        className="size-4 accent-primary"
+                        checked={Boolean(linked[m.incoming.id])}
+                        onChange={(e) => setLinked((all) => ({ ...all, [m.incoming.id]: e.target.checked }))}
+                      />
+                      <span className="font-medium">{teacherName(m.incoming)}</span>
+                      <span className="text-muted-foreground">· anche a {otherSedi(m.incoming)}</span>
+                    </label>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <p className="text-[13px] text-muted-foreground">
+            I docenti con lo stesso cognome e nome restano gli stessi, anche per le altre sedi. Le altre sedi non
+            cambiano. Se ci ripensi, subito dopo trovi «Annulla»; per sicurezza puoi salvare prima un backup di tutto.
+          </p>
+          <div className="sticky bottom-0 z-10 flex flex-wrap items-center gap-2 border-t border-border bg-popover pt-3">
+            <Button variant="outline" className="w-full sm:mr-auto sm:w-auto" onClick={exportBackup}>
+              <FileDown aria-hidden />
+              Esporta backup
+            </Button>
+            <div className="flex w-full justify-end gap-2 sm:w-auto">
+              <Button variant="outline" onClick={onClose}>
+                Annulla
+              </Button>
+              <Button onClick={confirm}>Aggiorna sede</Button>
+            </div>
           </div>
         </div>
       </DialogContent>
