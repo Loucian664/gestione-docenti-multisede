@@ -594,7 +594,7 @@ function minutes(hhmm: string | undefined): number | null {
 }
 
 /** Due ore di campanelle diverse si toccano se i loro orari si sovrappongono (senza orari: stessa ora). */
-function overlaps(a: Period, b: Period): boolean {
+export function overlaps(a: Period, b: Period): boolean {
   const as = minutes(a.start);
   const ae = minutes(a.end);
   const bs = minutes(b.start);

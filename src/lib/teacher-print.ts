@@ -10,9 +10,3 @@ export function teacherSheetName(
   if (parts.length > 1) return `${last} ${parts.map((p) => p.charAt(0)).join("")}`;
   return `${last} ${(parts[0] ?? "").slice(0, 3)}`;
 }
-
-export function teacherPdfFileName(t: { lastName: string; firstName: string }): string {
-  const raw = `${t.lastName}-${t.firstName}`.normalize("NFD").replace(/\p{M}/gu, "");
-  const slug = raw.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "docente";
-  return `orario-${slug}.pdf`;
-}

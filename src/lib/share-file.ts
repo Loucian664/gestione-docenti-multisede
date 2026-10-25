@@ -173,7 +173,7 @@ export async function shareOrSaveFile(file: File): Promise<SaveOutcome> {
 
 export function toastSave(
   outcome: SaveOutcome,
-  kind: "excel" | "backup" | "copy" | "pdf" | "image" | "zip",
+  kind: "excel" | "backup" | "copy" | "pdf" | "image",
 ): void {
   if (outcome === "cancelled") return;
   if (outcome === "shared") {
@@ -184,9 +184,7 @@ export function toastSave(
           ? "PDF aperto in una nuova scheda: da lì puoi salvare o stampare"
           : kind === "image"
             ? "Scegli Foto, File o Mail"
-            : kind === "zip"
-              ? "Scegli dove salvare lo zip"
-              : "Scegli Excel, Numbers o File",
+            : "Scegli Excel, Numbers o File",
     );
     return;
   }
@@ -198,9 +196,7 @@ export function toastSave(
           ? "PDF scaricato: aprilo per stampare o salvare"
           : kind === "image"
             ? "Foto salvata"
-            : kind === "zip"
-              ? "Zip scaricato"
-              : "File Excel scaricato",
+            : "File Excel scaricato",
     );
     return;
   }
@@ -214,10 +210,6 @@ export function toastSave(
   }
   if (kind === "pdf") {
     toast.error("Non sono riuscito a salvare. Prova Apri PDF.");
-    return;
-  }
-  if (kind === "zip") {
-    toast.error("Non sono riuscito a salvare lo zip.");
     return;
   }
   toast.error("Esportazione non riuscita. Prova Copia foglio.");

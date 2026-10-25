@@ -22,6 +22,8 @@ import { teacherSheetName } from "./teacher-print";
 import { classCellLesson, sideMark } from "./class-grid";
 import { trialLabel } from "./saved-timetables";
 import { mergedAbbr, mergedUpper } from "./subject-groups";
+import { personCellKey, personSheets } from "./docenti-sedi";
+import { sedeColor } from "./teacher-palette";
 
 
 const PAPER = "#F3EFE6";
@@ -758,12 +760,13 @@ function drawSheetHeading(
   width: number,
   pad: number,
   title: string,
+  plesso = plessoHeading(data),
 ) {
   ctx.fillStyle = "#111";
   ctx.textAlign = "center";
   ctx.textBaseline = "alphabetic";
   ctx.font = "600 12px 'Source Sans 3', system-ui, sans-serif";
-  ctx.fillText(plessoHeading(data), width / 2, pad + 14);
+  ctx.fillText(plesso, width / 2, pad + 14);
   ctx.font = "700 15px 'Source Sans 3', system-ui, sans-serif";
   // un orario di prova (slot 1–5) non si scambia per quello in vigore
   const trial = trialLabel(data);
@@ -1488,6 +1491,215 @@ export async function eccedenteJpegs(
         });
       });
     }
+    out.push({ blob: await canvasToJpeg(canvas), w: canvas.width, h: canvas.height });
+  }
+  return out;
+}
+
+function joinNames(names: string[]): string {
+  if (names.length <= 1) return names[0] ?? "";
+  return `${names.slice(0, -1).join(", ")} e ${names[names.length - 1]}`;
+}
+
+/** Scrive il testo al centro restringendo il carattere (poi con «…») se non sta nella larghezza. */
+function fillFitted(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  cx: number,
+  cy: number,
+  maxW: number,
+  weight: number,
+  size: number,
+  color = "#111",
+) {
+  let s = size;
+  let t = text;
+  ctx.font = `${weight} ${s}px 'Source Sans 3', system-ui, sans-serif`;
+  while (ctx.measureText(t).width > maxW && s > 7) {
+    s -= 0.5;
+    ctx.font = `${weight} ${s}px 'Source Sans 3', system-ui, sans-serif`;
+  }
+  while (ctx.measureText(t).width > maxW && t.length > 1) t = `${t.slice(0, -2).trimEnd()}…`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = color;
+  ctx.fillText(t, cx, cy + 0.6);
+}
+
+/**
+ * Un foglio A4 orizzontale per ogni persona in orario, con le ore di tutte le sedi dove lavora (campanella della
+ * sede con più ore, le altre riportate per orario). Chi insegna in più sedi ha le caselle del colore della sede,
+ * come nell'orario del docente: il nome della sede in alto, la classe al centro, la materia in basso. Chi
+ * insegna in una sede sola ha solo classe e materia.
+ */
+export async function orariDocentiJpegs(data: PersistedData): Promise<{ blob: Blob; w: number; h: number }[]> {
+  await document.fonts.ready.catch(() => undefined);
+  const days = data.settings.days;
+  const sheets = personSheets(data);
+  const pageW = 842;
+  const pageH = 595;
+  const pad = 14;
+  const titleH = 92;
+  const headH = 22;
+  const lineH = 15;
+  const hourW = 28;
+  const tableW = pageW - pad * 2;
+  const colW = (tableW - hourW) / Math.max(1, days.length);
+  // legenda delle sedi su due colonne
+  const legendCols = 2;
+  const legendW = (tableW - 24) / legendCols;
+  const dpr = SHEET_DPR;
+  const font = (weight: number, size: number) => `${weight} ${size}px 'Source Sans 3', system-ui, sans-serif`;
+  const out: { blob: Blob; w: number; h: number }[] = [];
+
+  for (const sheet of sheets) {
+    const multi = sheet.sedi.length > 1;
+    // altezza di ogni ora: si stringe con le ore (mensa, 7ª, 8ª) e con le righe della legenda
+    const footLines = 1 + (multi ? Math.ceil(sheet.sedi.length / legendCols) : 0) + (sheet.unplaced > 0 ? 1 : 0);
+    const footH = 16 + lineH * footLines + 8;
+    const rowH = Math.min(64, Math.floor((pageH - pad * 2 - titleH - headH - footH) / Math.max(1, sheet.periods.length)));
+    const k = Math.max(0.78, Math.min(1, rowH / 52));
+    const edge = Math.max(7, Math.min(14, rowH * 0.18));
+    const colorOf = (sedeId: string, tone: 0 | 2) =>
+      sedeColor(sheet.sedi.find((s) => s.id === sedeId)?.index ?? 0, tone);
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(pageW * dpr);
+    canvas.height = Math.round(pageH * dpr);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("canvas");
+    ctx.scale(dpr, dpr);
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, pageW, pageH);
+
+    const names = sheet.sedi.map((s) => s.name);
+    const plesso = names.length === 0 ? undefined : `${multi ? "Plessi" : "Plesso"} di ${joinNames(names)}`;
+    drawSheetHeading(ctx, data, pageW, pad, "ORARIO SETTIMANALE DELLE LEZIONI", plesso);
+    ctx.fillStyle = "#111";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "alphabetic";
+    ctx.font = font(700, 14);
+    ctx.fillText(`${sheet.lastName} ${sheet.firstName}`.trim().toUpperCase(), pageW / 2, pad + 76);
+
+    const x0 = pad;
+    const headY = pad + titleH;
+    const box = (x: number, y: number, w: number, h: number) => {
+      ctx.strokeStyle = "#111";
+      ctx.lineWidth = 0.7;
+      ctx.strokeRect(x, y, w, h);
+    };
+
+    box(x0, headY, hourW, headH);
+    fillCentered(ctx, "H", x0 + hourW / 2, headY + headH / 2, font(700, 10));
+    days.forEach((d, i) => {
+      box(x0 + hourW + i * colW, headY, colW, headH);
+      fillCentered(ctx, dayNameUpper(d), x0 + hourW + (i + 0.5) * colW, headY + headH / 2, font(700, 10));
+    });
+
+    sheet.periods.forEach((p, ri) => {
+      const y = headY + headH + ri * rowH;
+      box(x0, y, hourW, rowH);
+      fillCentered(ctx, hourMark(p), x0 + hourW / 2, y + rowH / 2, font(700, 11));
+      days.forEach((d, i) => {
+        const cell = sheet.cells.get(personCellKey(d, p.id));
+        const x = x0 + hourW + i * colW;
+        if (cell?.kind === "away") {
+          ctx.fillStyle = "#e4e1da";
+          ctx.fillRect(x, y, colW, rowH);
+        } else if (cell && multi) {
+          ctx.fillStyle = colorOf(cell.sedeId, cell.kind === "lesson" ? 2 : 0);
+          ctx.fillRect(x, y, colW, rowH);
+        }
+        box(x, y, colW, rowH);
+        if (!cell) return;
+        const cx = x + colW / 2;
+        const cy = y + rowH / 2;
+        const maxW = colW - 12;
+        if (cell.kind === "away") {
+          fillFitted(ctx, "Altro plesso", cx, cy, maxW, 600, 10, "#4a4a4a");
+          return;
+        }
+        if (multi) {
+          const name = sheet.sedi.find((s) => s.id === cell.sedeId)?.name ?? "";
+          fillFitted(ctx, name, cx, y + edge, maxW, 600, 9.5 * k, "#2b2b2b");
+        }
+        if (cell.kind === "disp") {
+          fillFitted(ctx, "A DISPOSIZIONE", cx, cy + (multi ? 3 : 0), maxW, 600, 10 * k);
+        } else if (cell.kind === "mensa") {
+          fillFitted(ctx, "MENSA", cx, cy + (multi ? 3 : 0), maxW, 600, 10 * k);
+        } else if (multi) {
+          fillFitted(ctx, cell.cls, cx, cy, maxW, 700, 14 * k);
+          fillFitted(ctx, schoolSubjectLabel(cell.subject), cx, y + rowH - edge, maxW, 600, 10 * k);
+        } else {
+          fillFitted(ctx, cell.cls, cx, cy - 8, maxW, 700, 13);
+          fillFitted(ctx, schoolSubjectLabel(cell.subject), cx, cy + 9, maxW, 600, 10);
+        }
+      });
+    });
+
+    const lessons = sheet.sedi.reduce((n, s) => n + s.lessons, 0);
+    const disp = sheet.sedi.reduce((n, s) => n + s.disp, 0);
+    const fy = headY + headH + sheet.periods.length * rowH + 12;
+    ctx.strokeStyle = "#111";
+    ctx.lineWidth = 0.7;
+    ctx.beginPath();
+    ctx.moveTo(x0, fy);
+    ctx.lineTo(x0 + tableW, fy);
+    ctx.stroke();
+    ctx.textAlign = "left";
+    ctx.textBaseline = "alphabetic";
+    let ly = fy + 16;
+    let fx = x0;
+    const caption = (label: string, value: string) => {
+      ctx.fillStyle = "#111";
+      ctx.font = font(700, 10);
+      ctx.fillText(label, fx, ly);
+      fx += ctx.measureText(label).width + 5;
+      ctx.fillStyle = "#444";
+      ctx.font = font(500, 10);
+      ctx.fillText(value, fx, ly);
+      fx += ctx.measureText(value).width + 16;
+    };
+    caption("Ore di lezione", String(lessons));
+    if (disp > 0) caption("Ore a disposizione", String(disp));
+    if (!multi) {
+      const classes = sheet.sedi[0]?.classes ?? [];
+      if (classes.length > 0) caption("Classi", classes.join(" · "));
+    } else {
+      const firstLegendY = ly;
+      sheet.sedi.forEach((s, i) => {
+        const col = i % legendCols;
+        const row = Math.floor(i / legendCols);
+        const lx = x0 + col * (legendW + 24);
+        const yy = firstLegendY + lineH * (row + 1);
+        ctx.fillStyle = sedeColor(s.index, 2);
+        ctx.fillRect(lx, yy - 9, 12, 12);
+        ctx.strokeStyle = "#111";
+        ctx.lineWidth = 0.7;
+        ctx.strokeRect(lx, yy - 9, 12, 12);
+        ctx.textAlign = "left";
+        ctx.fillStyle = "#111";
+        ctx.font = font(700, 10);
+        ctx.fillText(s.name, lx + 18, yy);
+        const w = ctx.measureText(s.name).width + 23;
+        let rest = `${s.lessons} ${s.lessons === 1 ? "ora" : "ore"}${s.classes.length ? ` · Classi ${s.classes.join(" · ")}` : ""}`;
+        ctx.font = font(500, 10);
+        while (ctx.measureText(rest).width > legendW - w && rest.length > 8) rest = `${rest.slice(0, -2).trimEnd()}…`;
+        ctx.fillStyle = "#444";
+        ctx.fillText(rest, lx + w, yy);
+      });
+      ly = firstLegendY + lineH * Math.ceil(sheet.sedi.length / legendCols);
+    }
+    if (sheet.unplaced > 0) {
+      ly += lineH;
+      ctx.fillStyle = "#444";
+      ctx.font = font(500, 10);
+      ctx.fillText(
+        `${sheet.unplaced} ${sheet.unplaced === 1 ? "ora" : "ore"} non riportate: le campanelle delle sedi sono diverse.`,
+        x0,
+        ly,
+      );
+    }
+
     out.push({ blob: await canvasToJpeg(canvas), w: canvas.width, h: canvas.height });
   }
   return out;
