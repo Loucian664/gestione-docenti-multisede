@@ -6,10 +6,8 @@ import { ABSENCE_REASONS, SUBSTITUTION_TYPES } from "./types";
 import { classTimetableSheet, XLSX_S } from "./class-grid";
 import { trialFileTag } from "./saved-timetables";
 import { xlsxFile, xlsxSpecFile, xlsxWorkbookFile, XLSX_GRID_DAY, XLSX_GRID_TEXT, type XlsxCellInput } from "./xlsx";
-import { jpegBlobToPdf, jpegsToPdf } from "./pdf";
-import { orarioTeacherJpeg, teachersOnTimetable, eccedenteJpegs } from "./sheet-image";
-import { teacherPdfFileName } from "./teacher-print";
-import { zipFile } from "./zip";
+import { jpegsToPdf } from "./pdf";
+import { orariDocentiJpegs, eccedenteJpegs } from "./sheet-image";
 
 function typeLabel(t: SubstitutionType | null, short = false): string {
   if (!t || isShiftType(t)) return "";
@@ -568,17 +566,11 @@ export function parseBackupJson(raw: string): PersistedData {
   };
 }
 
-export async function docentiPdfZip(data: PersistedData): Promise<File> {
-  const teachers = teachersOnTimetable(data);
-  if (teachers.length === 0) throw new Error("nessun docente in orario");
-  const entries: { name: string; data: Uint8Array }[] = [];
-  for (const t of teachers) {
-    const jpeg = await orarioTeacherJpeg(data, t.id);
-    const pdf = await jpegBlobToPdf(jpeg);
-    entries.push({
-      name: teacherPdfFileName(t),
-      data: new Uint8Array(await pdf.arrayBuffer()),
-    });
-  }
-  return zipFile(orarioDownloadName(data.settings.schoolName, `orari-docenti${trialFileTag(data)}`, "zip"), entries);
+export async function docentiPdf(data: PersistedData): Promise<Blob> {
+  const pages = await orariDocentiJpegs(data);
+  if (pages.length === 0) throw new Error("nessun docente in orario");
+  const images = await Promise.all(
+    pages.map(async (page) => ({ jpeg: new Uint8Array(await page.blob.arrayBuffer()), w: page.w, h: page.h })),
+  );
+  return jpegsToPdf(images);
 }

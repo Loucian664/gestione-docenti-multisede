@@ -22,8 +22,8 @@ import {
 import { SubjectSelect } from "@/components/subject-select";
 import { DAY_SHORT, type DayOfWeek } from "@/lib/types";
 import { toSchoolDay } from "@/lib/dates";
-import { Download, Images as ImageIcon, FileText, Archive, BookOpen, LayoutGrid, Users, StretchHorizontal } from "lucide-react";
-import { docentiPdfZip, schoolFileTag, timetableXlsx } from "@/lib/export";
+import { Download, Images as ImageIcon, FileText, User, BookOpen, LayoutGrid, Users, StretchHorizontal } from "lucide-react";
+import { docentiPdf, schoolFileTag, timetableXlsx } from "@/lib/export";
 import { shareJpeg, shareOrSaveFile, toastSave, openPdfTab } from "@/lib/share-file";
 import { jpegBlobToPdf } from "@/lib/pdf";
 import {
@@ -341,18 +341,20 @@ function OrarioPage() {
                 variant="outline"
                 className="col-span-3 h-9 min-w-0 w-full px-1.5 text-[12px] md:h-8 md:w-auto md:px-3 md:text-[13px]"
                 onClick={() => {
-                  toast.message("Preparo lo zip dei PDF…");
+                  const tab = openPdfTab();
+                  toast.message("Preparo il PDF dei docenti…");
                   void (async () => {
                     try {
-                      const file = await docentiPdfZip(data);
-                      toastSave(await shareOrSaveFile(file), "zip");
+                      const pdf = await docentiPdf(data);
+                      toastSave(tab.show(`${fileStem("orario-docenti")}.pdf`, pdf), "pdf");
                     } catch {
-                      toast.error("Non sono riuscito a creare lo zip dei docenti.");
+                      tab.cancel();
+                      toast.error("Non sono riuscito a creare il PDF dei docenti.");
                     }
                   })();
                 }}
               >
-                <Archive />
+                <User />
                 PDF docenti
               </Button>
             </div>
