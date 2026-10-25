@@ -267,13 +267,8 @@ async function paintExcelGrid(opts: {
       const x = x0 + hourW + i * colW;
       stroke(x, y, colW, rowH);
       if (cell.disp) {
-        ctx.fillStyle = "#111";
-        ctx.fillRect(x + 0.5, y + 0.5, colW - 1, rowH - 1);
-        ctx.fillStyle = "#fff";
-        ctx.font = "700 16px 'Source Sans 3', system-ui, sans-serif";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText("D", x + colW / 2, y + rowH / 2);
+        // ora a disposizione: casella senza riempimento, solo il testo (come nel PDF docenti)
+        fillCentered(ctx, "A DISPOSIZIONE", x + colW / 2, y + rowH / 2);
         return;
       }
       const lines = (cell.lines ?? []).filter(Boolean);
