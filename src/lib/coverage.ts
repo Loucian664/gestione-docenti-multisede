@@ -253,7 +253,11 @@ export type SubstituteBucket =
   | "senza-orario"
   | "sostegno"
   | "impegnato"
-  | "non-in-sede";
+  | "non-in-sede"
+  /** potenziamento non in servizio in quell'ora: va avvisato di spostare l'orario */
+  | "fuori-orario"
+  /** ora segnata altrove o in un progetto: non chiamabile */
+  | "altrove";
 
 export type RankedSubstitute = {
   teacher: Teacher;
@@ -302,6 +306,34 @@ export function isDispHour(
   return (teacher.dispSlots ?? []).some((a) => a.day === day && a.periodId === periodId);
 }
 
+/** L'ora segnata «altrove» o «progetto»: il docente non è a scuola e non si chiama per le sostituzioni. */
+export function awayAt(
+  teacher: Teacher,
+  day: DayOfWeek,
+  periodId: string,
+): { progetto: boolean } | null {
+  const hit = (teacher.awaySlots ?? []).find((a) => a.day === day && a.periodId === periodId);
+  return hit ? { progetto: Boolean(hit.progetto) } : null;
+}
+
+/**
+ * Il potenziamento in quel giorno: prima e ultima ora di servizio (lezioni e ore in sede).
+ * Fuori da queste ore va avvisato di spostare l'orario.
+ */
+function serviceWindow(
+  data: PersistedData,
+  teacher: Teacher,
+  day: DayOfWeek,
+): { first: number; last: number } | null {
+  const lessons = teacherDayWindow(data, teacher.id, day);
+  const indexes = (teacher.dispSlots ?? [])
+    .filter((a) => a.day === day)
+    .map((a) => periodIndex(data, a.periodId));
+  if (lessons) indexes.push(lessons.first, lessons.last);
+  if (indexes.length === 0) return null;
+  return { first: Math.min(...indexes), last: Math.max(...indexes) };
+}
+
 export function presenceFor(
   data: PersistedData,
   teacherId: string,
@@ -341,6 +373,7 @@ export function freeTeachers(
     if (alreadyUsed.has(t.id) || covering.has(t.id)) return false;
     if (busy.has(t.id) && t.role !== "potenziamento") return false;
     if (isTeacherAbsent(data, t.id, date, periodId)) return false;
+    if (awayAt(t, day, periodId)) return false;
     return true;
   });
 }
@@ -442,6 +475,8 @@ const BUCKET_ORDER: Record<SubstituteBucket, number> = {
   impegnato: 7,
   sostegno: 8,
   "non-in-sede": 9,
+  "fuori-orario": 10,
+  altrove: 11,
 };
 
 export function rankSubstitutes(
@@ -506,6 +541,12 @@ export function rankSubstitutes(
         score -= 80;
         reasons.push("Assente");
         inferredType = "eccedente";
+      } else if (awayAt(teacher, day, need.slot.periodId)) {
+        bucket = "altrove";
+        onSite = false;
+        score -= 100;
+        reasons.push(awayAt(teacher, day, need.slot.periodId)!.progetto ? "In progetto" : "Altrove");
+        inferredType = "eccedente";
       } else if (isSostegno && occupyingHere) {
         bucket = "sostegno-qui";
         onSite = true;
@@ -545,6 +586,28 @@ export function rankSubstitutes(
         score += 95;
         reasons.push("Ora a disposizione");
         inferredType = "disposizione";
+      } else if (teacher.role === "potenziamento" && !occupation) {
+        bucket = "fuori-orario";
+        onSite = false;
+        score += 20;
+        inferredType = "potenziamento";
+        const sw = serviceWindow(data, teacher, day);
+        if (!sw) {
+          reasons.push("Oggi non in servizio");
+        } else if (idx === sw.first - 1) {
+          reasons.push("Entrerebbe un’ora prima");
+        } else if (idx === sw.last + 1) {
+          reasons.push("Uscirebbe un’ora dopo");
+        } else if (idx > sw.first && idx < sw.last) {
+          reasons.push("Ora libera tra le sue ore");
+        } else {
+          reasons.push(
+            sw.first === sw.last
+              ? `In servizio solo alla ${periodLabel(data, sw.first)}`
+              : `In servizio dalla ${periodLabel(data, sw.first)} alla ${periodLabel(data, sw.last)}`,
+          );
+        }
+        reasons.unshift("Da avvisare");
       } else if (hole) {
         onSite = true;
         bucket = "buco";
@@ -579,8 +642,6 @@ export function rankSubstitutes(
         if (occupyingElse) {
           busyLabel = `Richiamabile da ${clsElse?.name ?? "altra classe"}`;
           reasons.push(busyLabel);
-        } else if (!win) {
-          reasons.push("Potenziamento sempre disponibile");
         } else {
           reasons.push(presence.label);
         }
@@ -677,7 +738,8 @@ export function autoAssignPlan(data: PersistedData, date: string): Substitution[
         !used.has(r.teacher.id) &&
         !r.alreadyCovering &&
         r.teacher.role !== "sostegno" &&
-        (r.bucket === "buco" ||
+        (r.bucket === "disp" ||
+          r.bucket === "buco" ||
           r.bucket === "pre-post" ||
           r.bucket === "potenziamento" ||
           r.bucket === "in-sede"),

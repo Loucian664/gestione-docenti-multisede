@@ -213,7 +213,7 @@ export function buildInsieme(data: PersistedData): { joint: InsiemeData; map: In
       dayPattern: multi ? undefined : first.t.dayPattern,
     };
     if (multi) {
-      sedeAway[key] = recs.flatMap((r) => cells(r, r.t.awaySlots).map((a) => ({ s: r.si, day: a.day, periodId: a.periodId })));
+      sedeAway[key] = recs.flatMap((r) => cells(r, r.t.awaySlots).map((a) => ({ s: r.si, day: a.day, periodId: a.periodId, ...(a.progetto && { progetto: true }) })));
       // ore a disposizione di ogni sede: lì il docente è a scuola (la giornata si conta come nell'app di quella sede)
       sedeDisp[key] = recs.map((r) => ({
         s: r.si,

@@ -17,7 +17,7 @@ describe("personSheets", () => {
     assert.equal(s.sedi.length, 2);
     assert.deepEqual(s.sedi.map((x) => x.lessons), [12, 6]);
     assert.equal(s.unplaced, 0);
-    const bySede = new Set([...s.cells.values()].flatMap((c) => (c.kind === "away" ? [] : [c.sedeId])));
+    const bySede = new Set([...s.cells.values()].flatMap((c) => ("sedeId" in c ? [c.sedeId] : [])));
     assert.equal(bySede.size, 2);
     // le ore del foglio sono tutte e solo quelle delle due sedi
     assert.equal([...s.cells.values()].filter((c) => c.kind === "lesson").length, 18);
