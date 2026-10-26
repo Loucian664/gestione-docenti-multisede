@@ -1693,6 +1693,8 @@ function Ritocchi({
   }, [details]);
   const wide = useWide();
   const showDetails = details || wide;
+  /** sul telefono (dettagli chiusi), prima di uno spostamento vietato: cosa non rispetta e cosa peggiora */
+  const [confirmBreak, setConfirmBreak] = useState(false);
 
   const findJob = find?.job ?? null;
   const findDone = Boolean(find?.result);
@@ -1733,10 +1735,10 @@ function Ritocchi({
   );
   const whoNow = useMemo(
     () =>
-      showDetails && sel && target !== null && effect
+      (showDetails || confirmBreak) && sel && target !== null && effect
         ? editor.whoChanges([{ classId: sel.classId, from: sel.z, to: target }])
         : null,
-    [editor, sel, target, effect, showDetails],
+    [editor, sel, target, effect, showDetails, confirmBreak],
   );
   const selLesson = sel ? editor.lessonAt(sel.classId, sel.z) : null;
   const selTeacher = selLesson ? tById.get(selLesson.teacherId) : undefined;
@@ -2426,7 +2428,7 @@ function Ritocchi({
                     size="sm"
                     className="shrink-0"
                     variant={effect.verdict === "breaks" ? "outline" : "default"}
-                    onClick={move}
+                    onClick={() => (effect.verdict === "breaks" && !showDetails ? setConfirmBreak(true) : move())}
                   >
                     {effect.verdict === "breaks" ? "Sposta lo stesso" : tgtLesson ? "Scambia" : "Sposta"}
                   </Button>
@@ -2440,6 +2442,38 @@ function Ritocchi({
                     <EffectLines effect={effect} who={whoNow} nameOf={nameOf} />
                   </div>
                 )}
+                <Dialog
+                  open={confirmBreak && effect.verdict === "breaks"}
+                  onOpenChange={(open) => !open && setConfirmBreak(false)}
+                >
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Spostare lo stesso?</DialogTitle>
+                      <DialogDescription>
+                        {selLesson.subject}, {cells[sel.z]?.label} → {cells[target]?.label}. Lo spostamento è vietato: ecco
+                        cosa non rispetta e cosa peggiora.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="flex flex-col gap-1 text-[13px] leading-snug">
+                      {issues.length > 0 && <p className="text-destructive">Non rispetta: {issues.join("; ")}.</p>}
+                      <EffectLines effect={effect} who={whoNow} nameOf={nameOf} />
+                    </div>
+                    <div className="flex flex-wrap justify-end gap-2 pt-1">
+                      <Button variant="outline" onClick={() => setConfirmBreak(false)}>
+                        Annulla
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        onClick={() => {
+                          setConfirmBreak(false);
+                          move();
+                        }}
+                      >
+                        Sposta lo stesso
+                      </Button>
+                    </div>
+                  </DialogContent>
+                </Dialog>
               </>
             ) : (
               <>
@@ -2481,6 +2515,7 @@ function HowItWorks() {
         "Rispetta le ore al giorno scelte per un docente",
         "Non sposta le ore bloccate",
         "Lascia un’ora per spostarsi tra due plessi",
+        "Al massimo un cambio di plesso al giorno: mai avanti e indietro (qui → altrove → qui)",
         "Al massimo un’ora libera tra le lezioni di un giorno, buca o a disposizione (2 per chi le accetta, nessuna buca per chi non le accetta)",
         "Mai dalla 1ª alla 6ª con 2 ore buche",
       ],
@@ -3943,6 +3978,7 @@ function hardCount(r: TimetableReport): number {
     h.conflicts.length +
     h.away.length +
     h.travel.length +
+    h.shuttle.length +
     h.no.length +
     h.longGaps.length +
     h.rientro.length +
@@ -4084,6 +4120,7 @@ function ReportDetails({ r }: { r: TimetableReport }) {
     ...r.hard.conflicts,
     ...r.hard.away,
     ...r.hard.travel,
+    ...r.hard.shuttle,
     ...r.hard.no,
     ...r.hard.longGaps,
     ...r.hard.rientro,

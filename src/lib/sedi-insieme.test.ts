@@ -291,6 +291,69 @@ describe("tutte le sedi insieme", () => {
     assert.ok(travel.cells?.some((c) => c.teacherId === fra && c.periodId === "j3"));
   });
 
+  it("al massimo un cambio di sede al giorno: un'andata e ritorno è un vincolo rigido", () => {
+    const base = buildSeed();
+    const fra = "P~p-esempio-fra";
+    const [idA, idB] = allSedi(base).map((s) => s.id) as [string, string];
+    const day = base.settings.days[0]!;
+    // nella prima sede una × (altrove, fuori dalle sedi) alla 3ª del lunedì
+    const d = editSede(base, idA, (s) => ({
+      ...s,
+      teachers: s.teachers.map((t) => (t.id === "t-fra-1" ? { ...t, awaySlots: [{ day, periodId: "p3" }] } : t)),
+    }));
+    const { joint } = buildInsieme(d);
+    const [nameA, nameB] = joint.insieme.sedi as [string, string];
+    const clsA = joint.slots.find((s) => s.teacherId === fra && s.classId.startsWith(`${idA}~`))!.classId;
+    const clsB = joint.slots.find((s) => s.teacherId === fra && s.classId.startsWith(`${idB}~`))!.classId;
+    const monday = (cells: [string, string][]): PersistedData => {
+      const taken = (s: TimetableSlot) => s.day === day && cells.some(([c, p]) => s.classId === c && s.periodId === p);
+      const slots = joint.slots.filter((s) => !(s.teacherId === fra && s.day === day) && !taken(s));
+      const add = ([classId, periodId]: [string, string]) => ({ id: `x-${classId}-${periodId}`, day, periodId, classId, teacherId: fra, subject: "Francese" });
+      return { ...joint, slots: [...slots, ...cells.map(add)] };
+    };
+    const back = (r: TimetableReport) => r.hard.shuttle.filter((x) => x.cells?.some((c) => c.teacherId === fra));
+    // prima sede, seconda e di nuovo la prima
+    const ab = back(evaluateCurrent(monday([[clsA, "j1"], [clsB, "j4"], [clsA, "j6"]])));
+    assert.equal(ab.length, 1);
+    assert.ok(ab[0]!.text.endsWith(`: ${nameA} → altrove → ${nameB} → ${nameA}`), ab[0]!.text);
+    // prima sede, altrove (×) e di nuovo la prima
+    const ax = back(evaluateCurrent(monday([[clsA, "j1"], [clsA, "j5"]])));
+    assert.equal(ax.length, 1);
+    assert.ok(ax[0]!.text.endsWith(`: ${nameA} → altrove → ${nameA}`), ax[0]!.text);
+    // la × della prima sede non vale nella seconda: lì niente andata e ritorno
+    assert.equal(back(evaluateCurrent(monday([[clsB, "j1"], [clsB, "j5"]]))).length, 0);
+    // un cambio solo: dalla prima sede alla seconda
+    assert.equal(back(evaluateCurrent(monday([[clsA, "j1"], [clsB, "j5"], [clsB, "j6"]]))).length, 0);
+  });
+
+  it("la ricerca su tutte le sedi non fa mai andata e ritorno (× a metà mattina in una sede)", () => {
+    const base = buildSeed();
+    const fra = "P~p-esempio-fra";
+    const [idA, idB] = allSedi(base).map((s) => s.id) as [string, string];
+    const days = base.settings.days.slice(0, 3);
+    const d = editSede(base, idA, (s) => ({
+      ...s,
+      teachers: s.teachers.map((t) => (t.id === "t-fra-1" ? { ...t, awaySlots: days.map((day) => ({ day, periodId: "p3" })) } : t)),
+    }));
+    const { joint, map } = buildInsieme(d);
+    for (const seed of [3, 7]) {
+      const res = solveTimetable(joint, { timeMs: 3000, seed, now: ticks() });
+      assert.equal(res.report.hard.shuttle.length, 0, res.report.hard.shuttle.map((x) => x.text).join("; "));
+      assert.equal(violations(d, splitInsieme(map, res.slots)).changes, 0);
+      // come la vede ogni sede: lì o altrove (l'altra sede, e nella prima la × alla 3ª), al massimo un cambio
+      for (const day of joint.settings.days)
+        for (const [mine, xs] of [[idA, days.includes(day) ? ["j3"] : []], [idB, []]] as [string, string[]][]) {
+          const seq: string[] = [];
+          for (const pid of ["j1", "j2", "j3", "j4", "j5", "j6"]) {
+            const at = res.slots.find((s) => s.teacherId === fra && s.day === day && s.periodId === pid);
+            const where = xs.includes(pid) ? "x" : !at ? "" : at.classId.startsWith(`${mine}~`) ? "qui" : "x";
+            if (where && seq[seq.length - 1] !== where) seq.push(where);
+          }
+          if (seq.includes("qui")) assert.ok(seq.length <= 2, `seed ${seed}, giorno ${day}, ${mine}: ${seq.join(" → ")}`);
+        }
+    }
+  });
+
   it("le ore a disposizione di chi è in più sedi restano nella loro sede, mai dove insegna altrove", () => {
     const base = buildSeed();
     const idB = allSedi(base)[1]!.id;

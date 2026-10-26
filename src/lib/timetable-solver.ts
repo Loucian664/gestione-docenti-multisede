@@ -3,7 +3,8 @@
  * Sistema solo le lezioni: le ore a disposizione le gestisce il responsabile.
  *
  * Vincoli rigidi (non si violano): nessun docente in due classi insieme, ore segnate altrove (×),
- * un'ora libera prima e dopo l'altro plesso, ore «no» (solo quell'ora, senza spostamento),
+ * un'ora libera prima e dopo l'altro plesso, al massimo un cambio di plesso al giorno (un'andata e
+ * ritorno, qui → altrove → qui, la ricerca non la accetta mai), ore «no» (solo quell'ora, senza spostamento),
  * obblighi di classe, rientro (prima della 4ª no), classi senza buchi in mezzo, ore al giorno
  * scelte per il docente (es. 4-4-4-3-3 in qualsiasi ordine; se ne sceglie più d'una, ne basta una),
  * ore bloccate (restano dove sono).
@@ -912,6 +913,8 @@ export type PeekResult = {
   classes: number[];
   /** giornate di docente in cui le ore a disposizione cambiano posto (bit = posizione) */
   disp: { t: number; d: number; before: number; after: number }[];
+  /** andate e ritorni tra plessi in più (> 0: la mossa non si propone) */
+  shuttle: number;
 };
 
 export type SolveProgress = {
@@ -963,6 +966,8 @@ export class TimetableSolver {
   tdCost: Float64Array;
   tdGaps: Int16Array;
   tdHard: Int32Array;
+  /** andate e ritorni tra plessi per giornata di docente (qui → altrove → qui): la ricerca non li accetta mai */
+  tdShuttle: Uint8Array;
   /** ore a scuola per giornata di docente (lezioni, pomeriggio, disposizioni segnate) */
   tdDuties: Int16Array;
   /** dove sono adesso le ore a disposizione del mattino, per giornata di docente (bit = posizione) */
@@ -994,6 +999,8 @@ export class TimetableSolver {
   private lastMixed = false;
   /** l'ultima giornata calcolata: vincoli tra sedi non rispettati */
   private lastSedeHard = 0;
+  /** l'ultima giornata calcolata di un docente in più sedi: andate e ritorni (vedi viewsShuttle) */
+  private lastSedeShuttle = 0;
   /** l'ultima giornata calcolata, una per sede: dalla 1ª alla 6ª, 6 e 5 lezioni, 2+ buche, un'ora sola */
   private lastSpanN = 0;
   private lastSixN = 0;
@@ -1067,6 +1074,7 @@ export class TimetableSolver {
   private uTD: Float64Array;
   private uTDg: Int16Array;
   private uTDh: Int32Array;
+  private uTDs: Uint8Array;
   private uTDd: Int16Array;
   private uTDdisp: Uint32Array;
   private uT: Float64Array;
@@ -1115,6 +1123,7 @@ export class TimetableSolver {
     this.tdCost = new Float64Array(T * D);
     this.tdGaps = new Int16Array(T * D);
     this.tdHard = new Int32Array(T * D);
+    this.tdShuttle = new Uint8Array(T * D);
     this.tdDuties = new Int16Array(T * D);
     this.tdDisp = new Uint32Array(T * D);
     this.twCost = new Float64Array(T);
@@ -1148,6 +1157,7 @@ export class TimetableSolver {
     this.uTD = new Float64Array(cap);
     this.uTDg = new Int16Array(cap);
     this.uTDh = new Int32Array(cap);
+    this.uTDs = new Uint8Array(cap);
     this.uTDd = new Int16Array(cap);
     this.uTDdisp = new Uint32Array(cap);
     this.uT = new Float64Array(cap);
@@ -1262,6 +1272,8 @@ export class TimetableSolver {
       const t = p.unitTeacher[u]!;
       const options: number[] = [];
       const fallback: number[] = [];
+      // un'andata e ritorno tra plessi solo se non c'è proprio altro posto (poi la ricerca la toglie)
+      const shuttle: number[] = [];
       for (let cell = 0; cell < DM; cell++) {
         if (this.grid[c * DM + cell] !== -1) continue;
         const d = (cell / M) | 0;
@@ -1272,9 +1284,9 @@ export class TimetableSolver {
           this.tOcc[k] === 0 &&
           !(p.rientro[t * D + d] && p.pIndex[pos]! < 4) &&
           !(p.nSedi > 1 && (p.sedeUnavail[k]! >>> p.classSede[c]!) & 1);
-        (ok ? options : fallback).push(cell);
+        (this.addsShuttle(t, d, pos, c) ? shuttle : ok ? options : fallback).push(cell);
       }
-      const list = options.length ? options : fallback;
+      const list = options.length ? options : fallback.length ? fallback : shuttle;
       if (!list.length) continue;
       this.placeUnit(u, list[(this.rnd() * list.length) | 0]!);
     }
@@ -1806,6 +1818,7 @@ export class TimetableSolver {
       if (du === 1) single += 1;
     }
     this.lastSedeHard = n ? this.sedeHardOf(t, d) : 0;
+    this.lastSedeShuttle = n ? this.viewsShuttle() : 0;
     if (mixed) {
       cost += p.mixedW;
       if (mixedSingle) cost += W.mixedSingle;
@@ -1827,7 +1840,7 @@ export class TimetableSolver {
   /**
    * Vincoli tra sedi della giornata (dopo sedeViews): niente lezioni in una sede dove l'ora è segnata ×, né
    * accanto a una × di quella sede (senza ora di spostamento); da una sede all'altra (lezioni e ore a
-   * disposizione) almeno un'ora libera e al massimo un cambio di sede.
+   * disposizione) almeno un'ora libera. Le andate e ritorni le conta viewsShuttle.
    */
   private sedeHardOf(t: number, d: number): number {
     const p = this.p;
@@ -1846,7 +1859,6 @@ export class TimetableSolver {
     let prevS = -1;
     let prevPos = -1;
     let prevLesson = false;
-    let changes = 0;
     for (let pos = 0; pos < p.P; pos++) {
       if (!((this.vAll >>> pos) & 1)) continue;
       let here = -1;
@@ -1859,16 +1871,34 @@ export class TimetableSolver {
         }
       }
       for (let i = 0; i < this.vN && here < 0; i++) if ((this.vDisp[this.vSedi[i]!]! >>> pos) & 1) here = this.vSedi[i]!;
-      if (prevS >= 0 && here !== prevS) {
-        changes += 1;
-        if ((lesson || prevLesson) && p.pIndex[pos]! - p.pIndex[prevPos]! < 2) hard += 1;
-      }
+      if (prevS >= 0 && here !== prevS && (lesson || prevLesson) && p.pIndex[pos]! - p.pIndex[prevPos]! < 2) hard += 1;
       prevS = here;
       prevPos = pos;
       prevLesson = lesson;
     }
-    if (changes > 1) hard += changes - 1;
     return hard;
+  }
+
+  /**
+   * Andate e ritorni della giornata di un docente in più sedi (dopo sedeViews), come li vede l'app di ogni sede
+   * in cui è a scuola: lì le ore nelle altre sedi e le × sono «altrove»; ogni cambio dopo il primo ne conta uno.
+   */
+  private viewsShuttle(): number {
+    let shuttle = 0;
+    for (let i = 0; i < this.vN; i++) {
+      const s = this.vSedi[i]!;
+      const x = this.vX[s]!;
+      let prev = 0;
+      let changes = 0;
+      for (let m = this.vLes[s]! | this.vDisp[s]! | x; m; m &= m - 1) {
+        // l'ora × resta altrove anche con una lezione sopra (che è già un vincolo violato)
+        const cur = (x >>> lowBit(m)) & 1 ? 2 : 1;
+        if (prev && cur !== prev) changes += 1;
+        prev = cur;
+      }
+      if (changes > 1) shuttle += changes - 1;
+    }
+    return shuttle;
   }
 
   /**
@@ -1879,7 +1909,7 @@ export class TimetableSolver {
     const p = this.p;
     if (p.nSedi < 2 || !p.multi[t]) return { hard: 0, sedi: 1 };
     const sedi = this.sedeViews(t, d);
-    return { hard: sedi ? this.sedeHardOf(t, d) : 0, sedi };
+    return { hard: sedi ? this.sedeHardOf(t, d) + this.viewsShuttle() : 0, sedi };
   }
 
   /**
@@ -1959,7 +1989,7 @@ export class TimetableSolver {
       let mask = 0;
       for (let i = 0; i < k; i++) mask |= 1 << list[idx[i]!]!;
       this.tdDisp[kd] = mask;
-      const cost = this.dayCost(t, d) + WEIGHTS.hard * this.dayHardFree(t);
+      const cost = this.dayCost(t, d) + WEIGHTS.hard * (this.dayHardFree(t) + this.shuttleOf(t, d));
       if (cost <= best) {
         let keep = 0;
         for (let x = mask & orig; x; x &= x - 1) keep += 1;
@@ -1990,6 +2020,52 @@ export class TimetableSolver {
     this.tdDisp[kd] = bestMask;
   }
 
+  /**
+   * Andate e ritorni tra plessi nella giornata del docente su due plessi: le ore a scuola qui (lezioni e
+   * disposizioni) e quelle segnate altrove (×), in ordine; ogni cambio di plesso dopo il primo ne conta uno.
+   * Per chi è in più sedi con «Tutte le sedi insieme», come li vede l'app di ogni sede (vedi viewsShuttle).
+   */
+  shuttleOf(t: number, d: number): number {
+    const p = this.p;
+    if (p.nSedi > 1 && p.multi[t]) return this.sedeViews(t, d) ? this.viewsShuttle() : 0;
+    const kd = t * p.D + d;
+    if (!p.teachers[t]!.otherPlesso || !p.dayHasAway[kd]) return 0;
+    const base = kd * p.P;
+    const disp = this.tdDisp[kd]!;
+    let prev = 0;
+    let changes = 0;
+    for (let pos = 0; pos < p.P; pos++) {
+      // l'ora × resta altrove anche con una lezione sopra (che è già un vincolo violato)
+      const here = this.tOcc[base + pos]! > 0 || ((disp >>> pos) & 1) === 1;
+      const cur = p.unavail[base + pos] === 1 ? 2 : here ? 1 : 0;
+      if (!cur) continue;
+      if (prev && cur !== prev) changes += 1;
+      prev = cur;
+    }
+    return changes > 1 ? changes - 1 : 0;
+  }
+
+  /**
+   * Una lezione in più del docente in quell'ora, nella classe, porterebbe un'andata e ritorno tra plessi?
+   * (disposizioni dove segnate)
+   */
+  private addsShuttle(t: number, d: number, pos: number, c: number): boolean {
+    const p = this.p;
+    const kd = t * p.D + d;
+    if (!(p.nSedi > 1 && p.multi[t]) && (!p.teachers[t]!.otherPlesso || !p.dayHasAway[kd])) return false;
+    const k = kd * p.P + pos;
+    const disp = this.tdDisp[kd]!;
+    this.tdDisp[kd] = p.dispMask0[kd]!;
+    const before = this.shuttleOf(t, d);
+    this.tOcc[k]! += 1;
+    this.bumpSede(t, d, pos, c, 1);
+    const after = this.shuttleOf(t, d);
+    this.tOcc[k]! -= 1;
+    this.bumpSede(t, d, pos, c, -1);
+    this.tdDisp[kd] = disp;
+    return after > before;
+  }
+
   private computeTeacherDay(t: number, d: number) {
     const p = this.p;
     const { P, M, D } = p;
@@ -2013,6 +2089,10 @@ export class TimetableSolver {
     this.tdGaps[t * D + d] = this.lastGaps;
     this.tdDuties[t * D + d] = this.lastDuties;
     hard += this.lastSedeHard;
+    // chi è in più sedi: già contate da dayCost (sedeViews)
+    const shuttle = p.nSedi > 1 && p.multi[t] ? this.lastSedeShuttle : this.shuttleOf(t, d);
+    this.tdShuttle[t * D + d] = shuttle;
+    hard += shuttle;
     hard += this.dayHardFree(t);
     this.tdHard[t * D + d] = hard;
     const o = (t * D + d) * MET_TD;
@@ -2374,6 +2454,7 @@ export class TimetableSolver {
     const { D, S } = p;
     const G = this.G;
     this.G0.set(G);
+    this.dShuttle = 0;
     let oldSoft = 0;
     let oldHard = 0;
     let newSoft = 0;
@@ -2409,6 +2490,7 @@ export class TimetableSolver {
       this.uTD[i] = this.tdCost[k]!;
       this.uTDg[i] = this.tdGaps[k]!;
       this.uTDh[i] = this.tdHard[k]!;
+      this.uTDs[i] = this.tdShuttle[k]!;
       this.uTDd[i] = this.tdDuties[k]!;
       this.uTDdisp[i] = this.tdDisp[k]!;
       for (let j = 0; j < MET_TD; j++) {
@@ -2417,6 +2499,7 @@ export class TimetableSolver {
         G[j]! -= v;
       }
       this.computeTeacherDay((k / D) | 0, k % D);
+      this.dShuttle += this.tdShuttle[k]! - this.uTDs[i]!;
       for (let j = 0; j < MET_TD; j++) G[j]! += this.tdMet[k * MET_TD + j]!;
     }
     for (let i = 0; i < this.nT; i++) {
@@ -2468,6 +2551,7 @@ export class TimetableSolver {
       this.tdCost[k] = this.uTD[i]!;
       this.tdGaps[k] = this.uTDg[i]!;
       this.tdHard[k] = this.uTDh[i]!;
+      this.tdShuttle[k] = this.uTDs[i]!;
       this.tdDuties[k] = this.uTDd[i]!;
       this.tdDisp[k] = this.uTDdisp[i]!;
       for (let j = 0; j < MET_TD; j++) this.tdMet[k * MET_TD + j] = this.uTDm[i * MET_TD + j]!;
@@ -2509,6 +2593,9 @@ export class TimetableSolver {
   /** Solo prova: la mossa si valuta e si annulla sempre (per scegliere la migliore). */
   private peeking = false;
   private peeked: [number, number, number] = [0, 0, 0];
+  /** andate e ritorni tra plessi in più con la mossa appena valutata (o provata) */
+  private dShuttle = 0;
+  private peekedShuttle = 0;
   private peekClasses: number[] = [];
   /** per i ritocchi: le voci dopo la mossa provata */
   private peekDetail = false;
@@ -2518,6 +2605,7 @@ export class TimetableSolver {
     const [ds, dh, dp] = this.evaluateApplied();
     if (this.peeking) {
       this.peeked = [ds, dh, dp];
+      this.peekedShuttle = this.dShuttle;
       let physAfter = 0;
       if (this.peekDetail) {
         const disp: PeekResult["disp"] = [];
@@ -2536,6 +2624,7 @@ export class TimetableSolver {
           patOk: this.patternOkCount(),
           classes: this.peekClasses.slice(),
           disp,
+          shuttle: this.dShuttle,
         };
       }
       undo();
@@ -2544,6 +2633,12 @@ export class TimetableSolver {
         for (let i = 0; i < this.nTD; i++) physBefore += this.physicalTD(this.affTD[i]!);
         this.peekOut.dphys = physAfter - physBefore;
       }
+      this.restoreCaches();
+      return false;
+    }
+    // un'andata e ritorno tra plessi in più non si accetta mai (solo le mosse a mano, a temperatura infinita)
+    if (this.dShuttle > 0 && Number.isFinite(temp)) {
+      undo();
       this.restoreCaches();
       return false;
     }
@@ -2703,10 +2798,11 @@ export class TimetableSolver {
           for (let y = x + 1; y < DM; y++) {
             for (const kempe of [false, true]) {
               this.peeked = [0, 0, 0];
+              this.peekedShuttle = 0;
               if (kempe) this.tryKempe(c, x, y, 0);
               else this.trySwap(c, x, y, 0);
               const d = this.peeked;
-              if (d[1] >= 0) continue;
+              if (d[1] >= 0 || this.peekedShuttle > 0) continue;
               // meno voci peggiorate per ogni vincolo sistemato, poi più vincoli sistemati, poi il punteggio
               const r = d[2] / -d[1];
               const rb = best ? best.d[2] / -best.d[1] : 0;
@@ -3196,6 +3292,8 @@ export type TimetableReport = {
     conflicts: Issue[];
     away: Issue[];
     travel: Issue[];
+    /** più di un cambio di plesso nello stesso giorno (qui → altrove → qui) */
+    shuttle: Issue[];
     no: Issue[];
     /** ore libere tra le lezioni oltre il consentito: a scuola dalla 1ª alla 6ª con 2 o più ore buche, o buche per chi non le accetta */
     longGaps: Issue[];
@@ -3289,7 +3387,7 @@ export function buildReport(s: TimetableSolver, expected: number): TimetableRepo
     lessons: 0,
     lessonsExpected: expected,
     score: { soft: 0, hard: 0, pen: 0 },
-    hard: { conflicts: [], away: [], travel: [], no: [], longGaps: [], rientro: [], must: [], holes: [], pattern: [], dispRoom: [] },
+    hard: { conflicts: [], away: [], travel: [], shuttle: [], no: [], longGaps: [], rientro: [], must: [], holes: [], pattern: [], dispRoom: [] },
     patterns: { ok: 0, total: 0, rows: [] },
     gapsTotal: 0,
     gapsByTeacher: [],
@@ -3609,11 +3707,11 @@ export function buildReport(s: TimetableSolver, expected: number): TimetableRepo
         });
         fact("mixed", twho, d, "", 1);
       }
-      // da una sede all'altra: un'ora libera in mezzo e al massimo un cambio
+      // da una sede all'altra: un'ora libera in mezzo; dove è, ora per ora (es. «Sede A → Sede B → Sede A»)
       let prevS = -1;
       let prevPos = -1;
       let prevLesson = false;
-      let changes = 0;
+      const seq: string[] = [];
       for (let pos = 0; pos < P; pos++) {
         let here = -1;
         let lesson = false;
@@ -3624,21 +3722,23 @@ export function buildReport(s: TimetableSolver, expected: number): TimetableRepo
             break;
           }
         if (here < 0) for (const v of views) if ((v.disp >>> pos) & 1) here = v.s;
+        const where = here >= 0 ? p.sedeNames[here]! : views.some((v) => (v.x >>> pos) & 1) ? "altrove" : "";
+        if (where && seq[seq.length - 1] !== where) seq.push(where);
         if (here < 0) continue;
-        if (prevS >= 0 && here !== prevS) {
-          changes += 1;
-          if ((lesson || prevLesson) && p.pIndex[pos]! - p.pIndex[prevPos]! < 2)
-            rep.hard.travel.push({
-              text: `${info.name} · ${dayName(d)}: da ${p.sedeNames[prevS]} a ${p.sedeNames[here]} senza un'ora libera`,
-              cells: at(d, [prevPos, pos]),
-            });
-        }
+        if (prevS >= 0 && here !== prevS && (lesson || prevLesson) && p.pIndex[pos]! - p.pIndex[prevPos]! < 2)
+          rep.hard.travel.push({
+            text: `${info.name} · ${dayName(d)}: da ${p.sedeNames[prevS]} a ${p.sedeNames[here]} senza un'ora libera`,
+            cells: at(d, [prevPos, pos]),
+          });
         prevS = here;
         prevPos = pos;
         prevLesson = lesson;
       }
-      if (changes > 1)
-        rep.hard.travel.push({ text: `${info.name} · ${dayName(d)}: più di un cambio di sede`, cells: at(d, bitsOf(views.reduce((m, v) => m | v.les, 0))) });
+      if (s.shuttleOf(t, d) > 0)
+        rep.hard.shuttle.push({
+          text: `${info.name} · ${dayName(d)}: ${seq.join(" → ")}`,
+          cells: at(d, bitsOf(views.reduce((m, v) => m | v.les, 0))),
+        });
       return dayTotal;
     };
     for (let d = 0; d < D; d++) {
@@ -3743,6 +3843,18 @@ export function buildReport(s: TimetableSolver, expected: number): TimetableRepo
       if (duties === 1) {
         rep.docenti.single.push({ text: `${info.name} · ${dayName(d)}: una sola ora` });
         fact("single", twho, d, "", 1);
+      }
+      if (s.shuttleOf(t, d) > 0) {
+        // dove è, ora per ora (es. «qui → altrove → qui»)
+        const seq: string[] = [];
+        const lessons: number[] = [];
+        for (let pos = 0; pos < P; pos++) {
+          const n = s.tOcc[base + pos]!;
+          if (n > 0) lessons.push(pos);
+          const where = p.unavail[base + pos] === 1 ? "altrove" : n > 0 || (disp >>> pos) & 1 ? "qui" : "";
+          if (where && seq[seq.length - 1] !== where) seq.push(where);
+        }
+        rep.hard.shuttle.push({ text: `${info.name} · ${dayName(d)}: ${seq.join(" → ")}`, cells: at(d, lessons) });
       }
       if (info.otherPlesso && p.dayHasAway[t * D + d] && mFirst >= 0) {
         rep.docenti.mixed.push({ text: `${info.name} · ${dayName(d)}: qui e nell'altro plesso` });
@@ -4477,11 +4589,11 @@ export type FixOption = { steps: FixStep[]; effect: MoveEffect };
 export type FindResult = { options: FixOption[]; partial: boolean };
 
 /**
- * Vincoli in più (positivo) o in meno di una mossa. Se mette qualcuno su una × o senza ora di spostamento non
- * «sistema» nulla, anche se toglie altri vincoli: conta come vincoli in più.
+ * Vincoli in più (positivo) o in meno di una mossa. Se mette qualcuno su una × o senza ora di spostamento, o
+ * porta un'andata e ritorno tra plessi, non «sistema» nulla, anche se toglie altri vincoli: conta come vincoli in più.
  */
 function hardOf(peek: PeekResult): number {
-  return peek.dphys > 0 ? Math.max(peek.dh, peek.dphys) : peek.dh;
+  return peek.dphys > 0 || peek.shuttle > 0 ? Math.max(peek.dh, peek.dphys, peek.shuttle) : peek.dh;
 }
 
 function hardTexts(r: TimetableReport): string[] {
@@ -4664,8 +4776,8 @@ export class TimetableEditor {
     }
     const a = this.s.peekMove(c, x, y, false);
     const b = this.s.peekMove(c, x, y, true);
-    // prima chi non mette nessuno su una × o senza ora di spostamento, poi meno vincoli
-    const rank = (r: PeekResult) => (r.dphys > 0 ? 1_000_000 : 0) + r.dh;
+    // prima chi non mette nessuno su una × o senza ora di spostamento (né in andata e ritorno), poi meno vincoli
+    const rank = (r: PeekResult) => (r.dphys > 0 || r.shuttle > 0 ? 1_000_000 : 0) + r.dh;
     if (b && b.classes.length > 1 && (!a || rank(b) < rank(a))) return { kind: "kempe", classes: b.classes, peek: b };
     return a ? { kind: "swap", classes: [c], peek: a } : null;
   }
@@ -4773,9 +4885,9 @@ export class TimetableEditor {
     const hard = peek.dh;
     const nb = rows.filter((r) => r.better).length + (hard < 0 ? 1 : 0);
     const nw = rows.filter((r) => !r.better).length;
-    // una × o l'ora di spostamento non si scambiano con altri vincoli: la mossa non si può fare
+    // una ×, l'ora di spostamento e l'andata e ritorno non si scambiano con altri vincoli: la mossa non si può fare
     const verdict: MoveEffect["verdict"] =
-      hard > 0 || peek.dphys > 0
+      hard > 0 || peek.dphys > 0 || peek.shuttle > 0
         ? "breaks"
         : nb && !nw
           ? "better"
@@ -4981,20 +5093,22 @@ export class TimetableEditor {
         const peek1 = mv.peek;
         const ok1 = fewerGaps(peek1);
         const worse1 = this.judge(peek1).worse;
-        if (peek1.dh <= 0 && peek1.dphys <= 0 && ok1) keep([step1], peek1);
+        if (peek1.dh <= 0 && peek1.dphys <= 0 && peek1.shuttle <= 0 && ok1) keep([step1], peek1);
         // se la prima mossa lascia qualcosa di storto, una seconda può rimetterlo a posto
-        if (peek1.dh > 0 || peek1.dphys > 0 || worse1 > 0 || !ok1) {
+        if (peek1.dh > 0 || peek1.dphys > 0 || peek1.shuttle > 0 || worse1 > 0 || !ok1) {
           for (const [c2, x2, y2] of this.repairMoves(cls, x, y)) {
             if (cls.includes(c2) && ((x2 === x && y2 === y) || (x2 === y && y2 === x))) continue;
             const mv2 = this.plan(c2, x2, y2);
             if (!mv2 || mv2.kind === "same" || !mv2.peek) continue;
             const dh = peek1.dh + mv2.peek.dh;
             const dphys = peek1.dphys + mv2.peek.dphys;
-            if (dh > 0 || dphys > 0) continue;
-            const both: PeekResult = { ...mv2.peek, dh, dphys, ds: peek1.ds + mv2.peek.ds };
+            const shuttle = peek1.shuttle + mv2.peek.shuttle;
+            if (dh > 0 || dphys > 0 || shuttle > 0) continue;
+            const both: PeekResult = { ...mv2.peek, dh, dphys, ds: peek1.ds + mv2.peek.ds, shuttle };
             if (!fewerGaps(both)) continue;
             // utile solo se sistema qualcosa rispetto alla prima mossa da sola
-            if (!(dh < peek1.dh || dphys < peek1.dphys || this.judge(both).worse < worse1 || !ok1)) continue;
+            if (!(dh < peek1.dh || dphys < peek1.dphys || shuttle < peek1.shuttle || this.judge(both).worse < worse1 || !ok1))
+              continue;
             const step2 = this.stepOf(c2, x2, y2, mv2);
             if (touches(mv2, x2, y2)) {
               const cls2 = s.applyMove(c2, x2, y2, mv2.kind === "kempe");
@@ -5063,7 +5177,7 @@ export class TimetableEditor {
   newHardIssues(classId: string, from: number, to: number): string[] {
     const c = this.classOf(classId);
     const mv = this.plan(c, from, to);
-    if (!mv || !mv.peek || (mv.peek.dh <= 0 && mv.peek.dphys <= 0)) return [];
+    if (!mv || !mv.peek || (mv.peek.dh <= 0 && mv.peek.dphys <= 0 && mv.peek.shuttle <= 0)) return [];
     const before = new Set(hardTexts(buildReport(this.s, 0)));
     this.s.applyMove(c, from, to, mv.kind === "kempe");
     const after = hardTexts(buildReport(this.s, 0));

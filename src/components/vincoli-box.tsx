@@ -10,7 +10,8 @@ type HardKey = keyof TimetableReport["hard"];
 const HARD_INFO: Record<HardKey, string> = {
   conflicts: "Docente in due classi alla stessa ora",
   away: "Lezione in un’ora segnata × (o a disposizione)",
-  travel: "Manca l’ora libera per spostarsi tra due sedi (o più di un cambio di sede nello stesso giorno)",
+  travel: "Manca l’ora libera per spostarsi tra due sedi",
+  shuttle: "Più di un cambio di sede nello stesso giorno (andata e ritorno)",
   no: "Lezione in un’ora «no» del docente",
   longGaps: "Più ore libere tra le lezioni di quante il docente ne accetti",
   rientro: "Nei giorni di rientro le lezioni del mattino cominciano dalla 4ª ora",
