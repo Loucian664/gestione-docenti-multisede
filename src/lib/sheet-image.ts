@@ -1064,7 +1064,7 @@ export async function orarioOrizzontaleJpeg(data: PersistedData): Promise<Blob> 
   g.font = "500 9px 'Source Sans 3', system-ui, sans-serif";
   g.fillStyle = "#333";
   g.textAlign = "center";
-  g.fillText("D nera = a disposizione     P = progetto (con la sede)     righe = ora buca", width / 2, pad + 64);
+  g.fillText("D nera = a disposizione     P = progetto     righe = ora buca", width / 2, pad + 64);
   g.textAlign = "left";
 
   const x0 = pad;
@@ -1159,18 +1159,9 @@ export async function orarioOrizzontaleJpeg(data: PersistedData): Promise<Blob> 
         if (disp) fillD(x, y, hourW, rowH);
         else if (buca) hatch(x, y, hourW, rowH);
         box(x, y, hourW, rowH);
-        const mark = mensa && slot && isMensaLesson(slot) ? "M" : cell;
-        if (away?.progetto) {
-          if (away.sede) {
-            fillFitted(ctx, "P", x + hourW / 2, y + 7, hourW - 4, 700, 8);
-            fillFitted(ctx, away.sede, x + hourW / 2, y + 16, hourW - 3, 600, 7);
-          } else {
-            fillFitted(ctx, "P", x + hourW / 2, y + rowH / 2, hourW - 4, 700, 9);
-          }
-          // fillFitted lascia il testo centrato: il nome della riga dopo va a sinistra
-          ctx.textAlign = "left";
-          ctx.textBaseline = "alphabetic";
-        } else if (mark) {
+        // progetto: solo «P», la sede non ci sta (si legge nell’orario del docente)
+        const mark = mensa && slot && isMensaLesson(slot) ? "M" : cell || (away?.progetto ? "P" : "");
+        if (mark) {
           ctx.textAlign = "center";
           ctx.textBaseline = "alphabetic";
           ctx.font = "600 9px 'Source Sans 3', system-ui, sans-serif";

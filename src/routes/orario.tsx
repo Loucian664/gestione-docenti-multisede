@@ -738,7 +738,7 @@ function OrarioPage() {
                           className={cn(
                             "flex min-h-16 w-full flex-col rounded-md px-2 py-1.5 text-left hover:bg-muted",
                             tc.className,
-                            away?.progetto && "bg-warning-soft ring-1 ring-inset ring-warning/60",
+                            away?.progetto && "bg-warning-soft",
                           )}
                           style={
                             tc.style ??
@@ -765,10 +765,8 @@ function OrarioPage() {
                               )}
                               {away?.progetto ? (
                                 <>
-                                  <span className="text-[12px] font-semibold text-warning">Progetto</span>
-                                  {away.sede && (
-                                    <span className="line-clamp-2 break-words text-[11px] text-foreground">{away.sede}</span>
-                                  )}
+                                  <span className="text-[13px] font-medium">Progetto</span>
+                                  {away.sede && <span className={cn("break-words text-[12px]", tc.text2)}>{away.sede}</span>}
                                 </>
                               ) : (
                                 <span className="text-[12px] text-ink-faint">
