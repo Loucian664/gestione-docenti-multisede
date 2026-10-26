@@ -601,3 +601,72 @@ describe("classShifts", () => {
     assert.match(text, /entra alla 3ª/);
   });
 });
+describe("potenziamento fuori orario e ore in progetto", () => {
+  const absence = {
+    id: "a1",
+    teacherId: "t-absent",
+    dateFrom: "2026-09-07",
+    dateTo: "2026-09-07",
+    reason: "malattia" as const,
+    notes: "",
+    allDay: true,
+    periodIds: [],
+  };
+  const pot = (id: string, disp: string[], away: { periodId: string; progetto?: boolean }[] = []): Teacher => ({
+    ...teacher(id, id, "potenziamento", ["Potenziamento"]),
+    dispSlots: disp.map((periodId) => ({ day: 1 as const, periodId })),
+    awaySlots: away.map((a) => ({ day: 1 as const, ...a })),
+  });
+
+  function fixture(teachers: Teacher[]): PersistedData {
+    return data({
+      teachers: [teacher("t-absent", "Assente"), ...teachers],
+      slots: [slot("c-1A", "p2", "t-absent")],
+      absences: [absence],
+    });
+  }
+
+  it("in un’ora a disposizione è proposto per primo e assegnato in automatico", () => {
+    const d = fixture([pot("t-disp", ["p2", "p3"])]);
+    const row = rankSubstitutes(d, needFor(d)).find((r) => r.teacher.id === "t-disp");
+    assert.equal(row?.bucket, "disp");
+    assert.equal(autoAssignPlan(d, d.selectedDate)[0]?.substituteId, "t-disp");
+  });
+
+  it("fuori dalle sue ore va in fondo con «Da avvisare» e non è assegnato in automatico", () => {
+    const d = fixture([pot("t-dopo", ["p3", "p4"]), pot("t-sera", ["p5", "p6"]), pot("t-mai", [])]);
+    const ranked = rankSubstitutes(d, needFor(d));
+    const dopo = ranked.find((r) => r.teacher.id === "t-dopo");
+    const sera = ranked.find((r) => r.teacher.id === "t-sera");
+    const mai = ranked.find((r) => r.teacher.id === "t-mai");
+    assert.equal(dopo?.bucket, "fuori-orario");
+    assert.deepEqual(dopo?.reasons, ["Da avvisare", "Entrerebbe un’ora prima"]);
+    assert.deepEqual(sera?.reasons, ["Da avvisare", "In servizio dalla 5ª ora alla 6ª ora"]);
+    assert.deepEqual(mai?.reasons, ["Da avvisare", "Oggi non in servizio"]);
+    assert.deepEqual(autoAssignPlan(d, d.selectedDate), []);
+  });
+
+  it("riconosce l’ora libera tra le sue ore e l’uscita un’ora dopo", () => {
+    const d = fixture([pot("t-buco", ["p1", "p3"]), pot("t-esce", ["p1"])]);
+    const ranked = rankSubstitutes(d, needFor(d));
+    assert.match(ranked.find((r) => r.teacher.id === "t-buco")?.reasons.join(" ") ?? "", /Ora libera tra le sue ore/);
+    assert.match(ranked.find((r) => r.teacher.id === "t-esce")?.reasons.join(" ") ?? "", /Uscirebbe un’ora dopo/);
+  });
+
+  it("le ore in progetto o altrove non si propongono e non si assegnano", () => {
+    const cattedra: Teacher = {
+      ...teacher("t-altrove", "Altrove"),
+      awaySlots: [{ day: 1, periodId: "p2" }],
+    };
+    const d = fixture([pot("t-prog", ["p1", "p3"], [{ periodId: "p2", progetto: true }]), cattedra]);
+    const ranked = rankSubstitutes(d, needFor(d));
+    const prog = ranked.find((r) => r.teacher.id === "t-prog");
+    const alt = ranked.find((r) => r.teacher.id === "t-altrove");
+    assert.equal(prog?.bucket, "altrove");
+    assert.deepEqual(prog?.reasons, ["In progetto"]);
+    assert.equal(alt?.bucket, "altrove");
+    assert.equal(alt?.reasons[0], "Altrove");
+    assert.equal(ranked.at(-1)?.bucket, "altrove");
+    assert.deepEqual(autoAssignPlan(d, d.selectedDate), []);
+  });
+});

@@ -118,7 +118,7 @@ export type InsiemeInfo = {
   /** sede (indice) di ogni classe */
   classSede: Record<string, number>;
   /** × segnate in una sede: lì il docente in quell'ora non può essere (ma in un'altra sede sì) */
-  sedeAway: Record<string, { s: number; day: DayOfWeek; periodId: string }[]>;
+  sedeAway: Record<string, { s: number; day: DayOfWeek; periodId: string; progetto?: boolean }[]>;
   /**
    * Chi insegna in più sedi: per ogni sua sede le ore a disposizione (quante e dove sono segnate). La sua giornata
    * si conta come nell'app di ogni sede: le ore nelle altre sedi sono ×, con l'ora di spostamento accanto.

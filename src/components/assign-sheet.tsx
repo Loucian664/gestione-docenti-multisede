@@ -52,8 +52,8 @@ const GROUPS: { bucket: SubstituteBucket | SubstituteBucket[]; title: string; hi
   },
   {
     bucket: "potenziamento",
-    title: "Potenziamento",
-    hint: "Sempre disponibile per le sostituzioni, anche con un orario proprio.",
+    title: "Potenziamento in un’altra classe",
+    hint: "In servizio in un’ora di potenziamento: si può spostare in questa classe.",
   },
   {
     bucket: "in-sede",
@@ -79,6 +79,16 @@ const GROUPS: { bucket: SubstituteBucket | SubstituteBucket[]; title: string; hi
     bucket: "non-in-sede",
     title: "Non a scuola",
     hint: "Non in servizio in quest’ora. Solo se necessario.",
+  },
+  {
+    bucket: "fuori-orario",
+    title: "Potenziamento fuori orario",
+    hint: "Non è in servizio in quest’ora: se lo scegli, va avvisato di spostare l’orario. Escluso dall’assegnazione automatica.",
+  },
+  {
+    bucket: "altrove",
+    title: "Altrove o in progetto",
+    hint: "In quest’ora è in un altro plesso o in un progetto. Escluso dall’assegnazione automatica.",
   },
 ];
 
@@ -340,7 +350,12 @@ function TeacherPickRow({
   selected: boolean;
   onPick: () => void;
 }) {
-  const warning = row.bucket === "impegnato" || row.bucket === "non-in-sede" || row.bucket === "sostegno";
+  const warning =
+    row.bucket === "impegnato" ||
+    row.bucket === "non-in-sede" ||
+    row.bucket === "sostegno" ||
+    row.bucket === "fuori-orario" ||
+    row.bucket === "altrove";
   const teachers = useAppStore((s) => s.teachers);
   return (
     <li>

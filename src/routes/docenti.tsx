@@ -278,7 +278,11 @@ function DocentiPage() {
                     {away ? (
                       <span className="text-muted-foreground">—</span>
                     ) : t.role === "potenziamento" ? (
-                      <DispHoursCell quota={t.weeklyHours} assigned={t.dispSlots?.length ?? 0} emptyLabel="0 h" />
+                      <DispHoursCell
+                        quota={Math.max(0, t.weeklyHours - projectHours(t))}
+                        assigned={t.dispSlots?.length ?? 0}
+                        emptyLabel="0 h"
+                      />
                     ) : (
                       <DispHoursCell quota={t.dispHours ?? 0} assigned={t.dispSlots?.length ?? 0} />
                     )}
@@ -527,9 +531,18 @@ function RemoveTeacherDialog({
   );
 }
 
+/** Ore segnate «Progetto»: fuori dalla scuola, non chiamabili per le sostituzioni. */
+function projectHours(t: Teacher): number {
+  return (t.awaySlots ?? []).filter((a) => a.progetto).length;
+}
+
 /** Le ore di lezione e quelle a disposizione (il potenziamento ha solo ore a disposizione). */
 function hoursLines(t: Teacher): string[] {
-  if (t.role === "potenziamento") return [`${t.weeklyHours} h a disposizione`];
+  if (t.role === "potenziamento") {
+    const project = projectHours(t);
+    if (project === 0) return [`${t.weeklyHours} h a disposizione`];
+    return [`${Math.max(0, t.weeklyHours - project)} h a disposizione`, `${project} h di progetto`];
+  }
   const disp = t.dispHours ?? 0;
   return [`${t.weeklyHours} h di lezione`, ...(disp > 0 ? [`${disp} h a disposizione`] : [])];
 }
@@ -587,6 +600,7 @@ function TeacherDialog({ value, onClose }: { value: Teacher | "new"; onClose: ()
   const [dispSlots, setDispSlots] = useState<{ day: DayOfWeek; periodId: string }[]>(
     current?.dispSlots ?? [],
   );
+  const [awaySlots, setAwaySlots] = useState<NonNullable<Teacher["awaySlots"]>>(current?.awaySlots ?? []);
   const data = snapshot(store);
   const sedi = allSedi(data);
   const several = sedi.length > 1;
@@ -763,7 +777,7 @@ function TeacherDialog({ value, onClose }: { value: Teacher | "new"; onClose: ()
       color,
       assignedClassIds: [...new Set(rows.filter((r) => r.sedeId === activeId).map((r) => r.classId).filter(Boolean))],
       otherPlesso: current?.otherPlesso ?? false,
-      awaySlots: current?.awaySlots ?? [],
+      awaySlots,
       rientroDays: current?.rientroDays ?? [],
       dispSlots,
       preferSlots: current?.preferSlots ?? [],
@@ -1079,6 +1093,8 @@ function TeacherDialog({ value, onClose }: { value: Teacher | "new"; onClose: ()
               periods={corePeriods(data.settings.periods)}
               selected={dispSlots}
               onChange={setDispSlots}
+              away={awaySlots}
+              onAwayChange={setAwaySlots}
               occupied={
                 current
                   ? data.slots
@@ -1377,56 +1393,100 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
+type Cell = { day: DayOfWeek; periodId: string };
+type AwayCell = NonNullable<Teacher["awaySlots"]>[number];
+
+/**
+ * L'orario del potenziamento: «D» = in sede, disponibile per le sostituzioni; «P» = progetto, fuori dalla
+ * scuola e mai chiamabile. Le ore segnate altrove in Costruisci (×) si vedono ma non si cambiano qui.
+ */
 function PresenceGrid({
   days,
   periods,
   selected,
   onChange,
+  away,
+  onAwayChange,
   occupied,
 }: {
   days: DayOfWeek[];
   periods: { id: string; index: number; label: string }[];
-  selected: { day: DayOfWeek; periodId: string }[];
-  onChange: (next: { day: DayOfWeek; periodId: string }[]) => void;
+  selected: Cell[];
+  onChange: (next: Cell[]) => void;
+  away: AwayCell[];
+  onAwayChange: (next: AwayCell[]) => void;
   occupied: { day: DayOfWeek; periodId: string; label: string }[];
 }) {
-  const on = (day: DayOfWeek, periodId: string) =>
-    selected.some((a) => a.day === day && a.periodId === periodId);
+  const [mode, setMode] = useState<"sede" | "progetto">("sede");
+  const same = (a: Cell, day: DayOfWeek, periodId: string) => a.day === day && a.periodId === periodId;
+  const on = (day: DayOfWeek, periodId: string) => selected.some((a) => same(a, day, periodId));
+  const project = (day: DayOfWeek, periodId: string) =>
+    away.some((a) => a.progetto && same(a, day, periodId));
+  const elsewhere = (day: DayOfWeek, periodId: string) =>
+    away.some((a) => !a.progetto && same(a, day, periodId));
   const lesson = (day: DayOfWeek, periodId: string) =>
-    occupied.find((a) => a.day === day && a.periodId === periodId);
+    occupied.find((a) => same(a, day, periodId));
+  const locked = (day: DayOfWeek, periodId: string) => Boolean(lesson(day, periodId)) || elsewhere(day, periodId);
+  const projectCount = away.filter((a) => a.progetto).length;
+
+  /** Le caselle date diventano «D», «P» o vuote; le altre restano come sono. */
+  function setCells(cells: Cell[], to: "sede" | "progetto" | "vuota") {
+    const hit = (a: Cell) => cells.some((c) => same(a, c.day, c.periodId));
+    onChange([...selected.filter((a) => !hit(a)), ...(to === "sede" ? cells : [])]);
+    onAwayChange([
+      ...away.filter((a) => !(a.progetto && hit(a))),
+      ...(to === "progetto" ? cells.map((c) => ({ ...c, progetto: true })) : []),
+    ]);
+  }
 
   function toggle(day: DayOfWeek, periodId: string) {
-    if (lesson(day, periodId)) return;
-    onChange(
-      on(day, periodId)
-        ? selected.filter((a) => !(a.day === day && a.periodId === periodId))
-        : [...selected, { day, periodId }],
-    );
+    if (locked(day, periodId)) return;
+    const already = mode === "sede" ? on(day, periodId) : project(day, periodId);
+    setCells([{ day, periodId }], already ? "vuota" : mode);
   }
 
   function toggleDay(day: DayOfWeek) {
-    const n = periods.filter((p) => on(day, p.id) || lesson(day, p.id)).length;
-    const free = periods.filter((p) => !lesson(day, p.id));
-    if (n > 0) {
-      onChange(selected.filter((a) => a.day !== day));
-    } else {
-      onChange([...selected.filter((a) => a.day !== day), ...free.map((p) => ({ day, periodId: p.id }))]);
-    }
+    const free = periods.filter((p) => !locked(day, p.id)).map((p) => ({ day, periodId: p.id }));
+    const marked = free.filter((c) => (mode === "sede" ? on(c.day, c.periodId) : project(c.day, c.periodId)));
+    setCells(marked.length > 0 ? marked : free, marked.length > 0 ? "vuota" : mode);
   }
 
   return (
-    <Field label="Orario in sede (senza classe)">
+    <Field label="Orario settimanale">
       <p className="text-[12px] text-muted-foreground">
-        Indica le ore di servizio in sede: senza classe assegnata, sono disponibili per le sostituzioni. Seleziona
-        Lun, Mar… per l’intera giornata. {selected.length} ore segnate.
+        Scegli cosa segnare, poi tocca le ore. «D»: in sede senza classe, disponibile per le sostituzioni.
+        «P»: progetto, fuori dalla scuola e mai chiamabile per le sostituzioni. Tocca Lun, Mar… per l’intera
+        giornata. {selected.length} ore in sede{projectCount > 0 ? `, ${projectCount} di progetto` : ""}.
       </p>
+      <div className="mt-2 inline-flex rounded-lg bg-muted p-1" role="group" aria-label="Cosa segnare">
+        {(
+          [
+            ["sede", "D · In sede"],
+            ["progetto", "P · Progetto"],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            aria-pressed={mode === value}
+            onClick={() => setMode(value)}
+            className={cn(
+              "h-9 rounded-md px-3 text-[12px] font-medium",
+              mode === value ? "bg-popover text-foreground shadow-sm" : "text-muted-foreground",
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
       <div className="mt-2 overflow-x-auto">
         <table className="w-full min-w-[280px] border-collapse text-[11px]">
           <thead>
             <tr className="text-muted-foreground">
               <th className="px-1 py-1 text-left font-medium">Ore</th>
               {days.map((d) => {
-                const n = periods.filter((p) => on(d, p.id)).length;
+                const n = periods.filter((p) => (mode === "sede" ? on(d, p.id) : project(d, p.id))).length;
+                const free = periods.filter((p) => !locked(d, p.id)).length;
                 return (
                   <th key={d} className="px-0.5 py-1 font-medium">
                     <button
@@ -1435,10 +1495,14 @@ function PresenceGrid({
                       onClick={() => toggleDay(d)}
                       className={cn(
                         "mx-auto flex h-10 min-w-10 items-center justify-center rounded-md px-1.5 text-[11px] font-medium",
-                        n === periods.length && periods.length > 0
-                          ? "bg-primary text-primary-foreground"
+                        n === free && free > 0
+                          ? mode === "sede"
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-warning-soft text-warning ring-1 ring-inset ring-warning/60"
                           : n > 0
-                            ? "bg-primary/25 text-foreground"
+                            ? mode === "sede"
+                              ? "bg-primary/25 text-foreground"
+                              : "bg-warning-soft/60 text-foreground"
                             : "bg-muted text-muted-foreground",
                       )}
                     >
@@ -1455,30 +1519,38 @@ function PresenceGrid({
                 <td className="px-1 py-1 text-muted-foreground">{p.index}ª</td>
                 {days.map((d) => {
                   const busy = lesson(d, p.id);
+                  const away = elsewhere(d, p.id);
                   const marked = on(d, p.id);
+                  const proj = project(d, p.id);
                   return (
                     <td key={d} className="p-0.5 text-center">
                       <button
                         type="button"
-                        disabled={Boolean(busy)}
+                        disabled={Boolean(busy) || away}
                         aria-label={
                           busy
                             ? `${DAY_SHORT[d]} ${p.label}: già in classe`
-                            : marked
-                              ? `${DAY_SHORT[d]} ${p.label}: togli`
-                              : `${DAY_SHORT[d]} ${p.label}: in sede`
+                            : away
+                              ? `${DAY_SHORT[d]} ${p.label}: altrove (da Costruisci)`
+                              : marked
+                                ? `${DAY_SHORT[d]} ${p.label}: in sede`
+                                : proj
+                                  ? `${DAY_SHORT[d]} ${p.label}: progetto`
+                                  : `${DAY_SHORT[d]} ${p.label}: libera`
                         }
                         onClick={() => toggle(d, p.id)}
                         className={cn(
                           "inline-flex size-10 touch-manipulation items-center justify-center rounded-md text-[10px] font-semibold",
-                          busy
+                          busy || away
                             ? "bg-muted text-muted-foreground"
                             : marked
                               ? "bg-primary text-primary-foreground"
-                              : "bg-muted text-muted-foreground",
+                              : proj
+                                ? "bg-warning-soft text-warning ring-1 ring-inset ring-warning/60"
+                                : "bg-muted text-muted-foreground",
                         )}
                       >
-                        {busy ? busy.label.replace(/^(\d)ª\s*/u, "$1") : marked ? "D" : ""}
+                        {busy ? busy.label.replace(/^(\d)ª\s*/u, "$1") : away ? "×" : marked ? "D" : proj ? "P" : ""}
                       </button>
                     </td>
                   );

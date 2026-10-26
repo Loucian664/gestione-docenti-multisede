@@ -284,7 +284,7 @@ export function removedSediIssues(teachers: Teacher[]): RemovedSedeIssue[] {
   return teachers.flatMap((t) => {
     const sedi = t.removedSedi ?? [];
     const hours = sedi.reduce((n, x) => n + x.hours, 0);
-    const marked = t.awaySlots?.length ?? 0;
+    const marked = (t.awaySlots ?? []).filter((a) => !a.progetto).length;
     return hours > 0 && marked < hours ? [{ teacher: t, sedi, hours, marked }] : [];
   });
 }
