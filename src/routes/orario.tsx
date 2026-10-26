@@ -1033,13 +1033,18 @@ function TeacherHourEditor({
       ],
     });
     toast.success(projectOn ? "Progetto tolto" : "Ora di progetto");
-    onClose();
+    // accendendo la finestra resta aperta, sulla vista del progetto, per scrivere la sede
+    if (projectOn) onClose();
   }
 
   /** Cambia solo la sede di un’ora che è già di progetto. */
   function saveSede() {
     if (!teacher) return;
     const typed = sede.trim();
+    if (typed === savedSede) {
+      onClose();
+      return;
+    }
     store.updateTeacher(teacher.id, {
       awaySlots: (teacher.awaySlots ?? []).map((a) => {
         if (!(a.progetto && sameCell(a))) return a;
@@ -1064,75 +1069,85 @@ function TeacherHourEditor({
             {teacher ? teacherName(teacher) : "Docente"} · {DAY_SHORT[editing.day]} · {period?.label}
           </DialogTitle>
         </DialogHeader>
-        <div className="flex flex-col gap-3">
-          <div className="flex flex-col gap-1.5">
-            <Label>Classe</Label>
-            <NativeSelect value={classId} onChange={(e) => setClassId(e.target.value)}>
-              <option value="">Solo in sede (senza classe)</option>
-              {classChoices
-                .slice()
-                .sort((a, b) => a.grade - b.grade || a.section.localeCompare(b.section))
-                .map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name} ({c.tempo})
-                  </option>
-                ))}
-            </NativeSelect>
-          </div>
-          {others.length > 0 && (
-            <p className="rounded-md bg-accent px-3 py-2 text-sm text-accent-foreground">
-              In quest’ora c’è già{" "}
-              {others
-                .map((s) => {
-                  const t = data.teachers.find((x) => x.id === s.teacherId);
-                  return t ? `${teacherShort(t, data.teachers)} (${s.subject})` : s.subject;
-                })
-                .join(", ")}
-              . Verrà registrata come compresenza.
+        {projectOn ? (
+          <div className="flex flex-col gap-3">
+            <p className="text-sm text-muted-foreground">
+              Ora di progetto: fuori dalla scuola, non chiamabile per le sostituzioni.
             </p>
-          )}
-          <div className="flex flex-col gap-1.5">
-            <Label>Materia / attività</Label>
-            <SubjectSelect value={subject} onChange={setSubject} />
-            <Input value={subject} onChange={(e) => setSubject(e.target.value)} className="mt-1" placeholder="O scrivi un nome" />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="sede-progetto-ora">Sede del progetto (facoltativa)</Label>
-            <Input
-              id="sede-progetto-ora"
-              value={sede}
-              onChange={(e) => setSede(e.target.value)}
-              placeholder="Es. Nicotera, primaria di Rombiolo"
-              maxLength={60}
-              list="sedi-progetto-ora"
-            />
-            <datalist id="sedi-progetto-ora">
-              {knownSedi.map((s) => (
-                <option key={s} value={s} />
-              ))}
-            </datalist>
-            <p className="text-[12px] text-ink-faint">Vale solo se l’ora è di progetto.</p>
-          </div>
-          <div className="flex flex-wrap justify-end gap-2 pt-2">
-            {existing && (
-              <Button variant="outline" onClick={remove}>
-                Togli ora
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="sede-progetto-ora">Sede del progetto (facoltativa)</Label>
+              <Input
+                id="sede-progetto-ora"
+                value={sede}
+                onChange={(e) => setSede(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && saveSede()}
+                placeholder="Es. Nicotera, primaria di Rombiolo"
+                maxLength={60}
+                list="sedi-progetto-ora"
+                autoFocus
+              />
+              <datalist id="sedi-progetto-ora">
+                {knownSedi.map((s) => (
+                  <option key={s} value={s} />
+                ))}
+              </datalist>
+            </div>
+            <div className="flex flex-wrap justify-end gap-2 pt-2">
+              <Button variant="outline" onClick={toggleProject}>
+                Togli progetto
               </Button>
-            )}
-            <Button variant="outline" onClick={toggleDisp}>
-              {dispOn ? "Togli disposizione" : "A disposizione"}
-            </Button>
-            <Button variant="outline" onClick={toggleProject}>
-              {projectOn ? "Togli progetto" : "Progetto"}
-            </Button>
-            {projectOn && sede.trim() !== savedSede && (
-              <Button variant="outline" onClick={saveSede}>
-                Salva sede
-              </Button>
-            )}
-            <Button onClick={save}>{classId ? "Salva lezione" : "Salva in sede"}</Button>
+              <Button onClick={saveSede}>Salva</Button>
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-1.5">
+              <Label>Classe</Label>
+              <NativeSelect value={classId} onChange={(e) => setClassId(e.target.value)}>
+                <option value="">Solo in sede (senza classe)</option>
+                {classChoices
+                  .slice()
+                  .sort((a, b) => a.grade - b.grade || a.section.localeCompare(b.section))
+                  .map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name} ({c.tempo})
+                    </option>
+                  ))}
+              </NativeSelect>
+            </div>
+            {others.length > 0 && (
+              <p className="rounded-md bg-accent px-3 py-2 text-sm text-accent-foreground">
+                In quest’ora c’è già{" "}
+                {others
+                  .map((s) => {
+                    const t = data.teachers.find((x) => x.id === s.teacherId);
+                    return t ? `${teacherShort(t, data.teachers)} (${s.subject})` : s.subject;
+                  })
+                  .join(", ")}
+                . Verrà registrata come compresenza.
+              </p>
+            )}
+            <div className="flex flex-col gap-1.5">
+              <Label>Materia / attività</Label>
+              <SubjectSelect value={subject} onChange={setSubject} />
+              <Input value={subject} onChange={(e) => setSubject(e.target.value)} className="mt-1" placeholder="O scrivi un nome" />
+            </div>
+            <div className="flex flex-wrap justify-end gap-2 pt-2">
+              {existing && (
+                <Button variant="outline" onClick={remove}>
+                  Togli ora
+                </Button>
+              )}
+              <Button variant="outline" onClick={toggleDisp}>
+                {dispOn ? "Togli disposizione" : "A disposizione"}
+              </Button>
+              <Button variant="outline" onClick={toggleProject}>
+                Progetto
+              </Button>
+              <Button onClick={save}>{classId ? "Salva lezione" : "Salva in sede"}</Button>
+            </div>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );
