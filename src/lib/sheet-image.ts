@@ -7,6 +7,7 @@ import {
   classShifts,
   loadByTeacher,
   absencesByReason,
+  awayAt,
   eccedenteLines,
   teacherDayWindow,
   teacherName,
@@ -277,7 +278,8 @@ async function paintExcelGrid(opts: {
       const block = lines.length * lineH;
       let ty = y + (rowH - block) / 2 + lineH / 2;
       for (const line of lines) {
-        fillCentered(ctx, line, x + colW / 2, ty);
+        // come fillCentered, ma una riga lunga (es. la sede di un progetto) si stringe invece di uscire
+        fillFitted(ctx, line, x + colW / 2, ty, colW - 6, 600, 9);
         ty += lineH;
       }
     });
@@ -351,7 +353,10 @@ export function orarioTeacherJpeg(data: PersistedData, teacherId: string): Promi
       cells: days.map((d) => {
         if (t && isDispHour(t, d, p.id)) return { disp: true };
         const slot = teacherSlotAt(data, teacherId, d, p.id);
-        if (!slot) return {};
+        if (!slot) {
+          const away = t ? awayAt(t, d, p.id) : null;
+          return away?.progetto ? { lines: ["PROGETTO", ...(away.sede ? [away.sede] : [])] } : {};
+        }
         if (isMensaLesson(slot) || isMensaPeriod(p)) return { lines: ["MENSA"] };
         const cls = data.classes.find((c) => c.id === slot.classId);
         return {
@@ -1059,7 +1064,7 @@ export async function orarioOrizzontaleJpeg(data: PersistedData): Promise<Blob> 
   g.font = "500 9px 'Source Sans 3', system-ui, sans-serif";
   g.fillStyle = "#333";
   g.textAlign = "center";
-  g.fillText("D nera = a disposizione     righe = ora buca", width / 2, pad + 64);
+  g.fillText("D nera = a disposizione     P = progetto (con la sede)     righe = ora buca", width / 2, pad + 64);
   g.textAlign = "left";
 
   const x0 = pad;
@@ -1149,12 +1154,23 @@ export async function orarioOrizzontaleJpeg(data: PersistedData): Promise<Blob> 
         const slot = teacherSlotAt(data, t.id, day, p.id);
         const cell = slotClassAt(data, t.id, day, p.id);
         const disp = !cell && isDispHour(t, day, p.id);
-        const buca = Boolean(!mensa && !cell && !disp && win && p.index > win.first && p.index < win.last);
+        const away = !cell && !disp ? awayAt(t, day, p.id) : null;
+        const buca = Boolean(!mensa && !cell && !disp && !away?.progetto && win && p.index > win.first && p.index < win.last);
         if (disp) fillD(x, y, hourW, rowH);
         else if (buca) hatch(x, y, hourW, rowH);
         box(x, y, hourW, rowH);
         const mark = mensa && slot && isMensaLesson(slot) ? "M" : cell;
-        if (mark) {
+        if (away?.progetto) {
+          if (away.sede) {
+            fillFitted(ctx, "P", x + hourW / 2, y + 7, hourW - 4, 700, 8);
+            fillFitted(ctx, away.sede, x + hourW / 2, y + 16, hourW - 3, 600, 7);
+          } else {
+            fillFitted(ctx, "P", x + hourW / 2, y + rowH / 2, hourW - 4, 700, 9);
+          }
+          // fillFitted lascia il testo centrato: il nome della riga dopo va a sinistra
+          ctx.textAlign = "left";
+          ctx.textBaseline = "alphabetic";
+        } else if (mark) {
           ctx.textAlign = "center";
           ctx.textBaseline = "alphabetic";
           ctx.font = "600 9px 'Source Sans 3', system-ui, sans-serif";
@@ -1609,6 +1625,11 @@ export async function orariDocentiJpegs(data: PersistedData): Promise<{ blob: Bl
         const cx = x + colW / 2;
         const cy = y + rowH / 2;
         const maxW = colW - 12;
+        if (cell.kind === "project" && cell.sede) {
+          fillFitted(ctx, "Progetto", cx, cy - 7, maxW, 600, 10, "#4a4a4a");
+          fillFitted(ctx, cell.sede, cx, cy + 8, maxW, 600, 10, "#111");
+          return;
+        }
         if (cell.kind === "away" || cell.kind === "project") {
           fillFitted(ctx, cell.kind === "project" ? "Progetto" : "Altro plesso", cx, cy, maxW, 600, 10, "#4a4a4a");
           return;

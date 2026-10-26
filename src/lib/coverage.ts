@@ -311,9 +311,11 @@ export function awayAt(
   teacher: Teacher,
   day: DayOfWeek,
   periodId: string,
-): { progetto: boolean } | null {
+): { progetto: boolean; sede?: string } | null {
   const hit = (teacher.awaySlots ?? []).find((a) => a.day === day && a.periodId === periodId);
-  return hit ? { progetto: Boolean(hit.progetto) } : null;
+  if (!hit) return null;
+  const sede = hit.progetto ? hit.sede?.trim() : undefined;
+  return { progetto: Boolean(hit.progetto), ...(sede && { sede }) };
 }
 
 /**

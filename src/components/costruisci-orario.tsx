@@ -104,7 +104,7 @@ import { SAVE_SLOTS } from "@/lib/saved-timetables";
 
 type Cell = { day: DayOfWeek; periodId: string };
 type CellState = "empty" | "no" | "away" | "project" | "class";
-type Brush = "away" | "project" | "no" | "class" | "erase";
+type Brush = "away" | "no" | "class" | "erase";
 type ClassPick = {
   teacherId: string;
   day: DayOfWeek;
@@ -117,7 +117,6 @@ type MorningPeriod = ReturnType<typeof corePeriods>[number];
 
 const BRUSHES: { value: Brush; label: string; hint: string }[] = [
   { value: "away", label: "Altrove", hint: "altro plesso o impegno" },
-  { value: "project", label: "Progetto", hint: "fuori dalla scuola, mai in sostituzione" },
   { value: "no", label: "No", hint: "mai a quell’ora" },
   { value: "class", label: "Classe", hint: "una o tutte le sue classi" },
   { value: "erase", label: "Cancella", hint: "decide l’app" },
@@ -125,7 +124,7 @@ const BRUSHES: { value: Brush; label: string; hint: string }[] = [
 
 const sameCell = (a: Cell, day: DayOfWeek, periodId: string) => a.day === day && a.periodId === periodId;
 
-/** Ora segnata «Progetto» (fuori dalla scuola, come «Altrove»). */
+/** Ora segnata «Progetto» nella scheda docente o in Orario: qui si vede, ma non si cambia. */
 const isProjectHour = (t: Teacher, day: DayOfWeek, periodId: string) =>
   (t.awaySlots ?? []).some((a) => a.progetto && sameCell(a, day, periodId));
 
@@ -138,14 +137,13 @@ function cellState(t: Teacher, day: DayOfWeek, periodId: string): CellState {
 }
 
 /** Le caselle date passano allo stato voluto; tutto il resto del docente resta com’è. */
-function withCells(t: Teacher, cells: Cell[], state: Exclude<CellState, "class">): Partial<Teacher> {
+function withCells(t: Teacher, cells: Cell[], state: Exclude<CellState, "class" | "project">): Partial<Teacher> {
   const hit = (a: Cell) => cells.some((c) => sameCell(a, c.day, c.periodId));
   const rest = <T extends Cell>(list: T[] | undefined) => (list ?? []).filter((a) => !hit(a));
   return {
     awaySlots: [
       ...rest(t.awaySlots),
       ...(state === "away" ? cells : []),
-      ...(state === "project" ? cells.map((c) => ({ day: c.day, periodId: c.periodId, progetto: true })) : []),
     ],
     avoidSlots: [...rest(t.avoidSlots), ...(state === "no" ? cells : [])],
     mustSlots: rest(t.mustSlots),
@@ -2654,11 +2652,15 @@ function AvailabilityPanel({
       toast.message(`A quell’ora è a ${there.sedeName} (${there.label}): si cambia dall’orario di quella sede.`);
       return;
     }
+    const cur = cellState(t, day, periodId);
+    if (cur === "project") {
+      toast.message("Il progetto si cambia nella scheda del docente o in Orario.");
+      return;
+    }
     if (brush === "class") {
       onClassPick(t, day, periodId);
       return;
     }
-    const cur = cellState(t, day, periodId);
     onUpdate(t.id, withCells(t, [{ day, periodId }], brush === "erase" || cur === brush ? "empty" : brush));
   }
 
@@ -2668,13 +2670,11 @@ function AvailabilityPanel({
       toast.message("La classe si segna una casella alla volta.");
       return;
     }
-    const target =
-      brush === "erase" || brush === "away" || brush === "project"
-        ? cells
-        : cells.filter((c) => {
-            const s = cellState(t, c.day, c.periodId);
-            return s !== "away" && s !== "project" && s !== "class";
-          });
+    const target = cells.filter((c) => {
+      const s = cellState(t, c.day, c.periodId);
+      if (s === "project") return false;
+      return brush === "erase" || brush === "away" || (s !== "away" && s !== "class");
+    });
     if (!target.length) return;
     const allSet = brush !== "erase" && target.every((c) => cellState(t, c.day, c.periodId) === brush);
     onUpdate(t.id, withCells(t, target, brush === "erase" || allSet ? "empty" : brush));
@@ -2687,7 +2687,7 @@ function AvailabilityPanel({
       </StepTitle>
 
       <div className="sticky top-0 z-20 -mx-5 mt-4 border-y border-border bg-card/95 px-5 py-2 backdrop-blur-sm">
-        <div role="radiogroup" aria-label="Segno da mettere" className="grid grid-cols-5 gap-1 sm:flex sm:flex-wrap">
+        <div role="radiogroup" aria-label="Segno da mettere" className="grid grid-cols-4 gap-1 sm:flex sm:flex-wrap">
           {BRUSHES.map((b) => (
             <button
               key={b.value}
