@@ -330,6 +330,75 @@ describe("timetable-solver", () => {
     assert.equal(bad.length, 0);
   });
 
+  it("un solo cambio di plesso al giorno: qui → altrove → qui è un vincolo rigido", () => {
+    const data = buildSeed();
+    const applied = withSlots(data, solveTimetable(data, { timeMs: 600, seed: 12, now: ticks() }));
+    const morning = ["p1", "p2", "p3", "p4", "p5", "p6"];
+    // un docente con lezioni prima e dopo un'ora dello stesso giorno: lì una × fa andata e ritorno
+    // (l'ora × resta altrove anche se c'è una lezione sopra)
+    let pick: { teacherId: string; day: DayOfWeek; periodId: string } | null = null;
+    for (const t of applied.teachers) {
+      for (const day of applied.settings.days) {
+        const at = morning.filter((pid) => applied.slots.some((x) => x.teacherId === t.id && x.day === day && x.periodId === pid));
+        const lo = morning.indexOf(at[0] ?? "");
+        const hi = morning.indexOf(at[at.length - 1] ?? "");
+        if (lo >= 0 && hi - lo >= 2) {
+          pick = { teacherId: t.id, day, periodId: morning[lo + 1]! };
+          break;
+        }
+      }
+      if (pick) break;
+    }
+    assert.ok(pick, "c'è un docente con lezioni prima e dopo un'ora");
+    const marked: PersistedData = {
+      ...applied,
+      teachers: applied.teachers.map((x) =>
+        x.id === pick!.teacherId ? { ...x, otherPlesso: true, awaySlots: [{ day: pick!.day, periodId: pick!.periodId }] } : x,
+      ),
+    };
+    const rep = evaluateCurrent(marked);
+    assert.equal(rep.hard.shuttle.length, 1);
+    assert.ok(rep.hard.shuttle[0]!.cells?.every((c) => c.teacherId === pick!.teacherId && c.day === pick!.day));
+    assert.match(rep.hard.shuttle[0]!.text, /: qui → altrove → qui$/);
+    assert.ok(rep.score.hard > 0);
+    // senza «su più plessi» la × non chiede spostamenti: niente andata e ritorno
+    const notOther = evaluateCurrent({
+      ...marked,
+      teachers: marked.teachers.map((x) => (x.id === pick!.teacherId ? { ...x, otherPlesso: false } : x)),
+    });
+    assert.equal(notOther.hard.shuttle.length, 0);
+  });
+
+  it("la ricerca non fa mai andata e ritorno tra plessi (× solo a metà mattina)", () => {
+    const data = buildSeed();
+    const busy = new Map<string, number>();
+    for (const x of timetableDemand(data).lessons) busy.set(x.teacherId, (busy.get(x.teacherId) ?? 0) + x.hours);
+    // i tre docenti con più ore: su due plessi, altrove solo alla 3ª in due giorni
+    const ids = [...busy.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([id]) => id);
+    const days = data.settings.days.slice(1, 3);
+    const marked: PersistedData = {
+      ...data,
+      teachers: data.teachers.map((x) =>
+        ids.includes(x.id) ? { ...x, otherPlesso: true, awaySlots: days.map((day) => ({ day, periodId: "p3" })) } : x,
+      ),
+    };
+    const order = ["p1", "p2", "p3", "p4", "p5", "p6"];
+    for (const seed of [3, 7, 11]) {
+      for (const mode of ["scratch", "improve"] as const) {
+        const start = mode === "improve" ? withSlots(marked, solveTimetable(data, { timeMs: 600, seed, now: ticks() })) : marked;
+        const out = solveTimetable(start, { timeMs: 1500, seed, mode, now: ticks() });
+        assert.equal(out.report.hard.shuttle.length, 0, `${mode} ${seed}: ${out.report.hard.shuttle.map((i) => i.text).join("; ")}`);
+        for (const id of ids)
+          for (const day of days) {
+            const at = out.slots.filter((x) => x.teacherId === id && x.day === day).map((x) => order.indexOf(x.periodId));
+            const before = at.some((i) => i >= 0 && i < 2);
+            const after = at.some((i) => i > 2);
+            assert.ok(!(before && after), `${mode} ${seed}: ${id} giorno ${day} qui prima e dopo la 3ª`);
+          }
+      }
+    }
+  });
+
   it("disposizioni: il motore non le tocca; restano, tolte solo quelle sopra una lezione", () => {
     const data = buildSeed();
     const t = data.teachers.find((x) => x.role === "cattedra")!;
