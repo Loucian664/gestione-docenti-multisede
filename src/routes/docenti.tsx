@@ -1398,7 +1398,8 @@ type AwayCell = NonNullable<Teacher["awaySlots"]>[number];
 
 /**
  * L'orario del potenziamento: «D» = in sede, disponibile per le sostituzioni; «P» = progetto, fuori dalla
- * scuola e mai chiamabile. Le ore segnate altrove in Costruisci (×) si vedono ma non si cambiano qui.
+ * scuola e mai chiamabile, con la sede scritta a mano (facoltativa). Le ore segnate altrove in Costruisci (×)
+ * si vedono ma non si cambiano qui.
  */
 function PresenceGrid({
   days,
@@ -1418,16 +1419,24 @@ function PresenceGrid({
   occupied: { day: DayOfWeek; periodId: string; label: string }[];
 }) {
   const [mode, setMode] = useState<"sede" | "progetto">("sede");
+  const [projSede, setProjSede] = useState("");
   const same = (a: Cell, day: DayOfWeek, periodId: string) => a.day === day && a.periodId === periodId;
   const on = (day: DayOfWeek, periodId: string) => selected.some((a) => same(a, day, periodId));
-  const project = (day: DayOfWeek, periodId: string) =>
-    away.some((a) => a.progetto && same(a, day, periodId));
+  const projectAt = (day: DayOfWeek, periodId: string) =>
+    away.find((a) => a.progetto && same(a, day, periodId));
+  const project = (day: DayOfWeek, periodId: string) => Boolean(projectAt(day, periodId));
   const elsewhere = (day: DayOfWeek, periodId: string) =>
     away.some((a) => !a.progetto && same(a, day, periodId));
   const lesson = (day: DayOfWeek, periodId: string) =>
     occupied.find((a) => same(a, day, periodId));
   const locked = (day: DayOfWeek, periodId: string) => Boolean(lesson(day, periodId)) || elsewhere(day, periodId);
   const projectCount = away.filter((a) => a.progetto).length;
+  const sedeTyped = projSede.trim();
+  /** Le sedi già scritte, con le ore di ciascuna: «Nicotera (3 h)». */
+  const sedi = [...new Set(away.filter((a) => a.progetto && a.sede?.trim()).map((a) => a.sede!.trim()))];
+  const sediText = sedi
+    .map((s) => `${s} (${away.filter((a) => a.progetto && a.sede?.trim() === s).length} h)`)
+    .join(", ");
 
   /** Le caselle date diventano «D», «P» o vuote; le altre restano come sono. */
   function setCells(cells: Cell[], to: "sede" | "progetto" | "vuota") {
@@ -1435,13 +1444,19 @@ function PresenceGrid({
     onChange([...selected.filter((a) => !hit(a)), ...(to === "sede" ? cells : [])]);
     onAwayChange([
       ...away.filter((a) => !(a.progetto && hit(a))),
-      ...(to === "progetto" ? cells.map((c) => ({ ...c, progetto: true })) : []),
+      ...(to === "progetto" ? cells.map((c) => ({ ...c, progetto: true, ...(sedeTyped && { sede: sedeTyped }) })) : []),
     ]);
   }
 
   function toggle(day: DayOfWeek, periodId: string) {
     if (locked(day, periodId)) return;
-    const already = mode === "sede" ? on(day, periodId) : project(day, periodId);
+    const proj = projectAt(day, periodId);
+    // un «P» con un’altra sede prende quella scritta; con la stessa (o senza sede scritta) si toglie
+    if (mode === "progetto" && proj && sedeTyped && proj.sede?.trim() !== sedeTyped) {
+      setCells([{ day, periodId }], "progetto");
+      return;
+    }
+    const already = mode === "sede" ? on(day, periodId) : Boolean(proj);
     setCells([{ day, periodId }], already ? "vuota" : mode);
   }
 
@@ -1456,7 +1471,8 @@ function PresenceGrid({
       <p className="text-[12px] text-muted-foreground">
         Scegli cosa segnare, poi tocca le ore. «D»: in sede senza classe, disponibile per le sostituzioni.
         «P»: progetto, fuori dalla scuola e mai chiamabile per le sostituzioni. Tocca Lun, Mar… per l’intera
-        giornata. {selected.length} ore in sede{projectCount > 0 ? `, ${projectCount} di progetto` : ""}.
+        giornata. {selected.length} ore in sede{projectCount > 0 ? `, ${projectCount} di progetto` : ""}
+        {sediText ? ` (${sediText})` : ""}.
       </p>
       <div className="mt-2 inline-flex rounded-lg bg-muted p-1" role="group" aria-label="Cosa segnare">
         {(
@@ -1479,6 +1495,30 @@ function PresenceGrid({
           </button>
         ))}
       </div>
+      {mode === "progetto" && (
+        <div className="mt-2 max-w-xs">
+          <Label htmlFor="sede-progetto" className="text-[12px]">
+            Sede del progetto (facoltativa)
+          </Label>
+          <Input
+            id="sede-progetto"
+            value={projSede}
+            onChange={(e) => setProjSede(e.target.value)}
+            placeholder="Es. Nicotera, primaria di Rombiolo"
+            maxLength={60}
+            list="sedi-progetto"
+            className="mt-1"
+          />
+          <datalist id="sedi-progetto">
+            {sedi.map((s) => (
+              <option key={s} value={s} />
+            ))}
+          </datalist>
+          <p className="mt-1 text-[12px] text-muted-foreground">
+            Le ore che tocchi prendono questa sede. Su un «P» con un’altra sede, la cambia.
+          </p>
+        </div>
+      )}
       <div className="mt-2 overflow-x-auto">
         <table className="w-full min-w-[280px] border-collapse text-[11px]">
           <thead>
@@ -1521,7 +1561,9 @@ function PresenceGrid({
                   const busy = lesson(d, p.id);
                   const away = elsewhere(d, p.id);
                   const marked = on(d, p.id);
-                  const proj = project(d, p.id);
+                  const projCell = projectAt(d, p.id);
+                  const proj = Boolean(projCell);
+                  const projSedeCell = projCell?.sede?.trim();
                   return (
                     <td key={d} className="p-0.5 text-center">
                       <button
@@ -1535,7 +1577,7 @@ function PresenceGrid({
                               : marked
                                 ? `${DAY_SHORT[d]} ${p.label}: in sede`
                                 : proj
-                                  ? `${DAY_SHORT[d]} ${p.label}: progetto`
+                                  ? `${DAY_SHORT[d]} ${p.label}: progetto${projSedeCell ? ` a ${projSedeCell}` : ""}`
                                   : `${DAY_SHORT[d]} ${p.label}: libera`
                         }
                         onClick={() => toggle(d, p.id)}
@@ -1550,7 +1592,22 @@ function PresenceGrid({
                                 : "bg-muted text-muted-foreground",
                         )}
                       >
-                        {busy ? busy.label.replace(/^(\d)ª\s*/u, "$1") : away ? "×" : marked ? "D" : proj ? "P" : ""}
+                        {busy ? (
+                          busy.label.replace(/^(\d)ª\s*/u, "$1")
+                        ) : away ? (
+                          "×"
+                        ) : marked ? (
+                          "D"
+                        ) : proj ? (
+                          <span className="flex min-w-0 flex-col items-center leading-none">
+                            P
+                            {projSedeCell && (
+                              <span className="mt-0.5 max-w-9 truncate text-[8px] font-medium">{projSedeCell}</span>
+                            )}
+                          </span>
+                        ) : (
+                          ""
+                        )}
                       </button>
                     </td>
                   );

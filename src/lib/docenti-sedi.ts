@@ -13,8 +13,8 @@ export type PersonCell =
   | { kind: "mensa"; sedeId: string }
   /** segnata con la × (altro plesso) e non spiegata da nessuna sede dell'archivio */
   | { kind: "away" }
-  /** segnata «Progetto» (fuori dalla scuola) */
-  | { kind: "project" };
+  /** segnata «Progetto» (fuori dalla scuola), con la sede scritta a mano se c'è */
+  | { kind: "project"; sede?: string };
 
 export type PersonSede = {
   id: string;
@@ -118,7 +118,8 @@ export function personSheets(data: PersistedData): PersonSheet[] {
         if (!pb) continue;
         for (const pa of basePeriods.filter((x) => overlaps(x, pb))) {
           const key = personCellKey(a.day, pa.id);
-          if (!cells.has(key)) cells.set(key, { kind: a.progetto ? "project" : "away" });
+          const sede = a.sede?.trim();
+          if (!cells.has(key)) cells.set(key, a.progetto ? { kind: "project", ...(sede && { sede }) } : { kind: "away" });
         }
       }
     }
