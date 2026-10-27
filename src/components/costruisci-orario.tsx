@@ -1776,9 +1776,13 @@ function Ritocchi({
       reset();
       return;
     }
-    if (effects?.[z]) {
-      if (target === z) move();
-      else setTarget(z);
+    const eff = effects?.[z];
+    if (eff) {
+      // come il tasto: uno spostamento vietato, con i dettagli chiusi, prima si conferma
+      if (target === z) {
+        if (eff.verdict === "breaks" && !showDetails) setConfirmBreak(true);
+        else move();
+      } else setTarget(z);
       return;
     }
     if (lessonClassId) {
