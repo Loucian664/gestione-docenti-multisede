@@ -674,6 +674,15 @@ function OrarioPage() {
                     const slot = teacherSlotAt(data, teacherId, d, p.id);
                     const cls = slot ? data.classes.find((c) => c.id === slot.classId) : null;
                     const others = slot ? cellSlots(data, slot.classId, d, p.id).filter((s) => s.teacherId !== teacherId) : [];
+                    // altre classi dello stesso docente nella stessa ora: vincolo non rispettato, da far vedere
+                    const clash = slot
+                      ? data.slots
+                          .filter(
+                            (s) =>
+                              s.teacherId === teacherId && s.day === d && s.periodId === p.id && s.classId !== slot.classId,
+                          )
+                          .map((s) => data.classes.find((c) => c.id === s.classId)?.name ?? "")
+                      : [];
                     const win = teacherDayWindow(data, teacherId, d);
                     const inWindow = Boolean(
                       win &&
@@ -756,6 +765,11 @@ function OrarioPage() {
                               </span>
                               {others.length > 0 && (
                                 <span className={cn("text-[11px]", tc.text2)}>Compresenza</span>
+                              )}
+                              {clash.length > 0 && (
+                                <span className="text-[11px] font-medium text-destructive">
+                                  Anche {clash.join(", ")}: classi insieme
+                                </span>
                               )}
                             </>
                           ) : (
