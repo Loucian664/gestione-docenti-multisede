@@ -4563,7 +4563,15 @@ export function diffFacts(before: Fact[], after: Fact[]): WhoChange[] {
 }
 
 export type TeacherCell =
-  | { kind: "lesson"; classId: string; className: string; subject: string; locked: boolean }
+  | {
+      kind: "lesson";
+      classId: string;
+      className: string;
+      subject: string;
+      locked: boolean;
+      /** altre classi del docente nella stessa ora (vincolo violato: più classi insieme) */
+      also: { classId: string; className: string; subject: string }[];
+    }
   /** gap: ora buca (vuota tra due impegni a scuola) */
   | { kind: "disp" | "away" | "travel" | "no" | "free"; gap?: boolean };
 
@@ -4761,17 +4769,15 @@ export class TimetableEditor {
     const p = this.prep;
     const t = p.teachers.findIndex((x) => x.id === teacherId);
     if (t < 0 || z < 0) return { kind: "free" };
+    let hit: TeacherCell | null = null;
     for (let c = 0; c < p.C; c++) {
       const u = this.s.grid[c * p.DM + z]!;
-      if (u >= 0 && p.unitTeacher[u] === t)
-        return {
-          kind: "lesson",
-          classId: p.classes[c]!.id,
-          className: p.classes[c]!.name,
-          subject: p.unitReal[u]!,
-          locked: Boolean(p.locked[u]),
-        };
+      if (u < 0 || p.unitTeacher[u] !== t) continue;
+      const one = { classId: p.classes[c]!.id, className: p.classes[c]!.name, subject: p.unitReal[u]! };
+      if (hit?.kind === "lesson") hit.also.push(one);
+      else hit = { kind: "lesson", ...one, locked: Boolean(p.locked[u]), also: [] };
     }
+    if (hit) return hit;
     const d = (z / p.M) | 0;
     const pos = p.morningPos[z % p.M]!;
     const base = (t * p.D + d) * p.P;

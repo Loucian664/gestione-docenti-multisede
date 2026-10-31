@@ -1761,7 +1761,7 @@ function Ritocchi({
     setFind(null);
   }
 
-  function tap(z: number, lessonClassId: string | null, gap = false) {
+  function tap(z: number, lessonClassId: string | null, gap = false, cycle = false) {
     setConfirmClose(false);
     setNotice(null);
     setFind(null);
@@ -1770,6 +1770,12 @@ function Ritocchi({
         setGapZ(null);
         setSel({ classId: lessonClassId, z });
       } else setGapZ(gap && gapNow !== z ? z : null);
+      return;
+    }
+    if (cycle && lessonClassId && z === sel.z) {
+      // più classi nella stessa ora del docente: un tocco passa alla classe successiva
+      setSel({ classId: lessonClassId, z });
+      setTarget(null);
       return;
     }
     if (z === sel.z && (lessonClassId === sel.classId || view === "teacher")) {
@@ -2244,10 +2250,15 @@ function Ritocchi({
                   const cellT = editor.teacherAt(teacherId, z);
                   const projT = cellT.kind === "away" && Boolean(shownTeacher && isProjectHour(shownTeacher, d, p.id));
                   const isGap = cellT.kind !== "lesson" && Boolean(cellT.gap);
-                  const isSel =
-                    Boolean(sel && sel.z === z && cellT.kind === "lesson" && cellT.classId === sel.classId) ||
-                    (!sel && gapNow === z);
-                  const lessonClass = cellT.kind === "lesson" ? cellT.classId : null;
+                  const here =
+                    cellT.kind === "lesson"
+                      ? [{ classId: cellT.classId, className: cellT.className }, ...cellT.also]
+                      : [];
+                  const selIdx = sel && sel.z === z ? here.findIndex((c) => c.classId === sel.classId) : -1;
+                  const isSel = selIdx >= 0 || (!sel && gapNow === z);
+                  // due o più classi insieme: i tocchi le scelgono una dopo l'altra, poi si deseleziona
+                  const cycle = selIdx >= 0 && selIdx < here.length - 1;
+                  const lessonClass = here.length ? here[cycle ? selIdx + 1 : 0]!.classId : null;
                   const tcT = teacherCell(
                     cellT.kind === "lesson" && shownTeacher && !(eff && eff.verdict !== "same" && !isSel)
                       ? shownTeacher.color
@@ -2259,7 +2270,9 @@ function Ritocchi({
                         type="button"
                         aria-label={`${DAY_SHORT[d]} ${p.index}ª: ${
                           cellT.kind === "lesson"
-                            ? `${cellT.className}, ${cellT.subject}${cellT.locked ? ", bloccata" : ""}`
+                            ? cellT.also.length
+                              ? `${here.map((c) => c.className).join(", ")} insieme: vincolo non rispettato`
+                              : `${cellT.className}, ${cellT.subject}${cellT.locked ? ", bloccata" : ""}`
                             : cellT.kind === "disp"
                               ? "a disposizione"
                               : cellT.kind === "away"
@@ -2271,11 +2284,27 @@ function Ritocchi({
                                   : `${cellT.kind === "no" ? "no" : "libera"}${cellT.gap ? ", ora buca" : ""}`
                         }${eff ? `. Spostando qui: ${VERDICT_WORD[eff.verdict]}` : ""}`}
                         aria-pressed={isSel}
-                        onClick={() => tap(z, lessonClass, isGap)}
+                        onClick={() => tap(z, lessonClass, isGap, cycle)}
                         className={cn(cellClass(z, isSel, cellT.kind === "lesson"), tcT.className)}
                         style={tcT.style}
                       >
-                        {cellT.kind === "lesson" ? (
+                        {cellT.kind === "lesson" && cellT.also.length ? (
+                          <>
+                            {here.slice(0, 2).map((c, i) => (
+                              <span
+                                key={c.classId}
+                                className={cn(
+                                  "w-full truncate text-[12px] font-medium text-destructive",
+                                  i === selIdx && "underline",
+                                )}
+                              >
+                                {c.className}
+                                {i === 1 && here.length > 2 ? ` +${here.length - 2}` : ""}
+                              </span>
+                            ))}
+                            <TriangleAlert className="absolute bottom-1 right-1 size-3 text-destructive" aria-hidden />
+                          </>
+                        ) : cellT.kind === "lesson" ? (
                           <>
                             <span className="w-full truncate text-[12px] font-medium">{cellT.className}</span>
                             <span
