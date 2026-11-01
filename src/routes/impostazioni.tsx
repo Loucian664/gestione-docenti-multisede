@@ -18,6 +18,8 @@ import { backupJson, parseBackupJson } from "@/lib/export";
 import { shareOrSave, toastSave } from "@/lib/share-file";
 import type { PersistedData, SedeData, Teacher, TimetableSlot } from "@/lib/types";
 import { allSedi, formerPersons, sedeName } from "@/lib/sedi";
+import { isLockedLesson } from "@/lib/locks";
+import { previousFields } from "@/lib/clear-marks";
 import { nextSchoolYear } from "@/lib/dates";
 import { archivedCounts, archivedYearLabels } from "@/lib/school-years";
 import { toast } from "sonner";
@@ -34,6 +36,8 @@ function ImpostazioniPage() {
   const [emptyDisp, setEmptyDisp] = useState(false);
   // «Svuota orario» di tutte le sedi invece che di quella in uso
   const [emptyAll, setEmptyAll] = useState(false);
+  // «Svuota orario» toglie anche le lezioni bloccate e i loro blocchi
+  const [emptyLocked, setEmptyLocked] = useState(false);
   const [pendingImport, setPendingImport] = useState<{ data: PersistedData; name: string } | null>(null);
   const [newYear, setNewYear] = useState<string | null>(null);
   const [removingYear, setRemovingYear] = useState<string | null>(null);
@@ -54,38 +58,69 @@ function ImpostazioniPage() {
   const emptyScope = emptyAll ? sedi : [here];
   const scopeLessons = emptyScope.reduce((n, s) => n + s.data.slots.length, 0);
   const scopeDisp = emptyScope.reduce((n, s) => n + dispOf(s.data), 0);
-  // orario già vuoto: «Svuota orario» serve a togliere le ore a disposizione rimaste
-  const onlyDisp = scopeLessons === 0;
+  /** Le lezioni bloccate di una sede: «Svuota orario» le lascia, se non si sceglie di togliere anche quelle. */
+  const lockedOf = (sede: SedeData) => {
+    const byId = new Map(sede.teachers.map((t) => [t.id, t]));
+    return sede.slots.filter((x) => isLockedLesson(byId.get(x.teacherId), x));
+  };
+  const scopeLocked = emptyScope.reduce((n, s) => n + lockedOf(s.data).length, 0);
+  // lezioni che il pulsante toglie: le bloccate solo con la spunta
+  const removable = scopeLessons - (emptyLocked ? 0 : scopeLocked);
+  // nessuna lezione da togliere: «Svuota orario» serve a togliere le ore a disposizione rimaste
+  const onlyDisp = removable === 0;
   const canEmpty = sedi.some((s) => s.data.slots.length > 0 || dispOf(s.data) > 0);
 
   function closeEmpty() {
     setEmptyOpen(false);
     setEmptyDisp(false);
     setEmptyAll(false);
+    setEmptyLocked(false);
   }
 
-  /** «Svuota orario»: via tutte le lezioni (e, se scelto, le ore a disposizione) delle sedi scelte, con «Annulla». */
+  /**
+   * «Svuota orario»: via le lezioni (non le bloccate, se non è scelto) e, se scelto, le ore a disposizione delle
+   * sedi scelte; con «Annulla».
+   */
   function emptyTimetable() {
     const withDisp = emptyDisp || onlyDisp;
-    type Part = { slots: TimetableSlot[]; disp?: Record<string, Teacher["dispSlots"]> };
+    type Part = { slots: TimetableSlot[]; patches: Record<string, Partial<Teacher>> };
     const before: Record<string, Part> = {};
     const after: Record<string, Part> = {};
     const slotOf: Record<string, number> = {};
     let lessons = 0;
     let disp = 0;
+    let stayed = 0;
     // sedi in cui cambia davvero qualcosa
     let touched = 0;
     for (const { id, data } of emptyScope) {
-      const old = withDisp
-        ? Object.fromEntries(data.teachers.filter((t) => t.dispSlots?.length).map((t) => [t.id, t.dispSlots]))
-        : undefined;
-      before[id] = { slots: data.slots, disp: old };
-      after[id] = { slots: [], disp: old && Object.fromEntries(Object.keys(old).map((tid) => [tid, []])) };
+      const kept = emptyLocked ? [] : lockedOf(data);
+      const patches: Record<string, Partial<Teacher>> = {};
+      const back: Record<string, Partial<Teacher>> = {};
+      let sedeDisp = 0;
+      let unlocked = false;
+      for (const t of data.teachers) {
+        const patch: Partial<Teacher> = {};
+        if (withDisp && t.dispSlots?.length) {
+          patch.dispSlots = [];
+          sedeDisp += t.dispSlots.length;
+        }
+        if (emptyLocked && (t.lockedSlots?.length || t.lockWeek)) {
+          patch.lockedSlots = [];
+          patch.lockWeek = false;
+          unlocked = true;
+        }
+        if (Object.keys(patch).length === 0) continue;
+        patches[t.id] = patch;
+        back[t.id] = previousFields(t, patch);
+      }
+      before[id] = { slots: data.slots, patches: back };
+      after[id] = { slots: kept, patches };
       slotOf[id] = data.activeSlot ?? 0;
-      lessons += data.slots.length;
-      const gone = data.slots.length + (withDisp ? dispOf(data) : 0);
-      if (withDisp) disp += dispOf(data);
-      if (gone > 0) touched += 1;
+      const gone = data.slots.length - kept.length;
+      lessons += gone;
+      disp += sedeDisp;
+      stayed += kept.length;
+      if (gone + sedeDisp > 0 || unlocked) touched += 1;
     }
     store.setSediTimetables(after);
     closeEmpty();
@@ -102,7 +137,9 @@ function ImpostazioniPage() {
         : many
           ? `In ${touched} sedi: `
           : "";
-    toast(`${head}${what.join(" e ")} ${lessons + disp === 1 ? "tolta" : "tolte"}.`, {
+    const stay =
+      stayed > 0 ? ` ${stayed === 1 ? "Resta" : "Restano"} ${countText(stayed, "ora bloccata", "ore bloccate")}.` : "";
+    toast(`${head}${what.join(" e ")} ${lessons + disp === 1 ? "tolta" : "tolte"}.${stay}`, {
       duration: 10000,
       action: {
         label: "Annulla",
@@ -289,9 +326,10 @@ function ImpostazioniPage() {
       <section className="paper-panel mb-4 rounded-xl p-5">
         <h2 className="font-display text-lg">Svuota orario</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Toglie tutte le lezioni dell’orario in uso e, se vuoi, le ore a disposizione: della sede in uso (
-          {sedeName(store.settings)}) o di tutte le sedi. Restano docenti, classi, cattedre, segni di Costruisci,
-          assenze, sostituzioni e orari salvati negli slot.
+          Toglie le lezioni dell’orario in uso e, se vuoi, le ore a disposizione: della sede in uso (
+          {sedeName(store.settings)}) o di tutte le sedi. Le ore bloccate restano, se non scegli di togliere anche
+          quelle. Restano docenti, classi, cattedre, segni di Costruisci, assenze, sostituzioni e orari salvati negli
+          slot.
         </p>
         <div className="mt-4">
           <Button
@@ -320,11 +358,16 @@ function ImpostazioniPage() {
                   : `L’${inUseNameOf(here.data)} di ${sedeName(here.data.settings)} è già vuoto.`
                 : emptyAll
                   ? onlyDisp
-                    ? "Le sedi non hanno lezioni: si tolgono le ore a disposizione rimaste."
-                    : `Si ${scopeLessons === 1 ? "toglie" : "tolgono"} ${countText(scopeLessons, "lezione", "lezioni")} dall’orario in uso di tutte le sedi (${sedi.length}).`
+                    ? scopeDisp > 0
+                      ? "Le sedi non hanno lezioni da togliere: si tolgono le ore a disposizione rimaste."
+                      : "Le sedi non hanno lezioni da togliere."
+                    : `Si ${removable === 1 ? "toglie" : "tolgono"} ${countText(removable, "lezione", "lezioni")} dall’orario in uso di tutte le sedi (${sedi.length}).`
                   : onlyDisp
-                    ? `L’${inUseNameOf(here.data)} di ${sedeName(here.data.settings)} non ha lezioni: si tolgono le ore a disposizione rimaste.`
-                    : `Si ${scopeLessons === 1 ? "toglie" : "tolgono"} ${countText(scopeLessons, "lezione", "lezioni")} dall’${inUseNameOf(here.data)} di ${sedeName(here.data.settings)}. Le altre sedi non cambiano.`}{" "}
+                    ? scopeDisp > 0
+                      ? `L’${inUseNameOf(here.data)} di ${sedeName(here.data.settings)} non ha lezioni da togliere: si tolgono le ore a disposizione rimaste.`
+                      : `L’${inUseNameOf(here.data)} di ${sedeName(here.data.settings)} non ha lezioni da togliere.`
+                    : `Si ${removable === 1 ? "toglie" : "tolgono"} ${countText(removable, "lezione", "lezioni")} dall’${inUseNameOf(here.data)} di ${sedeName(here.data.settings)}. Le altre sedi non cambiano.`}
+              {!emptyLocked && scopeLocked > 0 && ` ${scopeLocked === 1 ? "Resta" : "Restano"} ${countText(scopeLocked, "ora bloccata", "ore bloccate")}.`}{" "}
               Restano docenti, classi, cattedre, segni di Costruisci, assenze, sostituzioni e orari salvati negli slot.
             </DialogDescription>
           </DialogHeader>
@@ -353,6 +396,17 @@ function ImpostazioniPage() {
               })}
             </div>
           )}
+          {scopeLocked > 0 && (
+            <label className="mb-2 flex min-h-10 items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="size-4 accent-primary"
+                checked={emptyLocked}
+                onChange={(e) => setEmptyLocked(e.target.checked)}
+              />
+              Togli anche le ore bloccate ({scopeLocked})
+            </label>
+          )}
           {scopeDisp > 0 && (
             <label className="mb-2 flex min-h-10 items-center gap-2 text-sm">
               <input
@@ -379,7 +433,7 @@ function ImpostazioniPage() {
             <Button
               variant="destructive"
               className="min-h-11"
-              disabled={scopeLessons === 0 && scopeDisp === 0}
+              disabled={removable === 0 && scopeDisp === 0}
               onClick={emptyTimetable}
             >
               {onlyDisp ? "Togli le ore a disposizione" : "Svuota orario"}

@@ -23,7 +23,8 @@ import {
 import { SubjectSelect } from "@/components/subject-select";
 import { DAY_SHORT, type DayOfWeek } from "@/lib/types";
 import { toSchoolDay } from "@/lib/dates";
-import { Download, Images as ImageIcon, FileText, User, BookOpen, LayoutGrid, Users, StretchHorizontal } from "lucide-react";
+import { Download, Images as ImageIcon, FileText, User, BookOpen, LayoutGrid, Users, StretchHorizontal, Lock } from "lucide-react";
+import { isLockedLesson, lockAt } from "@/lib/locks";
 import { docentiPdf, schoolFileTag, timetableXlsx } from "@/lib/export";
 import { shareJpeg, shareOrSaveFile, toastSave, openPdfTab } from "@/lib/share-file";
 import { jpegBlobToPdf } from "@/lib/pdf";
@@ -759,7 +760,12 @@ function OrarioPage() {
                               {hereName && (
                                 <span className={cn("text-[12px] font-medium", tc.text2)}>{hereName}</span>
                               )}
-                              <span className="text-[13px] font-medium">{cls?.name}</span>
+                              <span className="flex items-center gap-1 text-[13px] font-medium">
+                                {cls?.name}
+                                {isLockedLesson(currentTeacher, slot) && (
+                                  <Lock className="size-3 shrink-0" aria-label="bloccata" />
+                                )}
+                              </span>
                               <span className={cn("text-[12px]", tc.text2)}>
                                 {slot.subject}
                               </span>
@@ -980,6 +986,11 @@ function TeacherHourEditor({
   );
 
   const others = classId ? cellSlots(data, classId, editing.day, editing.periodId).filter((s) => s.teacherId !== editing.teacherId) : [];
+  // «Blocca quest’ora»: Costruisci non sposta la lezione e «Svuota orario» la lascia
+  const weekLocked = Boolean(teacher?.lockWeek);
+  const [lock, setLock] = useState(Boolean(existing && isLockedLesson(teacher, existing)));
+  /** I blocchi del docente senza quest’ora (la lezione non c’è più). */
+  const unlocked = () => (teacher ? lockAt(teacher, editing, null) : []);
 
   function save() {
     if (!teacher) return;
@@ -1005,14 +1016,17 @@ function TeacherHourEditor({
       teacherId: editing.teacherId,
       subject,
     });
-    if (teacher && (dispOn || projectOn)) {
+    store.updateTeacher(teacher.id, {
+      lockedSlots: lockAt(teacher, editing, lock && !weekLocked ? classId : null),
       // una lezione non è più né a disposizione né di progetto
-      store.updateTeacher(teacher.id, {
+      ...((dispOn || projectOn) && {
         dispSlots: (teacher.dispSlots ?? []).filter((a) => !sameCell(a)),
         awaySlots: (teacher.awaySlots ?? []).filter((a) => !(a.progetto && sameCell(a))),
-      });
-    }
-    toast.success(others.length ? "Ora inserita in compresenza" : "Ora inserita");
+      }),
+    });
+    toast.success(
+      `${others.length ? "Ora inserita in compresenza" : "Ora inserita"}${lock && !weekLocked ? " e bloccata" : ""}`,
+    );
     onClose();
   }
 
@@ -1027,7 +1041,7 @@ function TeacherHourEditor({
     const away = (teacher.awaySlots ?? []).filter(
       (a) => dispOn || !(a.progetto && a.day === editing.day && a.periodId === editing.periodId),
     );
-    store.updateTeacher(teacher.id, { dispSlots: next, awaySlots: away });
+    store.updateTeacher(teacher.id, { dispSlots: next, awaySlots: away, lockedSlots: unlocked() });
     toast.success(dispOn ? "Disposizione tolta" : "Ora a disposizione");
     onClose();
   }
@@ -1038,6 +1052,7 @@ function TeacherHourEditor({
     if (!projectOn && existing) store.clearSlot(existing.id);
     const typed = sede.trim();
     store.updateTeacher(teacher.id, {
+      ...(!projectOn && { lockedSlots: unlocked() }),
       dispSlots: projectOn ? teacher.dispSlots ?? [] : (teacher.dispSlots ?? []).filter((a) => !sameCell(a)),
       awaySlots: [
         ...(teacher.awaySlots ?? []).filter((a) => !sameCell(a)),
@@ -1072,6 +1087,7 @@ function TeacherHourEditor({
 
   function remove() {
     if (existing) store.clearSlot(existing.id);
+    if (teacher) store.updateTeacher(teacher.id, { lockedSlots: unlocked() });
     onClose();
   }
 
@@ -1146,6 +1162,28 @@ function TeacherHourEditor({
               <SubjectSelect value={subject} onChange={setSubject} />
               <Input value={subject} onChange={(e) => setSubject(e.target.value)} className="mt-1" placeholder="O scrivi un nome" />
             </div>
+            {classId && (
+              <label className="flex min-h-11 cursor-pointer items-start gap-3 rounded-md border border-border px-3 py-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 size-4 shrink-0 accent-primary"
+                  checked={lock || weekLocked}
+                  disabled={weekLocked}
+                  onChange={(e) => setLock(e.target.checked)}
+                />
+                <span className="flex min-w-0 flex-col">
+                  <span className="flex items-center gap-1.5 font-medium">
+                    <Lock className="size-3.5" aria-hidden />
+                    Blocca quest’ora
+                  </span>
+                  <span className="text-[12px] text-muted-foreground">
+                    {weekLocked
+                      ? "Tutta la settimana del docente è bloccata (da Ritocchi in Costruisci)."
+                      : "Costruisci non la sposta e «Svuota orario» la lascia."}
+                  </span>
+                </span>
+              </label>
+            )}
             <div className="flex flex-wrap justify-end gap-2 pt-2">
               {existing && (
                 <Button variant="outline" onClick={remove}>
