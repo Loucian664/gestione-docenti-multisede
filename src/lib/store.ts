@@ -52,6 +52,7 @@ import {
   switchSede as switchSedeTo,
   syncPersonFields,
 } from "./sedi";
+import { dropLocks } from "./locks";
 
 /** Un'assenza eliminata e le coperture tolte con lei, ciascuna con la sua posizione. */
 export type RemovedAbsence = {
@@ -278,7 +279,12 @@ function withoutSlots(data: PersistedData, drop: Record<string, string[]>): Pers
   for (const [sedeId, ids] of Object.entries(drop)) {
     if (!ids.length) continue;
     const gone = new Set(ids);
-    next = editSede(next, sedeId, (sede) => ({ ...sede, slots: sede.slots.filter((x) => !gone.has(x.id)) }));
+    next = editSede(next, sedeId, (sede) => ({
+      ...sede,
+      slots: sede.slots.filter((x) => !gone.has(x.id)),
+      // via anche i blocchi delle lezioni tolte
+      teachers: dropLocks(sede.teachers, sede.slots.filter((x) => gone.has(x.id))),
+    }));
   }
   return next;
 }
@@ -531,7 +537,12 @@ export const useAppStore = create<AppStore>()(
           save({ slots: [...slots, next] });
         },
 
-        clearSlot: (id) => save({ slots: get().slots.filter((s) => s.id !== id) }),
+        clearSlot: (id) =>
+          save({
+            slots: get().slots.filter((s) => s.id !== id),
+            // via anche il blocco della lezione tolta
+            teachers: dropLocks(get().teachers, get().slots.filter((s) => s.id === id)),
+          }),
 
         addAbsence: (a) => {
           const id = uid("a");
