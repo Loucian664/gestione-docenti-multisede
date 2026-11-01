@@ -16,8 +16,9 @@ import {
 import { useAppStore, snapshot } from "@/lib/store";
 import { backupJson, parseBackupJson } from "@/lib/export";
 import { shareOrSave, toastSave } from "@/lib/share-file";
-import type { PersistedData, SedeData, Teacher, TimetableSlot } from "@/lib/types";
-import { allSedi, formerPersons, sedeName } from "@/lib/sedi";
+import type { Cattedra, PersistedData, SedeData, Teacher, TimetableSlot } from "@/lib/types";
+import { allSedi, formerPersons, sedeAsData, sedeName } from "@/lib/sedi";
+import { frozenCattedre } from "@/lib/build-timetable";
 import { isLockedLesson } from "@/lib/locks";
 import { previousFields } from "@/lib/clear-marks";
 import { nextSchoolYear } from "@/lib/dates";
@@ -83,7 +84,8 @@ function ImpostazioniPage() {
    */
   function emptyTimetable() {
     const withDisp = emptyDisp || onlyDisp;
-    type Part = { slots: TimetableSlot[]; patches: Record<string, Partial<Teacher>> };
+    type Part = { slots: TimetableSlot[]; patches: Record<string, Partial<Teacher>>; cattedre?: Cattedra[] };
+    const all = snapshot(store);
     const before: Record<string, Part> = {};
     const after: Record<string, Part> = {};
     const slotOf: Record<string, number> = {};
@@ -113,10 +115,12 @@ function ImpostazioniPage() {
         patches[t.id] = patch;
         back[t.id] = previousFields(t, patch);
       }
-      before[id] = { slots: data.slots, patches: back };
-      after[id] = { slots: kept, patches };
-      slotOf[id] = data.activeSlot ?? 0;
       const gone = data.slots.length - kept.length;
+      // le cattedre ricavate dall’orario restano, scritte, anche senza lezioni
+      const frozen = gone > 0 ? frozenCattedre(sedeAsData(all, data)) : null;
+      before[id] = { slots: data.slots, patches: back, ...(frozen && { cattedre: data.cattedre ?? [] }) };
+      after[id] = { slots: kept, patches, ...(frozen && { cattedre: frozen }) };
+      slotOf[id] = data.activeSlot ?? 0;
       lessons += gone;
       disp += sedeDisp;
       stayed += kept.length;

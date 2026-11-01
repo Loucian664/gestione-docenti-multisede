@@ -204,6 +204,18 @@ export function resolveCattedre(data: PersistedData): Cattedra[] {
   return out;
 }
 
+/**
+ * Le cattedre con quelle che l’app ricava dall’orario (classi senza cattedre salvate) messe per iscritto: tolte le
+ * lezioni non si potrebbero più ricavare e Costruisci darebbe le ore di una materia al primo docente che la insegna.
+ * null se non c’è niente da aggiungere.
+ */
+export function frozenCattedre(data: PersistedData): Cattedra[] | null {
+  const saved = data.cattedre ?? [];
+  const has = new Set(saved.map((c) => c.classId));
+  const add = resolveCattedre(data).filter((r) => !has.has(r.classId));
+  return add.length > 0 ? [...saved, ...add] : null;
+}
+
 export function cattedreOfTeacher(data: PersistedData, teacherId: string): Cattedra[] {
   const t = data.teachers.find((x) => x.id === teacherId);
   if (t && Array.isArray(t.cardRows)) {
