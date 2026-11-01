@@ -68,6 +68,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { sedeColor, teacherCell } from "@/lib/teacher-palette";
 import { corePeriods, isTpPeriodId } from "@/lib/periods";
+import { MARK_KINDS, clearMarks, markCount, previousFields, type MarkKind } from "@/lib/clear-marks";
 import {
   allSedi,
   autoAwayCells,
@@ -76,6 +77,7 @@ import {
   missingBySede,
   removedSediIssues,
   sedeColorIndex,
+  sedeIdOf,
   sedeName,
   switchSede,
   withOtherSedi,
@@ -835,6 +837,8 @@ export function CostruisciOrario({
         hoursHere={hoursHere}
         lockCount={lockCount}
         onUpdate={(id, patch) => store.updateTeacher(id, patch)}
+        onUpdateMany={(patches) => store.updateTeachers(patches)}
+        lessons={data.slots}
         onClassPick={openClassPick}
         onPattern={(t) => setPatternFor(t.id)}
       />
@@ -2666,6 +2670,8 @@ function AvailabilityPanel({
   hoursHere,
   lockCount,
   onUpdate,
+  onUpdateMany,
+  lessons,
   onClassPick,
   onPattern,
 }: {
@@ -2679,10 +2685,14 @@ function AvailabilityPanel({
   hoursHere: Map<string, number>;
   lockCount: Map<string, number>;
   onUpdate: (id: string, patch: Partial<Teacher>) => void;
+  onUpdateMany: (patches: Record<string, Partial<Teacher>>) => void;
+  lessons: TimetableSlot[];
   onClassPick: (t: Teacher, day: DayOfWeek, periodId: string) => void;
   onPattern: (t: Teacher) => void;
 }) {
   const [brush, setBrush] = useState<Brush>("away");
+  // «Cancella» toccato di nuovo con la gomma già in mano: finestra per togliere i segni a tutti
+  const [eraseAll, setEraseAll] = useState(false);
   const [query, setQuery] = useState("");
   // Sul telefono le schede partono chiuse, sul computer aperte; lo stato non si salva.
   // «flipped»: le schede aperte o chiuse a mano, al contrario di come partono.
@@ -2691,6 +2701,8 @@ function AvailabilityPanel({
   );
   const [flipped, setFlipped] = useState<Set<string>>(() => new Set());
   const current = BRUSHES.find((b) => b.value === brush) ?? BRUSHES[0]!;
+  const hintOf = (b: (typeof BRUSHES)[number]) =>
+    b.value === "erase" && brush === "erase" ? "di nuovo: cancella tutto" : b.hint;
   const q = query.trim().toLowerCase();
   const shown = q
     ? teachers.filter((t) => `${teacherName(t)} ${t.subjects.join(" ")}`.toLowerCase().includes(q))
@@ -2762,8 +2774,8 @@ function AvailabilityPanel({
               type="button"
               role="radio"
               aria-checked={brush === b.value}
-              aria-label={`${b.label}: ${b.hint}`}
-              onClick={() => setBrush(b.value)}
+              aria-label={`${b.label}: ${hintOf(b)}`}
+              onClick={() => (b.value === "erase" && brush === "erase" ? setEraseAll(true) : setBrush(b.value))}
               className={cn(
                 "flex min-w-0 flex-col items-center gap-1 rounded-lg border px-1 py-1.5 transition-colors sm:flex-row sm:gap-2 sm:pl-1.5 sm:pr-3 sm:text-left",
                 brush === b.value ? "border-primary bg-accent ring-1 ring-primary" : "border-transparent hover:bg-muted",
@@ -2772,13 +2784,14 @@ function AvailabilityPanel({
               <BrushSwatch brush={b.value} />
               <span className="flex min-w-0 flex-col leading-tight">
                 <span className="truncate text-[12px] font-medium text-foreground sm:text-[13px]">{b.label}</span>
-                <span className="hidden text-[11px] text-muted-foreground sm:block">{b.hint}</span>
+                <span className="hidden text-[11px] text-muted-foreground sm:block">{hintOf(b)}</span>
               </span>
             </button>
           ))}
         </div>
         <p className="mt-1 text-center text-[12px] text-muted-foreground sm:hidden">
           {current.label}: {current.hint}
+          {brush === "erase" && " · tocca di nuovo «Cancella» per cancellare tutto"}
         </p>
       </div>
 
@@ -2843,7 +2856,134 @@ function AvailabilityPanel({
           Non entrano nell’orario: {skipped.map((t) => teacherName(t)).join(", ")}.
         </p>
       )}
+      <EraseAllDialog
+        open={eraseAll}
+        onClose={() => setEraseAll(false)}
+        teachers={teachers}
+        lessons={lessons}
+        onUpdateMany={onUpdateMany}
+      />
     </section>
+  );
+}
+
+const countOf = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+/** «Cancella tutto»: i segni di tutti i docenti, per tipo; si tolgono quelli spuntati, con «Annulla». */
+function EraseAllDialog({
+  open,
+  onClose,
+  teachers,
+  lessons,
+  onUpdateMany,
+}: {
+  open: boolean;
+  onClose: () => void;
+  teachers: Teacher[];
+  lessons: TimetableSlot[];
+  onUpdateMany: (patches: Record<string, Partial<Teacher>>) => void;
+}) {
+  const [off, setOff] = useState<Set<MarkKind>>(() => new Set());
+  useEffect(() => {
+    if (open) setOff(new Set());
+  }, [open]);
+  const rows = useMemo(
+    () =>
+      MARK_KINDS.map(({ kind, label }) => {
+        const per = teachers.map((t) => markCount(t, kind, lessons));
+        return { kind, label, n: per.reduce((a, b) => a + b, 0), who: per.filter((x) => x > 0).length };
+      }).filter((r) => r.n > 0),
+    [teachers, lessons],
+  );
+  const total = rows.filter((r) => !off.has(r.kind)).reduce((a, r) => a + r.n, 0);
+
+  function apply() {
+    const kinds = new Set(rows.map((r) => r.kind).filter((k) => !off.has(k)));
+    const patches: Record<string, Partial<Teacher>> = {};
+    const back: Record<string, Partial<Teacher>> = {};
+    for (const t of teachers) {
+      const patch = clearMarks(t, kinds, lessons);
+      if (!patch) continue;
+      patches[t.id] = patch;
+      back[t.id] = previousFields(t, patch);
+    }
+    const sede = sedeIdOf(useAppStore.getState());
+    onUpdateMany(patches);
+    onClose();
+    toast(`${countOf(total, "segno tolto", "segni tolti")} a ${countOf(Object.keys(patches).length, "docente", "docenti")}.`, {
+      duration: 10000,
+      action: {
+        label: "Annulla",
+        onClick: () => {
+          // nel frattempo è stata aperta un’altra sede: i segni tornerebbero nel posto sbagliato
+          if (sedeIdOf(useAppStore.getState()) !== sede) {
+            toast.error("Non si può annullare: nel frattempo è stata aperta un’altra sede.");
+            return;
+          }
+          onUpdateMany(back);
+        },
+      },
+    });
+  }
+
+  const detail = (r: (typeof rows)[number]) => {
+    const who = countOf(r.who, "docente", "docenti");
+    if (r.kind === "days" || r.kind === "free") return who;
+    if (r.kind === "lock") return `${countOf(r.n, "blocco", "blocchi")} · ${who}`;
+    return `${countOf(r.n, "casella", "caselle")} · ${who}`;
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Cancellare tutti i segni?</DialogTitle>
+          <DialogDescription>
+            {rows.length
+              ? "A tutti i docenti. Togli la spunta a ciò che vuoi tenere."
+              : "Nessun docente ha segni da cancellare."}
+          </DialogDescription>
+        </DialogHeader>
+        {rows.length > 0 && (
+          <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border">
+            {rows.map((r) => (
+              <li key={r.kind}>
+                <label className="flex min-h-11 cursor-pointer items-center gap-3 px-3 py-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="size-4 shrink-0 accent-primary"
+                    checked={!off.has(r.kind)}
+                    onChange={(e) =>
+                      setOff((prev) => {
+                        const next = new Set(prev);
+                        if (e.target.checked) next.delete(r.kind);
+                        else next.add(r.kind);
+                        return next;
+                      })
+                    }
+                  />
+                  <span className="min-w-0 flex-1">{r.label}</span>
+                  <span className="shrink-0 text-right text-[12px] tabular-nums text-muted-foreground">{detail(r)}</span>
+                </label>
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="text-[12px] text-muted-foreground">
+          Le ore di progetto, le ore a disposizione e le × delle ore nelle altre sedi (le mette l’app) restano.
+        </p>
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button variant="outline" className="min-h-11" onClick={onClose}>
+            {rows.length ? "Annulla" : "Chiudi"}
+          </Button>
+          {rows.length > 0 && (
+            <Button variant="destructive" className="min-h-11" disabled={total === 0} onClick={apply}>
+              Cancella {countOf(total, "segno", "segni")}
+            </Button>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
