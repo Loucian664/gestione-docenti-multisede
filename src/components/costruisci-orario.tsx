@@ -3004,11 +3004,12 @@ function EraseAllDialog({
                   <span className="min-w-0 flex-1">
                     {r.kind === "away" ? (
                       <>
-                        {/* la × del carattere sta a metà altezza: un po' più giù e più grande, poggia sulla riga come le lettere */}
-                        <span aria-hidden className="inline-block translate-y-[0.12em] scale-[1.15]">
-                          ×
-                        </span>{" "}
-                        altro plesso
+                        «
+                        {/* X disegnata (due tratti uguali ad angolo retto), col centro all'altezza delle punte delle virgolette */}
+                        <svg viewBox="0 0 10 10" aria-hidden className="mx-[0.06em] inline-block size-[0.62em] align-[-0.06em]">
+                          <path d="M1 1 L9 9 M9 1 L1 9" stroke="currentColor" strokeWidth={1.25} strokeLinecap="round" fill="none" />
+                        </svg>
+                        » altro plesso
                       </>
                     ) : (
                       r.label
