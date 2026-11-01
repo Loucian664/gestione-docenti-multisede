@@ -76,6 +76,8 @@ type Actions = {
   updateSettings: (patch: Partial<Settings>) => void;
   addTeacher: (t: Omit<Teacher, "id">) => string;
   updateTeacher: (id: string, patch: Partial<Teacher>) => void;
+  /** Più docenti in un colpo solo (es. «Cancella tutto» in Costruisci e il suo «Annulla»). */
+  updateTeachers: (patches: Record<string, Partial<Teacher>>) => void;
   /** `drop`: lezioni del docente da togliere dall'orario (classi tolte dalla scheda). */
   saveTeacherCard: (
     id: string | null,
@@ -114,6 +116,8 @@ type Actions = {
   removeClass: (id: string) => void;
   upsertSlot: (slot: Omit<TimetableSlot, "id"> & { id?: string }) => void;
   clearSlot: (id: string) => void;
+  /** «Svuota orario»: l'orario in uso al posto di quello di prima; `disp` le ore a disposizione dei docenti indicati. */
+  setTimetable: (slots: TimetableSlot[], disp?: Record<string, Teacher["dispSlots"]>) => void;
   addAbsence: (a: Omit<Absence, "id">) => string;
   updateAbsence: (id: string, patch: Partial<Absence>) => void;
   /** Restituisce cosa ha tolto, per poterlo rimettere con restoreAbsence. */
@@ -431,6 +435,17 @@ export const useAppStore = create<AppStore>()(
 
         updateTeacher: (id, patch) =>
           save({ teachers: get().teachers.map((t) => (t.id === id ? { ...t, ...patch } : t)) }),
+
+        updateTeachers: (patches) =>
+          save({ teachers: get().teachers.map((t) => (patches[t.id] ? { ...t, ...patches[t.id] } : t)) }),
+
+        setTimetable: (slots, disp) =>
+          save({
+            slots,
+            ...(disp && {
+              teachers: get().teachers.map((t) => (t.id in disp ? { ...t, dispSlots: disp[t.id] } : t)),
+            }),
+          }),
 
         saveTeacherCard: (
           id: string | null,
