@@ -77,7 +77,6 @@ import {
   missingBySede,
   removedSediIssues,
   sedeColorIndex,
-  sedeIdOf,
   sedeName,
   switchSede,
   withOtherSedi,
@@ -837,8 +836,14 @@ export function CostruisciOrario({
         hoursHere={hoursHere}
         lockCount={lockCount}
         onUpdate={(id, patch) => store.updateTeacher(id, patch)}
-        onUpdateMany={(patches) => store.updateTeachers(patches)}
-        lessons={data.slots}
+        eraseSedi={allSedi(data).map((x) => ({
+          id: x.id,
+          name: sedeName(x.data.settings),
+          active: x.active,
+          teachers: x.active ? included : x.data.teachers.filter(isTimetableTeacher),
+          lessons: x.data.slots,
+        }))}
+        onUpdateSedi={(patches) => store.updateSediTeachers(patches)}
         onClassPick={openClassPick}
         onPattern={(t) => setPatternFor(t.id)}
       />
@@ -2670,8 +2675,8 @@ function AvailabilityPanel({
   hoursHere,
   lockCount,
   onUpdate,
-  onUpdateMany,
-  lessons,
+  eraseSedi,
+  onUpdateSedi,
   onClassPick,
   onPattern,
 }: {
@@ -2685,8 +2690,8 @@ function AvailabilityPanel({
   hoursHere: Map<string, number>;
   lockCount: Map<string, number>;
   onUpdate: (id: string, patch: Partial<Teacher>) => void;
-  onUpdateMany: (patches: Record<string, Partial<Teacher>>) => void;
-  lessons: TimetableSlot[];
+  eraseSedi: EraseSede[];
+  onUpdateSedi: (patches: Record<string, Record<string, Partial<Teacher>>>) => void;
   onClassPick: (t: Teacher, day: DayOfWeek, periodId: string) => void;
   onPattern: (t: Teacher) => void;
 }) {
@@ -2859,9 +2864,8 @@ function AvailabilityPanel({
       <EraseAllDialog
         open={eraseAll}
         onClose={() => setEraseAll(false)}
-        teachers={teachers}
-        lessons={lessons}
-        onUpdateMany={onUpdateMany}
+        sedi={eraseSedi}
+        onUpdateSedi={onUpdateSedi}
       />
     </section>
   );
@@ -2869,61 +2873,72 @@ function AvailabilityPanel({
 
 const countOf = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
-/** «Cancella tutto»: i segni di tutti i docenti, per tipo; si tolgono quelli spuntati, con «Annulla». */
+/** Una sede per «Cancella tutto»: i suoi docenti di Costruisci e il suo orario in uso. */
+type EraseSede = { id: string; name: string; active: boolean; teachers: Teacher[]; lessons: TimetableSlot[] };
+
+/**
+ * «Cancella tutto»: i segni di tutti i docenti della sede in uso o di tutte le sedi, per tipo; si tolgono quelli
+ * spuntati, con «Annulla».
+ */
 function EraseAllDialog({
   open,
   onClose,
-  teachers,
-  lessons,
-  onUpdateMany,
+  sedi,
+  onUpdateSedi,
 }: {
   open: boolean;
   onClose: () => void;
-  teachers: Teacher[];
-  lessons: TimetableSlot[];
-  onUpdateMany: (patches: Record<string, Partial<Teacher>>) => void;
+  sedi: EraseSede[];
+  onUpdateSedi: (patches: Record<string, Record<string, Partial<Teacher>>>) => void;
 }) {
   const [off, setOff] = useState<Set<MarkKind>>(() => new Set());
+  const [all, setAll] = useState(false);
   useEffect(() => {
-    if (open) setOff(new Set());
+    if (open) {
+      setOff(new Set());
+      setAll(false);
+    }
   }, [open]);
-  const rows = useMemo(
-    () =>
-      MARK_KINDS.map(({ kind, label }) => {
-        const per = teachers.map((t) => markCount(t, kind, lessons));
-        return { kind, label, n: per.reduce((a, b) => a + b, 0), who: per.filter((x) => x > 0).length };
-      }).filter((r) => r.n > 0),
-    [teachers, lessons],
-  );
+  const here = sedi.find((x) => x.active) ?? sedi[0];
+  const rowsOf = (list: EraseSede[]) =>
+    MARK_KINDS.map(({ kind, label }) => {
+      let n = 0;
+      // la stessa persona in più sedi conta una volta
+      const who = new Set<string>();
+      for (const sede of list) {
+        for (const t of sede.teachers) {
+          const k = markCount(t, kind, sede.lessons);
+          n += k;
+          if (k > 0) who.add(t.personId ?? `${sede.id}:${t.id}`);
+        }
+      }
+      return { kind, label, n, who: who.size };
+    }).filter((r) => r.n > 0);
+  const scope = all ? sedi : here ? [here] : [];
+  const rows = rowsOf(scope);
   const total = rows.filter((r) => !off.has(r.kind)).reduce((a, r) => a + r.n, 0);
 
   function apply() {
     const kinds = new Set(rows.map((r) => r.kind).filter((k) => !off.has(k)));
-    const patches: Record<string, Partial<Teacher>> = {};
-    const back: Record<string, Partial<Teacher>> = {};
-    for (const t of teachers) {
-      const patch = clearMarks(t, kinds, lessons);
-      if (!patch) continue;
-      patches[t.id] = patch;
-      back[t.id] = previousFields(t, patch);
+    const patches: Record<string, Record<string, Partial<Teacher>>> = {};
+    const back: Record<string, Record<string, Partial<Teacher>>> = {};
+    const who = new Set<string>();
+    for (const sede of scope) {
+      for (const t of sede.teachers) {
+        const patch = clearMarks(t, kinds, sede.lessons);
+        if (!patch) continue;
+        (patches[sede.id] ??= {})[t.id] = patch;
+        (back[sede.id] ??= {})[t.id] = previousFields(t, patch);
+        who.add(t.personId ?? `${sede.id}:${t.id}`);
+      }
     }
-    const sede = sedeIdOf(useAppStore.getState());
-    onUpdateMany(patches);
+    onUpdateSedi(patches);
     onClose();
-    toast(`${countOf(total, "segno tolto", "segni tolti")} a ${countOf(Object.keys(patches).length, "docente", "docenti")}.`, {
-      duration: 10000,
-      action: {
-        label: "Annulla",
-        onClick: () => {
-          // nel frattempo è stata aperta un’altra sede: i segni tornerebbero nel posto sbagliato
-          if (sedeIdOf(useAppStore.getState()) !== sede) {
-            toast.error("Non si può annullare: nel frattempo è stata aperta un’altra sede.");
-            return;
-          }
-          onUpdateMany(back);
-        },
-      },
-    });
+    const where = Object.keys(patches).length;
+    toast(
+      `${countOf(total, "segno tolto", "segni tolti")} a ${countOf(who.size, "docente", "docenti")}${where > 1 ? ` in ${where} sedi` : ""}.`,
+      { duration: 10000, action: { label: "Annulla", onClick: () => onUpdateSedi(back) } },
+    );
   }
 
   const detail = (r: (typeof rows)[number]) => {
@@ -2940,10 +2955,34 @@ function EraseAllDialog({
           <DialogTitle>Cancellare tutti i segni?</DialogTitle>
           <DialogDescription>
             {rows.length
-              ? "A tutti i docenti. Togli la spunta a ciò che vuoi tenere."
-              : "Nessun docente ha segni da cancellare."}
+              ? `A tutti i docenti ${all ? "di tutte le sedi" : `di ${here?.name ?? "questa sede"}`}. Togli la spunta a ciò che vuoi tenere.`
+              : all
+                ? "In nessuna sede i docenti hanno segni da cancellare."
+                : `Nessun docente di ${here?.name ?? "questa sede"} ha segni da cancellare.`}
           </DialogDescription>
         </DialogHeader>
+        {sedi.length > 1 && here && (
+          <div role="radiogroup" aria-label="Quali sedi" className="divide-y divide-border rounded-lg border border-border">
+            {[false, true].map((every) => {
+              const n = rowsOf(every ? sedi : [here]).reduce((a, r) => a + r.n, 0);
+              return (
+                <label key={String(every)} className="flex min-h-11 cursor-pointer items-center gap-3 px-3 py-2 text-sm">
+                  <input
+                    type="radio"
+                    name="cancella-sedi"
+                    className="size-4 shrink-0 accent-primary"
+                    checked={all === every}
+                    onChange={() => setAll(every)}
+                  />
+                  <span className="min-w-0 flex-1">{every ? `Tutte le sedi (${sedi.length})` : `Solo ${here.name}`}</span>
+                  <span className="shrink-0 text-[12px] tabular-nums text-muted-foreground">
+                    {countOf(n, "segno", "segni")}
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        )}
         {rows.length > 0 && (
           <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border">
             {rows.map((r) => (

@@ -16,11 +16,10 @@ import {
 import { useAppStore, snapshot } from "@/lib/store";
 import { backupJson, parseBackupJson } from "@/lib/export";
 import { shareOrSave, toastSave } from "@/lib/share-file";
-import type { PersistedData } from "@/lib/types";
-import { allSedi, formerPersons, sedeIdOf, sedeName } from "@/lib/sedi";
+import type { PersistedData, SedeData, Teacher, TimetableSlot } from "@/lib/types";
+import { allSedi, formerPersons, sedeName } from "@/lib/sedi";
 import { nextSchoolYear } from "@/lib/dates";
 import { archivedCounts, archivedYearLabels } from "@/lib/school-years";
-import { activeSlotOf } from "@/lib/saved-timetables";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/impostazioni")({ component: ImpostazioniPage });
@@ -33,6 +32,8 @@ function ImpostazioniPage() {
   const [clearStep, setClearStep] = useState<1 | 2>(1);
   const [emptyOpen, setEmptyOpen] = useState(false);
   const [emptyDisp, setEmptyDisp] = useState(false);
+  // «Svuota orario» di tutte le sedi invece che di quella in uso
+  const [emptyAll, setEmptyAll] = useState(false);
   const [pendingImport, setPendingImport] = useState<{ data: PersistedData; name: string } | null>(null);
   const [newYear, setNewYear] = useState<string | null>(null);
   const [removingYear, setRemovingYear] = useState<string | null>(null);
@@ -41,42 +42,82 @@ function ImpostazioniPage() {
   const yearLabels = archivedYearLabels(archived);
   const sameYear = (newYear ?? "").trim() === store.settings.schoolYear.trim();
 
-  const inUse = activeSlotOf(store);
-  const inUseName =
-    inUse === 0
-      ? "orario in vigore"
-      : `orario dello slot ${inUse}${(() => {
-          const name = store.savedTimetables?.find((x) => x.n === inUse)?.name;
-          return name ? ` «${name}»` : "";
-        })()}`;
-  const dispCount = store.teachers.reduce((n, t) => n + (t.dispSlots?.length ?? 0), 0);
+  /** L’orario in uso di una sede: quello in vigore o lo slot aperto. */
+  const inUseNameOf = (sede: SedeData) => {
+    const n = sede.activeSlot ?? 0;
+    if (n === 0) return "orario in vigore";
+    const name = sede.savedTimetables?.find((x) => x.n === n)?.name;
+    return `orario dello slot ${n}${name ? ` «${name}»` : ""}`;
+  };
+  const dispOf = (sede: SedeData) => sede.teachers.reduce((n, t) => n + (t.dispSlots?.length ?? 0), 0);
+  const here = sedi.find((s) => s.active) ?? sedi[0]!;
+  const emptyScope = emptyAll ? sedi : [here];
+  const scopeLessons = emptyScope.reduce((n, s) => n + s.data.slots.length, 0);
+  const scopeDisp = emptyScope.reduce((n, s) => n + dispOf(s.data), 0);
+  // orario già vuoto: «Svuota orario» serve a togliere le ore a disposizione rimaste
+  const onlyDisp = scopeLessons === 0;
+  const canEmpty = sedi.some((s) => s.data.slots.length > 0 || dispOf(s.data) > 0);
 
-  /** «Svuota orario»: via tutte le lezioni (e, se scelto, le ore a disposizione), con «Annulla». */
-  function emptyTimetable() {
-    const sede = sedeIdOf(store);
-    const before = store.slots;
-    const beforeDisp = emptyDisp
-      ? Object.fromEntries(store.teachers.filter((t) => t.dispSlots?.length).map((t) => [t.id, t.dispSlots]))
-      : undefined;
-    const lessons = before.length;
-    store.setTimetable(
-      [],
-      beforeDisp && Object.fromEntries(Object.keys(beforeDisp).map((id) => [id, []])),
-    );
+  function closeEmpty() {
     setEmptyOpen(false);
     setEmptyDisp(false);
-    toast(`Orario svuotato: ${countText(lessons, "lezione tolta", "lezioni tolte")}.`, {
+    setEmptyAll(false);
+  }
+
+  /** «Svuota orario»: via tutte le lezioni (e, se scelto, le ore a disposizione) delle sedi scelte, con «Annulla». */
+  function emptyTimetable() {
+    const withDisp = emptyDisp || onlyDisp;
+    type Part = { slots: TimetableSlot[]; disp?: Record<string, Teacher["dispSlots"]> };
+    const before: Record<string, Part> = {};
+    const after: Record<string, Part> = {};
+    const slotOf: Record<string, number> = {};
+    let lessons = 0;
+    let disp = 0;
+    // sedi in cui cambia davvero qualcosa
+    let touched = 0;
+    for (const { id, data } of emptyScope) {
+      const old = withDisp
+        ? Object.fromEntries(data.teachers.filter((t) => t.dispSlots?.length).map((t) => [t.id, t.dispSlots]))
+        : undefined;
+      before[id] = { slots: data.slots, disp: old };
+      after[id] = { slots: [], disp: old && Object.fromEntries(Object.keys(old).map((tid) => [tid, []])) };
+      slotOf[id] = data.activeSlot ?? 0;
+      lessons += data.slots.length;
+      const gone = data.slots.length + (withDisp ? dispOf(data) : 0);
+      if (withDisp) disp += dispOf(data);
+      if (gone > 0) touched += 1;
+    }
+    store.setSediTimetables(after);
+    closeEmpty();
+    const many = touched > 1;
+    const what = [
+      lessons > 0 && countText(lessons, "lezione", "lezioni"),
+      disp > 0 && countText(disp, "ora a disposizione", "ore a disposizione"),
+    ].filter(Boolean);
+    const head =
+      lessons > 0
+        ? many
+          ? `Orario svuotato in ${touched} sedi: `
+          : "Orario svuotato: "
+        : many
+          ? `In ${touched} sedi: `
+          : "";
+    toast(`${head}${what.join(" e ")} ${lessons + disp === 1 ? "tolta" : "tolte"}.`, {
       duration: 10000,
       action: {
         label: "Annulla",
         onClick: () => {
-          const now = useAppStore.getState();
-          // nel frattempo è stato aperto un altro orario o un’altra sede: l’orario di prima finirebbe nel posto sbagliato
-          if (activeSlotOf(now) !== inUse || sedeIdOf(now) !== sede) {
-            toast.error("Non si può annullare: nel frattempo è stato aperto un altro orario o un’altra sede.");
+          const now = allSedi(snapshot(useAppStore.getState()));
+          // nel frattempo una sede ha aperto un altro orario: l’orario di prima finirebbe nel posto sbagliato
+          const moved = Object.keys(slotOf).some((id) => {
+            const sede = now.find((x) => x.id === id);
+            return !sede || (sede.data.activeSlot ?? 0) !== slotOf[id];
+          });
+          if (moved) {
+            toast.error("Non si può annullare: nel frattempo è stato aperto un altro orario.");
             return;
           }
-          now.setTimetable(before, beforeDisp);
+          useAppStore.getState().setSediTimetables(before);
         },
       },
     });
@@ -248,41 +289,80 @@ function ImpostazioniPage() {
       <section className="paper-panel mb-4 rounded-xl p-5">
         <h2 className="font-display text-lg">Svuota orario</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Toglie tutte le lezioni dell’orario in uso di {sedeName(store.settings)}; le altre sedi non cambiano. Restano docenti, classi, cattedre, segni di Costruisci, assenze,
-          sostituzioni e orari salvati negli slot.
+          Toglie tutte le lezioni dell’orario in uso e, se vuoi, le ore a disposizione: della sede in uso (
+          {sedeName(store.settings)}) o di tutte le sedi. Restano docenti, classi, cattedre, segni di Costruisci,
+          assenze, sostituzioni e orari salvati negli slot.
         </p>
         <div className="mt-4">
-          <Button variant="outline" className="min-h-11" disabled={store.slots.length === 0} onClick={() => setEmptyOpen(true)}>
+          <Button
+            variant="outline"
+            className="min-h-11"
+            disabled={!canEmpty}
+            onClick={() => {
+              // sede in uso già vuota: si parte da «Tutte le sedi»
+              setEmptyAll(here.data.slots.length === 0 && dispOf(here.data) === 0);
+              setEmptyOpen(true);
+            }}
+          >
             Svuota orario
           </Button>
         </div>
       </section>
 
-      <Dialog
-        open={emptyOpen}
-        onOpenChange={(open) => {
-          setEmptyOpen(open);
-          if (!open) setEmptyDisp(false);
-        }}
-      >
+      <Dialog open={emptyOpen} onOpenChange={(open) => (open ? setEmptyOpen(true) : closeEmpty())}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Svuotare l’orario?</DialogTitle>
             <DialogDescription>
-              Si {store.slots.length === 1 ? "toglie" : "tolgono"} {countText(store.slots.length, "lezione", "lezioni")}{" "}
-              dall’{inUseName} di {sedeName(store.settings)}. Le altre sedi non cambiano. Restano docenti, classi, cattedre, segni
-              di Costruisci, assenze, sostituzioni e orari salvati negli slot.
+              {scopeLessons === 0 && scopeDisp === 0
+                ? emptyAll
+                  ? "Gli orari di tutte le sedi sono già vuoti."
+                  : `L’${inUseNameOf(here.data)} di ${sedeName(here.data.settings)} è già vuoto.`
+                : emptyAll
+                  ? onlyDisp
+                    ? "Le sedi non hanno lezioni: si tolgono le ore a disposizione rimaste."
+                    : `Si ${scopeLessons === 1 ? "toglie" : "tolgono"} ${countText(scopeLessons, "lezione", "lezioni")} dall’orario in uso di tutte le sedi (${sedi.length}).`
+                  : onlyDisp
+                    ? `L’${inUseNameOf(here.data)} di ${sedeName(here.data.settings)} non ha lezioni: si tolgono le ore a disposizione rimaste.`
+                    : `Si ${scopeLessons === 1 ? "toglie" : "tolgono"} ${countText(scopeLessons, "lezione", "lezioni")} dall’${inUseNameOf(here.data)} di ${sedeName(here.data.settings)}. Le altre sedi non cambiano.`}{" "}
+              Restano docenti, classi, cattedre, segni di Costruisci, assenze, sostituzioni e orari salvati negli slot.
             </DialogDescription>
           </DialogHeader>
-          {dispCount > 0 && (
+          {sedi.length > 1 && (
+            <div role="radiogroup" aria-label="Quali sedi" className="divide-y divide-border rounded-lg border border-border">
+              {[false, true].map((all) => {
+                const list = all ? sedi : [here];
+                const n = list.reduce((k, x) => k + x.data.slots.length, 0);
+                return (
+                  <label key={String(all)} className="flex min-h-11 cursor-pointer items-center gap-3 px-3 py-2 text-sm">
+                    <input
+                      type="radio"
+                      name="svuota-sedi"
+                      className="size-4 shrink-0 accent-primary"
+                      checked={emptyAll === all}
+                      onChange={() => setEmptyAll(all)}
+                    />
+                    <span className="min-w-0 flex-1">
+                      {all ? `Tutte le sedi (${sedi.length})` : `Solo ${sedeName(here.data.settings)}`}
+                    </span>
+                    <span className="shrink-0 text-[12px] tabular-nums text-muted-foreground">
+                      {countText(n, "lezione", "lezioni")}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+          {scopeDisp > 0 && (
             <label className="flex min-h-10 items-center gap-2 text-sm">
               <input
                 type="checkbox"
                 className="size-4 accent-primary"
-                checked={emptyDisp}
+                checked={emptyDisp || onlyDisp}
+                disabled={onlyDisp}
                 onChange={(e) => setEmptyDisp(e.target.checked)}
               />
-              Togli anche le ore a disposizione ({dispCount})
+              Togli anche le ore a disposizione ({scopeDisp})
             </label>
           )}
           <p className="text-[12px] text-muted-foreground">
@@ -293,11 +373,16 @@ function ImpostazioniPage() {
             <Button variant="outline" className="min-h-11" onClick={exportBackup}>
               Esporta backup
             </Button>
-            <Button variant="outline" className="min-h-11" onClick={() => setEmptyOpen(false)}>
+            <Button variant="outline" className="min-h-11" onClick={closeEmpty}>
               Annulla
             </Button>
-            <Button variant="destructive" className="min-h-11" onClick={emptyTimetable}>
-              Svuota orario
+            <Button
+              variant="destructive"
+              className="min-h-11"
+              disabled={scopeLessons === 0 && scopeDisp === 0}
+              onClick={emptyTimetable}
+            >
+              {onlyDisp ? "Togli le ore a disposizione" : "Svuota orario"}
             </Button>
           </div>
         </DialogContent>
