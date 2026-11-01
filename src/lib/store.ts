@@ -126,10 +126,10 @@ type Actions = {
    */
   /**
    * «Svuota orario»: per ogni sede l’orario in uso al posto di quello di prima; `patches` i campi dei docenti che
-   * cambiano con lui (ore a disposizione, blocchi).
+   * cambiano con lui (ore a disposizione, blocchi); `cattedre`, se date, al posto di quelle salvate.
    */
   setSediTimetables: (
-    per: Record<string, { slots: TimetableSlot[]; patches?: Record<string, Partial<Teacher>> }>,
+    per: Record<string, { slots: TimetableSlot[]; patches?: Record<string, Partial<Teacher>>; cattedre?: Cattedra[] }>,
   ) => void;
   addAbsence: (a: Omit<Absence, "id">) => string;
   updateAbsence: (id: string, patch: Partial<Absence>) => void;
@@ -467,10 +467,11 @@ export const useAppStore = create<AppStore>()(
 
         setSediTimetables: (per) => {
           let next = snapshot(get());
-          for (const [sedeId, { slots, patches }] of Object.entries(per)) {
+          for (const [sedeId, { slots, patches, cattedre }] of Object.entries(per)) {
             next = editSede(next, sedeId, (sede) => ({
               ...sede,
               slots,
+              ...(cattedre && { cattedre }),
               ...(patches && {
                 teachers: sede.teachers.map((t) => (patches[t.id] ? { ...t, ...patches[t.id] } : t)),
               }),
