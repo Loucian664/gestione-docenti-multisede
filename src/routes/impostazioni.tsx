@@ -329,7 +329,7 @@ function ImpostazioniPage() {
             </DialogDescription>
           </DialogHeader>
           {sedi.length > 1 && (
-            <div role="radiogroup" aria-label="Quali sedi" className="divide-y divide-border rounded-lg border border-border">
+            <div role="radiogroup" aria-label="Quali sedi" className="mb-3 divide-y divide-border rounded-lg border border-border">
               {[false, true].map((all) => {
                 const list = all ? sedi : [here];
                 const n = list.reduce((k, x) => k + x.data.slots.length, 0);
@@ -354,7 +354,7 @@ function ImpostazioniPage() {
             </div>
           )}
           {scopeDisp > 0 && (
-            <label className="flex min-h-10 items-center gap-2 text-sm">
+            <label className="mb-2 flex min-h-10 items-center gap-2 text-sm">
               <input
                 type="checkbox"
                 className="size-4 accent-primary"
@@ -365,7 +365,7 @@ function ImpostazioniPage() {
               Togli anche le ore a disposizione ({scopeDisp})
             </label>
           )}
-          <p className="text-[12px] text-muted-foreground">
+          <p className="mb-4 text-[12px] text-muted-foreground">
             Subito dopo puoi tornare indietro con «Annulla». Per conservare una copia, esporta il backup o salva
             l’orario in uno slot.
           </p>
