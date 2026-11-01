@@ -2962,7 +2962,7 @@ function EraseAllDialog({
           </DialogDescription>
         </DialogHeader>
         {sedi.length > 1 && here && (
-          <div role="radiogroup" aria-label="Quali sedi" className="divide-y divide-border rounded-lg border border-border">
+          <div role="radiogroup" aria-label="Quali sedi" className="mb-3 divide-y divide-border rounded-lg border border-border">
             {[false, true].map((every) => {
               const n = rowsOf(every ? sedi : [here]).reduce((a, r) => a + r.n, 0);
               return (
@@ -2984,7 +2984,7 @@ function EraseAllDialog({
           </div>
         )}
         {rows.length > 0 && (
-          <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border">
+          <ul className="mb-3 divide-y divide-border overflow-hidden rounded-lg border border-border">
             {rows.map((r) => (
               <li key={r.kind}>
                 <label className="flex min-h-11 cursor-pointer items-center gap-3 px-3 py-2 text-sm">
@@ -3008,7 +3008,7 @@ function EraseAllDialog({
             ))}
           </ul>
         )}
-        <p className="text-[12px] text-muted-foreground">
+        <p className="mb-4 text-[12px] text-muted-foreground">
           Le ore di progetto, le ore a disposizione e le × delle ore nelle altre sedi (le mette l’app) restano.
         </p>
         <div className="flex flex-wrap justify-end gap-2">
