@@ -665,6 +665,11 @@ describe("sedi: salvataggio e backup", () => {
     );
     const other = before.find((x) => !x.active)!;
     const t = other.data.teachers[0]!;
+    // i campi dei docenti cambiano solo nella sede indicata
+    st().setSediTimetables({ [other.id]: { slots: other.data.slots, patches: { [t.id]: { lockWeek: true } } } });
+    assert.equal(allSedi(snapshot(st())).find((x) => x.id === other.id)!.data.teachers[0]!.lockWeek, true);
+    assert.deepEqual(st().teachers, before.find((x) => x.active)!.data.teachers);
+    st().setSediTimetables({ [other.id]: { slots: other.data.slots, patches: { [t.id]: { lockWeek: t.lockWeek } } } });
     st().updateSediTeachers({ [other.id]: { [t.id]: { noGaps: true } } });
     assert.equal(allSedi(snapshot(st())).find((x) => x.id === other.id)!.data.teachers[0]!.noGaps, true);
     assert.deepEqual(st().teachers, before.find((x) => x.active)!.data.teachers);
