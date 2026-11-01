@@ -650,6 +650,26 @@ describe("sedi: salvataggio e backup", () => {
     assert.deepEqual([st().slots, st().absences, st().substitutions], [[], [], []]);
   });
 
+  it("svuota orario e cancella segni in tutte le sedi; «Annulla» rimette tutto", () => {
+    const st = () => useAppStore.getState();
+    st().resetDemo();
+    const before = allSedi(snapshot(st()));
+    assert.ok(before.length > 1 && before.every((x) => x.data.slots.length > 0));
+    const empty = Object.fromEntries(before.map((x) => [x.id, { slots: [] }]));
+    st().setSediTimetables(empty);
+    assert.ok(allSedi(snapshot(st())).every((x) => x.data.slots.length === 0));
+    st().setSediTimetables(Object.fromEntries(before.map((x) => [x.id, { slots: x.data.slots }])));
+    assert.deepEqual(
+      allSedi(snapshot(st())).map((x) => x.data.slots),
+      before.map((x) => x.data.slots),
+    );
+    const other = before.find((x) => !x.active)!;
+    const t = other.data.teachers[0]!;
+    st().updateSediTeachers({ [other.id]: { [t.id]: { noGaps: true } } });
+    assert.equal(allSedi(snapshot(st())).find((x) => x.id === other.id)!.data.teachers[0]!.noGaps, true);
+    assert.deepEqual(st().teachers, before.find((x) => x.active)!.data.teachers);
+  });
+
   it("assenza accorciata o docente eliminato: le sostituzioni tolte tornano da coprire", () => {
     const st = () => useAppStore.getState();
     st().resetDemo();

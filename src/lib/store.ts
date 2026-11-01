@@ -76,8 +76,11 @@ type Actions = {
   updateSettings: (patch: Partial<Settings>) => void;
   addTeacher: (t: Omit<Teacher, "id">) => string;
   updateTeacher: (id: string, patch: Partial<Teacher>) => void;
-  /** Più docenti in un colpo solo (es. «Cancella tutto» in Costruisci e il suo «Annulla»). */
-  updateTeachers: (patches: Record<string, Partial<Teacher>>) => void;
+  /**
+   * Più docenti in un colpo solo, anche in più sedi (es. «Cancella tutto» in Costruisci e il suo «Annulla»):
+   * id della sede → id del docente → campi.
+   */
+  updateSediTeachers: (patches: Record<string, Record<string, Partial<Teacher>>>) => void;
   /** `drop`: lezioni del docente da togliere dall'orario (classi tolte dalla scheda). */
   saveTeacherCard: (
     id: string | null,
@@ -116,8 +119,13 @@ type Actions = {
   removeClass: (id: string) => void;
   upsertSlot: (slot: Omit<TimetableSlot, "id"> & { id?: string }) => void;
   clearSlot: (id: string) => void;
-  /** «Svuota orario»: l'orario in uso al posto di quello di prima; `disp` le ore a disposizione dei docenti indicati. */
-  setTimetable: (slots: TimetableSlot[], disp?: Record<string, Teacher["dispSlots"]>) => void;
+  /**
+   * «Svuota orario» di una o più sedi (id della sede → ciò che prende): l'orario in uso al posto di quello di prima;
+   * `disp` le ore a disposizione dei docenti indicati.
+   */
+  setSediTimetables: (
+    per: Record<string, { slots: TimetableSlot[]; disp?: Record<string, Teacher["dispSlots"]> }>,
+  ) => void;
   addAbsence: (a: Omit<Absence, "id">) => string;
   updateAbsence: (id: string, patch: Partial<Absence>) => void;
   /** Restituisce cosa ha tolto, per poterlo rimettere con restoreAbsence. */
@@ -436,16 +444,30 @@ export const useAppStore = create<AppStore>()(
         updateTeacher: (id, patch) =>
           save({ teachers: get().teachers.map((t) => (t.id === id ? { ...t, ...patch } : t)) }),
 
-        updateTeachers: (patches) =>
-          save({ teachers: get().teachers.map((t) => (patches[t.id] ? { ...t, ...patches[t.id] } : t)) }),
+        updateSediTeachers: (patches) => {
+          let next = snapshot(get());
+          for (const [sedeId, byTeacher] of Object.entries(patches)) {
+            next = editSede(next, sedeId, (sede) => ({
+              ...sede,
+              teachers: sede.teachers.map((t) => (byTeacher[t.id] ? { ...t, ...byTeacher[t.id] } : t)),
+            }));
+          }
+          save(next);
+        },
 
-        setTimetable: (slots, disp) =>
-          save({
-            slots,
-            ...(disp && {
-              teachers: get().teachers.map((t) => (t.id in disp ? { ...t, dispSlots: disp[t.id] } : t)),
-            }),
-          }),
+        setSediTimetables: (per) => {
+          let next = snapshot(get());
+          for (const [sedeId, { slots, disp }] of Object.entries(per)) {
+            next = editSede(next, sedeId, (sede) => ({
+              ...sede,
+              slots,
+              ...(disp && {
+                teachers: sede.teachers.map((t) => (t.id in disp ? { ...t, dispSlots: disp[t.id] } : t)),
+              }),
+            }));
+          }
+          save(next);
+        },
 
         saveTeacherCard: (
           id: string | null,
