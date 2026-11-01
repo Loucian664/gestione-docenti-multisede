@@ -3001,7 +3001,21 @@ function EraseAllDialog({
                       })
                     }
                   />
-                  <span className="min-w-0 flex-1">{r.label}</span>
+                  <span className="min-w-0 flex-1">
+                    {r.kind === "away" ? (
+                      <>
+                        <span
+                          aria-hidden
+                          className="mr-1 inline-block align-[-0.08em] text-[1.5em] font-medium leading-none"
+                        >
+                          ×
+                        </span>
+                        altro plesso
+                      </>
+                    ) : (
+                      r.label
+                    )}
+                  </span>
                   <span className="shrink-0 text-right text-[12px] tabular-nums text-muted-foreground">{detail(r)}</span>
                 </label>
               </li>
