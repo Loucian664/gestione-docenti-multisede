@@ -27,6 +27,7 @@ import {
   cattedreOfTeacher,
   MONTE_ORE,
 } from "@/lib/build-timetable";
+import { builtLessonTest } from "@/lib/svuota";
 import {
   dayPatternOptions,
   dispIntoGaps,
@@ -235,6 +236,13 @@ export function CostruisciOrario({
   );
   const [scope, setScope] = useState<"sede" | "tutte">("sede");
   const allTogether = scope === "tutte" && sediCount > 1;
+  // «Migliora l’attuale» solo se c’è un orario da migliorare: almeno una lezione che Costruisci sposta
+  const canImprove = allTogether
+    ? allSedi(rawData).some((x) => x.data.slots.some(builtLessonTest(x.data)))
+    : rawData.slots.some(builtLessonTest(rawData));
+  useEffect(() => {
+    if (!canImprove && mode === "improve") setMode("scratch");
+  }, [canImprove, mode]);
   // tutte le sedi insieme: 30 s o 90 s (più tempo non migliora in modo netto: misurato sulle 6 sedi vere)
   const jointMs = (fast: boolean) => (fast ? 30000 : 90000);
   // le materie senza docente della sede in uso o, con «Tutte le sedi insieme», di ogni sede: restano fuori
@@ -884,7 +892,7 @@ export function CostruisciOrario({
             disabled={Boolean(running)}
             options={[
               { value: "scratch", label: "Da zero" },
-              { value: "improve", label: "Migliora l’attuale" },
+              { value: "improve", label: "Migliora l’attuale", disabled: !canImprove },
             ]}
           />
           <Segmented
@@ -915,6 +923,12 @@ export function CostruisciOrario({
             />
           )}
         </div>
+        {!canImprove && (
+          <p className="mt-2 text-[13px] text-muted-foreground">
+            «Migliora l’attuale» si può scegliere quando nell’orario in uso
+            {allTogether ? " di almeno una sede" : ""} c’è almeno una lezione del mattino di un docente di materia.
+          </p>
+        )}
         {allTogether && (
           <p className="mt-2 text-[13px] text-muted-foreground">
             {versioni === "tutte"
@@ -2614,7 +2628,7 @@ function Segmented<T extends string>({
 }: {
   label: string;
   value: T;
-  options: { value: T; label: string }[];
+  options: { value: T; label: string; disabled?: boolean }[];
   onChange: (v: T) => void;
   disabled?: boolean;
   /** sul telefono in due colonne uguali (con 4 voci, due file pari invece di una voce sola a capo) */
@@ -2635,7 +2649,7 @@ function Segmented<T extends string>({
           type="button"
           role="radio"
           aria-checked={value === o.value}
-          disabled={disabled}
+          disabled={disabled || o.disabled}
           onClick={() => onChange(o.value)}
           className={cn(
             "min-h-9 rounded-md px-3 text-[13px] font-medium transition-colors disabled:opacity-60",
