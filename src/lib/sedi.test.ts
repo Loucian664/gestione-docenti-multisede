@@ -653,6 +653,8 @@ describe("sedi: salvataggio e backup", () => {
   it("assenza accorciata o docente eliminato: le sostituzioni tolte tornano da coprire", () => {
     const st = () => useAppStore.getState();
     st().resetDemo();
+    // le assenze d'esempio cadono nei giorni vicini a oggi: senza toglierle, una può coprire le stesse ore
+    useAppStore.setState({ absences: [], substitutions: [] });
     const [assente, sostituto] = st().teachers;
     const [p1, p2] = st().settings.periods;
     const sub = (date: string, periodId: string, id: string): Substitution => ({
