@@ -3004,12 +3004,10 @@ function EraseAllDialog({
                   <span className="min-w-0 flex-1">
                     {r.kind === "away" ? (
                       <>
-                        <span
-                          aria-hidden
-                          className="mr-1 inline-block align-[-0.08em] text-[1.5em] font-medium leading-none"
-                        >
+                        {/* la × del carattere sta a metà altezza: un po' più giù e più grande, poggia sulla riga come le lettere */}
+                        <span aria-hidden className="inline-block translate-y-[0.12em] scale-[1.15]">
                           ×
-                        </span>
+                        </span>{" "}
                         altro plesso
                       </>
                     ) : (
