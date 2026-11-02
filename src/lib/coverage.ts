@@ -253,6 +253,8 @@ export type SubstituteBucket =
   | "senza-orario"
   | "sostegno"
   | "impegnato"
+  /** sta già sostituendo in un'altra classe nella stessa ora: sarebbe in due classi insieme */
+  | "in-copertura"
   | "non-in-sede"
   /** potenziamento non in servizio in quell'ora: va avvisato di spostare l'orario */
   | "fuori-orario"
@@ -479,6 +481,7 @@ const BUCKET_ORDER: Record<SubstituteBucket, number> = {
   "non-in-sede": 9,
   "fuori-orario": 10,
   altrove: 11,
+  "in-copertura": 12,
 };
 
 export function rankSubstitutes(
@@ -497,11 +500,13 @@ export function rankSubstitutes(
   }
 
   const idx = periodIndex(data, need.slot.periodId);
-  const coveringThisHour = new Set(
-    data.substitutions
-      .filter((s) => s.date === need.date && s.periodId === need.slot.periodId && s.substituteId)
-      .map((s) => s.substituteId as string),
-  );
+  // chi sostituisce già in un'altra classe in quest'ora (nella stessa classe non conta: è la stessa ora da coprire)
+  const coveringThisHour = new Map<string, string>();
+  for (const s of data.substitutions) {
+    if (s.date !== need.date || s.periodId !== need.slot.periodId || !s.substituteId) continue;
+    if (s.classId === need.slot.classId || isShiftType(s.type) || s.type === "divisione") continue;
+    if (!coveringThisHour.has(s.substituteId)) coveringThisHour.set(s.substituteId, s.classId);
+  }
 
   const pool = data.teachers.filter((t) => t.id !== need.absence.teacherId);
 
@@ -521,6 +526,7 @@ export function rankSubstitutes(
         : undefined;
       const busyCattedra = occupyingElse && !pullable;
       const alreadyCovering = coveringThisHour.has(teacher.id) || alreadyUsed.has(teacher.id);
+      const coveringClass = data.classes.find((c) => c.id === coveringThisHour.get(teacher.id));
       const isSostegno = teacher.role === "sostegno";
       const hole =
         !isSostegno &&
@@ -691,8 +697,11 @@ export function rankSubstitutes(
       }
 
       if (alreadyCovering) {
-        score -= 12;
-        reasons.push("Già in copertura quest’ora");
+        // due classi insieme: in fondo all'elenco e con il motivo per primo, che non si perda tra gli altri
+        score -= 60;
+        bucket = "in-copertura";
+        busyLabel = coveringClass ? `Sostituisce già in ${coveringClass.name}` : "Sostituisce già in un’altra classe";
+        reasons.unshift(busyLabel);
       }
 
       const monthCount = counts[teacher.id] ?? 0;
@@ -765,16 +774,44 @@ export function autoAssignPlan(data: PersistedData, date: string): Substitution[
   return created;
 }
 
+/**
+ * Lo stesso docente a sostituire in due classi diverse nella stessa ora: per ogni ora coinvolta (chiave dell'ora da
+ * coprire) l'id del docente e le altre classi. Non è un errore se due assenti sono nella stessa classe.
+ */
+export function doubleCovers(needs: CoverageNeed[]): Map<string, { teacherId: string; otherClassIds: string[] }> {
+  const groups = new Map<string, CoverageNeed[]>();
+  for (const n of needs) {
+    const id = n.substitution?.substituteId;
+    if (!id || n.substitution?.type === "divisione" || isShiftType(n.substitution?.type)) continue;
+    const key = `${n.slot.periodId}|${id}`;
+    groups.set(key, [...(groups.get(key) ?? []), n]);
+  }
+  const out = new Map<string, { teacherId: string; otherClassIds: string[] }>();
+  for (const list of groups.values()) {
+    const classes = new Set(list.map((n) => n.slot.classId));
+    if (classes.size < 2) continue;
+    for (const n of list) {
+      out.set(n.key, {
+        teacherId: n.substitution!.substituteId as string,
+        otherClassIds: [...classes].filter((c) => c !== n.slot.classId),
+      });
+    }
+  }
+  return out;
+}
+
 export function dayCoverage(data: PersistedData, date: string): {
   absences: Absence[];
   needs: CoverageNeed[];
   covered: number;
   uncovered: number;
+  /** ore con un sostituto già in un'altra classe nella stessa ora */
+  doubled: number;
 } {
   const absences = absencesOnDate(data, date);
   const needs = coverageNeeds(data, date);
   const covered = needs.filter(isCovered).length;
-  return { absences, needs, covered, uncovered: needs.length - covered };
+  return { absences, needs, covered, uncovered: needs.length - covered, doubled: doubleCovers(needs).size };
 }
 
 export type TeacherLoad = {

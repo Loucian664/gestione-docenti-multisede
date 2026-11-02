@@ -32,6 +32,7 @@ import {
   classShifts,
   coverageNeeds,
   dayCoverage,
+  doubleCovers,
   isCovered,
   isShiftType,
   teacherName,
@@ -66,6 +67,9 @@ function OggiPage() {
   const varied = needs.filter((n) => isShiftType(n.substitution?.type)).length;
   const covered = needs.filter((n) => isCovered(n) && !isShiftType(n.substitution?.type)).length;
   const uncovered = needs.length - covered - varied;
+  // lo stesso sostituto in due classi nella stessa ora
+  const doubles = useMemo(() => doubleCovers(needs), [needs]);
+  const className = (id: string) => data.classes.find((c) => c.id === id)?.name ?? "altra classe";
 
   const [absenceOpen, setAbsenceOpen] = useState(false);
   const [assignNeed, setAssignNeed] = useState<CoverageNeed | null>(null);
@@ -297,7 +301,7 @@ function OggiPage() {
                     ? "text-primary-foreground"
                     : summary.absences.length === 0
                       ? "text-muted-foreground"
-                      : summary.uncovered > 0
+                      : summary.uncovered > 0 || summary.doubled > 0
                         ? "text-destructive"
                         : "text-success",
                 )}
@@ -313,6 +317,11 @@ function OggiPage() {
                   <>
                     <span className="tabular-nums">{summary.uncovered}</span>
                     <span>{summary.uncovered === 1 ? "scoperta" : "scoperte"}</span>
+                  </>
+                ) : summary.doubled > 0 ? (
+                  <>
+                    <span aria-hidden>!</span>
+                    <span>doppio incarico</span>
                   </>
                 ) : (
                   <>
@@ -360,6 +369,46 @@ function OggiPage() {
                 </li>
               );
             })}
+          </ul>
+        </div>
+      )}
+
+      {doubles.size > 0 && (
+        <div role="alert" className="mb-5 rounded-xl border border-destructive/25 bg-danger-soft px-4 py-3">
+          <p className="font-display text-lg text-destructive">
+            {new Set([...doubles.values()].map((d) => d.teacherId)).size === 1
+              ? "Un sostituto è assegnato a due classi nella stessa ora"
+              : "Alcuni sostituti sono assegnati a due classi nella stessa ora"}
+          </p>
+          <p className="mt-1 text-sm text-destructive/90">
+            Un docente non può stare in due classi insieme: scegli un altro sostituto per una delle due ore.
+          </p>
+          <ul className="mt-2 flex flex-col gap-1.5">
+            {needs
+              .filter((n) => doubles.has(n.key))
+              .map((n) => {
+                const d = doubles.get(n.key)!;
+                const t = findAnyTeacher(data, d.teacherId);
+                const per = data.settings.periods.find((p) => p.id === n.slot.periodId);
+                return (
+                  <li key={n.key}>
+                    <button
+                      type="button"
+                      onClick={() => setAssignNeed(n)}
+                      className="w-full rounded-lg border border-destructive/30 bg-card px-3 py-2 text-left text-sm transition-colors duration-150 hover:bg-destructive/10"
+                    >
+                      <span className="font-medium">
+                        {per?.label ?? "Ora"} · {className(n.slot.classId)}
+                      </span>
+                      <span className="text-muted-foreground">
+                        {" "}
+                        · {t ? teacherShort(t, allTeachers(data)) : "—"} è anche in{" "}
+                        {d.otherClassIds.map(className).join(", ")}. Cambia sostituto
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
           </ul>
         </div>
       )}
@@ -468,6 +517,9 @@ function OggiPage() {
               </h2>
               <span className="text-[12px] text-muted-foreground tabular-nums">
                 {items.filter(isCovered).length}/{items.length} coperte
+                {items.some((n) => doubles.has(n.key)) && (
+                  <span className="font-medium text-destructive"> · doppio incarico</span>
+                )}
               </span>
             </div>
             <ul className="grid gap-2 md:max-[1100px]:grid-cols-2">
@@ -476,6 +528,7 @@ function OggiPage() {
                 const absent = findAnyTeacher(data, n.absence.teacherId);
                 const sub = findAnyTeacher(data, n.substitution?.substituteId);
                 const ok = isCovered(n);
+                const double = doubles.get(n.key);
                 const shift = shifts.find((s) => s.applied && s.needs.some((x) => x.key === n.key));
                 const tipo =
                   n.substitution?.type && n.substitution.type !== "divisione"
@@ -488,13 +541,13 @@ function OggiPage() {
                       onClick={() => setAssignNeed(n)}
                       className={cn(
                         "paper-panel flex min-h-[7.5rem] w-full flex-col items-start rounded-xl p-4 text-left transition-[box-shadow] duration-150 hover:shadow-border-hover",
-                        !ok && !shift && "border border-destructive/30 bg-danger-soft",
+                        ((!ok && !shift) || double) && "border border-destructive/30 bg-danger-soft",
                       )}
                     >
                       <div className="flex w-full items-center justify-between gap-2">
                         <span className="font-display text-lg">{cls?.name}</span>
-                        <Badge variant={shift ? "warning" : ok ? "success" : "danger"}>
-                          {shift ? shift.phrase : ok ? "Coperta" : "Scoperta"}
+                        <Badge variant={shift ? "warning" : ok && !double ? "success" : "danger"}>
+                          {shift ? shift.phrase : double ? "Doppio incarico" : ok ? "Coperta" : "Scoperta"}
                         </Badge>
                       </div>
                       <p className="mt-1 text-[13px] text-muted-foreground">{n.slot.subject}</p>
@@ -515,6 +568,11 @@ function OggiPage() {
                             <span className="text-muted-foreground">Sostituto da assegnare</span>
                           )}
                           {tipo ? <span className="text-muted-foreground"> · {tipo}</span> : null}
+                        </p>
+                      )}
+                      {double && (
+                        <p className="mt-1 text-[13px] font-medium text-destructive">
+                          È anche in {double.otherClassIds.map(className).join(", ")} in quest’ora
                         </p>
                       )}
                     </button>

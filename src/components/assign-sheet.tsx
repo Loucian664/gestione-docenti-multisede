@@ -90,6 +90,11 @@ const GROUPS: { bucket: SubstituteBucket | SubstituteBucket[]; title: string; hi
     title: "Altrove o in progetto",
     hint: "In quest’ora è in un altro plesso o in un progetto. Escluso dall’assegnazione automatica.",
   },
+  {
+    bucket: "in-copertura",
+    title: "Già a sostituire in un’altra classe",
+    hint: "Sta già coprendo un’altra classe in quest’ora: assegnandola, risulterebbe in due classi insieme.",
+  },
 ];
 
 export function AssignSheet({
@@ -163,6 +168,14 @@ export function AssignSheet({
       ? classShifts(data, active.date).find((sh) => sh.needs.some((x) => x.key === active.key))?.phrase
       : undefined;
   const chosenTeacher = type === "divisione" ? undefined : data.teachers.find((t) => t.id === substituteId);
+  // scelto un docente che sarebbe in due posti nella stessa ora: l'avviso resta accanto al pulsante
+  const chosenRow = type === "divisione" ? undefined : ranked.find((r) => r.teacher.id === substituteId);
+  const clash =
+    chosenRow && (chosenRow.bucket === "in-copertura" || chosenRow.bucket === "impegnato")
+      ? chosenRow.bucket === "in-copertura"
+        ? `${chosenRow.busyLabel ?? "Sostituisce già in un’altra classe"} in quest’ora: assegnandola, risulterebbe in due classi insieme.`
+        : `${chosenRow.busyLabel ?? "È in un’altra classe"} in quest’ora: la sua classe resterebbe scoperta.`
+      : null;
   const chosenLabel =
     type === "divisione"
       ? (divisione?.label ?? "Divisione classe")
@@ -329,10 +342,19 @@ export function AssignSheet({
                   </option>
                 ))}
               </NativeSelect>
-              <Button onClick={save} className="h-11 w-full sm:h-10 sm:w-auto">
-                {isCovered(need) ? "Aggiorna copertura" : "Assegna"}
+              <Button
+                onClick={save}
+                variant={clash ? "destructive" : "default"}
+                className="h-11 w-full sm:h-10 sm:w-auto"
+              >
+                {clash ? "Assegna comunque" : isCovered(need) ? "Aggiorna copertura" : "Assegna"}
               </Button>
             </div>
+            {clash && (
+              <p role="alert" className="rounded-md bg-danger-soft px-3 py-2 text-[13px] font-medium text-destructive">
+                {clash}
+              </p>
+            )}
             {typeHint && <p className="text-[12px] text-muted-foreground">{typeHint}</p>}
           </div>
         )}
@@ -352,6 +374,7 @@ function TeacherPickRow({
 }) {
   const warning =
     row.bucket === "impegnato" ||
+    row.bucket === "in-copertura" ||
     row.bucket === "non-in-sede" ||
     row.bucket === "sostegno" ||
     row.bucket === "fuori-orario" ||
