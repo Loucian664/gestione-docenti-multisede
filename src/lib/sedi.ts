@@ -16,7 +16,9 @@ import {
   missingTeachers,
   type MissingTeacher,
 } from "./build-timetable";
-import { todayIso } from "./dates";
+import { todayIso, toSchoolDay } from "./dates";
+import { isTeacherAbsent, type ElsewhereCheck } from "./coverage";
+import { officialData } from "./saved-timetables";
 import { removalImpact, replaceTeacher } from "./replace-teacher";
 import { uid } from "./utils";
 
@@ -813,6 +815,62 @@ export function elsewhereCells(data: PersistedData, t: Teacher): ElsewhereCell[]
     }
   }
   return [...out.values()];
+}
+
+/**
+ * Per le sostituzioni: dove sta già nella stessa ora chi lavora anche in un'altra sede. Conta l'orario in vigore delle
+ * altre sedi (lezione, ora a disposizione), le sostituzioni che fa lì quel giorno e l'assenza lì; le campanelle si
+ * confrontano dagli orari. Null se è libero.
+ */
+export function substituteElsewhere(data: PersistedData): ElsewhereCheck {
+  const views = new Map<string, PersistedData>();
+  const viewOf = (sedeId: string, sede: SedeData) => {
+    let v = views.get(sedeId);
+    if (!v) {
+      v = officialData(sedeAsData(data, sede));
+      views.set(sedeId, v);
+    }
+    return v;
+  };
+  return (teacherId, date, periodId) => {
+    const t = data.teachers.find((x) => x.id === teacherId);
+    const day = toSchoolDay(date);
+    const here = data.settings.periods.find((p) => p.id === periodId);
+    if (!t || !day || !here) return null;
+    for (const link of linkedElsewhere(data, t)) {
+      const view = viewOf(link.sedeId, link.sede);
+      const name = sedeName(view.settings);
+      const mine = (p: { id: string }) => {
+        const theirs = view.settings.periods.find((x) => x.id === p.id);
+        return Boolean(theirs && overlaps(here, theirs));
+      };
+      const lesson = view.slots.find((s) => s.teacherId === link.teacher.id && s.day === day && mine({ id: s.periodId }));
+      if (lesson) {
+        const cls = view.classes.find((c) => c.id === lesson.classId)?.name;
+        return `In ${name}${cls ? ` · ${cls}` : ""}`;
+      }
+      const theirT = view.teachers.find((x) => x.id === link.teacher.id) ?? link.teacher;
+      if ((theirT.dispSlots ?? []).some((d) => d.day === day && mine({ id: d.periodId }))) {
+        return `A disposizione in ${name}`;
+      }
+      const sub = (view.substitutions ?? []).find(
+        (s) =>
+          s.date === date &&
+          s.substituteId === link.teacher.id &&
+          s.type !== "divisione" &&
+          mine({ id: s.periodId }),
+      );
+      if (sub) {
+        const cls = view.classes.find((c) => c.id === sub.classId)?.name;
+        return `Sostituisce in ${name}${cls ? ` · ${cls}` : ""}`;
+      }
+      const absentThere = view.settings.periods.some(
+        (p) => overlaps(here, p) && isTeacherAbsent(view, link.teacher.id, date, p.id),
+      );
+      if (absentThere) return `Assente in ${name}`;
+    }
+    return null;
+  };
 }
 
 /** Le ore altrove che non sono già una × messa a mano: sono quelle che l'app aggiunge da sé. */

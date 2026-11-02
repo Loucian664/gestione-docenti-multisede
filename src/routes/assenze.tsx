@@ -9,6 +9,7 @@ import { useAppStore, snapshot } from "@/lib/store";
 import { officialData } from "@/lib/saved-timetables";
 import { dayCoverage, teacherName, teacherShort } from "@/lib/coverage";
 import { allTeachers, findAnyTeacher } from "@/lib/replace-teacher";
+import { substituteElsewhere } from "@/lib/sedi";
 import { ABSENCE_REASONS, type Absence } from "@/lib/types";
 import {
   formatItFileDate,
@@ -37,6 +38,7 @@ function AssenzePage() {
   const store = useAppStore();
   // le assenze si coprono con l'orario in vigore (slot 0)
   const data = officialData(snapshot(store));
+  const elsewhere = useMemo(() => substituteElsewhere(data), [data]);
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Absence | null>(null);
@@ -181,7 +183,7 @@ function AssenzePage() {
             ))}
             {cells.map((iso) => {
               const inMonth = sameMonth(iso, monthIso);
-              const summary = dayCoverage(data, iso);
+              const summary = dayCoverage(data, iso, elsewhere);
               const selected = iso === data.selectedDate;
               const today = iso === todayIso();
               const names = summary.absences
@@ -191,7 +193,7 @@ function AssenzePage() {
               const tone =
                 summary.needs.length === 0
                   ? "idle"
-                  : summary.uncovered === 0
+                  : summary.uncovered === 0 && summary.doubled === 0
                     ? "ok"
                     : summary.covered === 0
                       ? "warn"
