@@ -23,6 +23,7 @@ import {
 import { findAnyTeacher } from "@/lib/replace-teacher";
 import { toast } from "sonner";
 import { teacherDotColor } from "@/lib/teacher-palette";
+import { substituteElsewhere } from "@/lib/sedi";
 
 const GROUPS: { bucket: SubstituteBucket | SubstituteBucket[]; title: string; hint: string }[] = [
   {
@@ -88,7 +89,7 @@ const GROUPS: { bucket: SubstituteBucket | SubstituteBucket[]; title: string; hi
   {
     bucket: "altrove",
     title: "Altrove o in progetto",
-    hint: "In quest’ora è in un altro plesso o in un progetto. Escluso dall’assegnazione automatica.",
+    hint: "In quest’ora è in un’altra sede, in un altro plesso o in un progetto. Escluso dall’assegnazione automatica.",
   },
   {
     bucket: "in-copertura",
@@ -107,7 +108,11 @@ export function AssignSheet({
   const store = useAppStore();
   // le sostituzioni usano sempre l'orario in vigore (slot 0)
   const data = officialData(snapshot(store));
-  const ranked = useMemo(() => (need ? rankSubstitutes(data, need) : []), [need, data]);
+  // chi lavora anche in un'altra sede non può sostituire qui se lì ha già qualcosa nella stessa ora
+  const ranked = useMemo(
+    () => (need ? rankSubstitutes(data, need, undefined, substituteElsewhere(data)) : []),
+    [need, data],
+  );
   const [query, setQuery] = useState("");
 
   const current = need?.substitution;
@@ -171,10 +176,12 @@ export function AssignSheet({
   // scelto un docente che sarebbe in due posti nella stessa ora: l'avviso resta accanto al pulsante
   const chosenRow = type === "divisione" ? undefined : ranked.find((r) => r.teacher.id === substituteId);
   const clash =
-    chosenRow && (chosenRow.bucket === "in-copertura" || chosenRow.bucket === "impegnato")
+    chosenRow && (chosenRow.bucket === "in-copertura" || chosenRow.bucket === "impegnato" || (chosenRow.bucket === "altrove" && chosenRow.busyLabel))
       ? chosenRow.bucket === "in-copertura"
         ? `${chosenRow.busyLabel ?? "Sostituisce già in un’altra classe"} in quest’ora: assegnandola, risulterebbe in due classi insieme.`
-        : `${chosenRow.busyLabel ?? "È in un’altra classe"} in quest’ora: la sua classe resterebbe scoperta.`
+        : chosenRow.bucket === "altrove"
+          ? `${chosenRow.busyLabel} in quest’ora: non può essere in due sedi insieme.`
+          : `${chosenRow.busyLabel ?? "È in un’altra classe"} in quest’ora: la sua classe resterebbe scoperta.`
       : null;
   const chosenLabel =
     type === "divisione"

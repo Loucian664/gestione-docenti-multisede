@@ -484,10 +484,17 @@ const BUCKET_ORDER: Record<SubstituteBucket, number> = {
   "in-copertura": 12,
 };
 
+/**
+ * Dove sta già un docente in quell'ora in un'altra sede (null se è libero). Lo passa solo l'app con più sedi:
+ * chi ha lezione, è a disposizione, sostituisce o è assente in un'altra sede non può sostituire qui.
+ */
+export type ElsewhereCheck = (teacherId: string, date: string, periodId: string) => string | null;
+
 export function rankSubstitutes(
   data: PersistedData,
   need: CoverageNeed,
   alreadyUsed: Set<string> = new Set(),
+  elsewhere?: ElsewhereCheck,
 ): RankedSubstitute[] {
   const counts = monthSubCounts(data, need.date);
   const day = toSchoolDay(need.date);
@@ -525,6 +532,7 @@ export function rankSubstitutes(
         ? data.classes.find((c) => c.id === occupation!.classId)
         : undefined;
       const busyCattedra = occupyingElse && !pullable;
+      const otherSede = elsewhere?.(teacher.id, need.date, need.slot.periodId) ?? null;
       const alreadyCovering = coveringThisHour.has(teacher.id) || alreadyUsed.has(teacher.id);
       const coveringClass = data.classes.find((c) => c.id === coveringThisHour.get(teacher.id));
       const isSostegno = teacher.role === "sostegno";
@@ -554,6 +562,14 @@ export function rankSubstitutes(
         onSite = false;
         score -= 100;
         reasons.push(awayAt(teacher, day, need.slot.periodId)!.progetto ? "In progetto" : "Altrove");
+        inferredType = "eccedente";
+      } else if (otherSede) {
+        // in un'altra sede nella stessa ora: ancora più impossibilitato che in un'altra classe
+        bucket = "altrove";
+        onSite = false;
+        score -= 100;
+        busyLabel = otherSede;
+        reasons.push(otherSede);
         inferredType = "eccedente";
       } else if (isSostegno && occupyingHere) {
         bucket = "sostegno-qui";
@@ -696,7 +712,7 @@ export function rankSubstitutes(
         reasons.push("Stessa materia");
       }
 
-      if (alreadyCovering) {
+      if (alreadyCovering && bucket !== "altrove") {
         // due classi insieme: in fondo all'elenco e con il motivo per primo, che non si perda tra gli altri
         score -= 60;
         bucket = "in-copertura";
@@ -729,7 +745,7 @@ export function rankSubstitutes(
     });
 }
 
-export function autoAssignPlan(data: PersistedData, date: string): Substitution[] {
+export function autoAssignPlan(data: PersistedData, date: string, elsewhere?: ElsewhereCheck): Substitution[] {
   const needs = coverageNeeds(data, date).filter((n) => !isCovered(n));
   const usedByPeriod = new Map<string, Set<string>>();
   for (const n of coverageNeeds(data, date)) {
@@ -743,7 +759,7 @@ export function autoAssignPlan(data: PersistedData, date: string): Substitution[
 
   for (const need of needs) {
     const used = usedByPeriod.get(need.slot.periodId) ?? new Set();
-    const ranked = rankSubstitutes(data, need, used);
+    const ranked = rankSubstitutes(data, need, used, elsewhere);
     const pick = ranked.find(
       (r) =>
         !used.has(r.teacher.id) &&
@@ -778,7 +794,14 @@ export function autoAssignPlan(data: PersistedData, date: string): Substitution[
  * Lo stesso docente a sostituire in due classi diverse nella stessa ora: per ogni ora coinvolta (chiave dell'ora da
  * coprire) l'id del docente e le altre classi. Non è un errore se due assenti sono nella stessa classe.
  */
-export function doubleCovers(needs: CoverageNeed[]): Map<string, { teacherId: string; otherClassIds: string[] }> {
+export type DoubleCover = {
+  teacherId: string;
+  otherClassIds: string[];
+  /** dove è già in un'altra sede nella stessa ora (solo con più sedi) */
+  elsewhere?: string;
+};
+
+export function doubleCovers(needs: CoverageNeed[], elsewhere?: ElsewhereCheck): Map<string, DoubleCover> {
   const groups = new Map<string, CoverageNeed[]>();
   for (const n of needs) {
     const id = n.substitution?.substituteId;
@@ -786,7 +809,7 @@ export function doubleCovers(needs: CoverageNeed[]): Map<string, { teacherId: st
     const key = `${n.slot.periodId}|${id}`;
     groups.set(key, [...(groups.get(key) ?? []), n]);
   }
-  const out = new Map<string, { teacherId: string; otherClassIds: string[] }>();
+  const out = new Map<string, DoubleCover>();
   for (const list of groups.values()) {
     const classes = new Set(list.map((n) => n.slot.classId));
     if (classes.size < 2) continue;
@@ -797,10 +820,18 @@ export function doubleCovers(needs: CoverageNeed[]): Map<string, { teacherId: st
       });
     }
   }
+  if (elsewhere) {
+    for (const n of needs) {
+      const id = n.substitution?.substituteId;
+      if (!id || n.substitution?.type === "divisione" || isShiftType(n.substitution?.type)) continue;
+      const where = elsewhere(id, n.date, n.slot.periodId);
+      if (where) out.set(n.key, { teacherId: id, otherClassIds: out.get(n.key)?.otherClassIds ?? [], elsewhere: where });
+    }
+  }
   return out;
 }
 
-export function dayCoverage(data: PersistedData, date: string): {
+export function dayCoverage(data: PersistedData, date: string, elsewhere?: ElsewhereCheck): {
   absences: Absence[];
   needs: CoverageNeed[];
   covered: number;
@@ -811,7 +842,7 @@ export function dayCoverage(data: PersistedData, date: string): {
   const absences = absencesOnDate(data, date);
   const needs = coverageNeeds(data, date);
   const covered = needs.filter(isCovered).length;
-  return { absences, needs, covered, uncovered: needs.length - covered, doubled: doubleCovers(needs).size };
+  return { absences, needs, covered, uncovered: needs.length - covered, doubled: doubleCovers(needs, elsewhere).size };
 }
 
 export type TeacherLoad = {

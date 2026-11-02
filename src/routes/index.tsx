@@ -41,6 +41,7 @@ import {
   type CoverageNeed,
 } from "@/lib/coverage";
 import { allTeachers, findAnyTeacher } from "@/lib/replace-teacher";
+import { substituteElsewhere } from "@/lib/sedi";
 import { dailySheetCopyPlain, dailySheetHeading, dailySheetHtml, dailySheetText, substitutionsXlsx } from "@/lib/export";
 import { copyText, shareOrSaveFile, shareJpeg, toastSave, openPdfTab } from "@/lib/share-file";
 import { textToPdf } from "@/lib/pdf";
@@ -68,7 +69,25 @@ function OggiPage() {
   const covered = needs.filter((n) => isCovered(n) && !isShiftType(n.substitution?.type)).length;
   const uncovered = needs.length - covered - varied;
   // lo stesso sostituto in due classi nella stessa ora
-  const doubles = useMemo(() => doubleCovers(needs), [needs]);
+  const elsewhere = useMemo(() => substituteElsewhere(data), [data]);
+  const doubles = useMemo(() => doubleCovers(needs, elsewhere), [needs, elsewhere]);
+  /** dove è anche: le altre classi e, con più sedi, l'altra sede («In Sede B · 3ª A», «Assente in Sede B»…) */
+  const alsoIn = (d: { otherClassIds: string[]; elsewhere?: string }) => ({
+    classes: d.otherClassIds.map(className).join(", "),
+    elsewhere: d.elsewhere ?? "",
+  });
+  /** nella scheda dell'ora */
+  const alsoCard = (d: { otherClassIds: string[]; elsewhere?: string }) => {
+    const a = alsoIn(d);
+    return [a.classes && `È anche in ${a.classes} in quest’ora`, a.elsewhere && `${a.elsewhere} in quest’ora`]
+      .filter(Boolean)
+      .join(". ");
+  };
+  /** nel riquadro in alto, dopo il nome del docente */
+  const alsoPanel = (d: { otherClassIds: string[]; elsewhere?: string }) => {
+    const a = alsoIn(d);
+    return a.elsewhere ? `: ${[a.classes && `è anche in ${a.classes}`, a.elsewhere].filter(Boolean).join("; ")}` : ` è anche in ${a.classes}`;
+  };
   const className = (id: string) => data.classes.find((c) => c.id === id)?.name ?? "altra classe";
 
   const [absenceOpen, setAbsenceOpen] = useState(false);
@@ -115,7 +134,7 @@ function OggiPage() {
   }
 
   function autoFill() {
-    const plan = autoAssignPlan(data, date);
+    const plan = autoAssignPlan(data, date, elsewhere);
     if (plan.length === 0) {
       toast.message("Nessuna sostituzione da assegnare: le ore sono già coperte o non ci sono docenti disponibili.");
       return;
@@ -275,7 +294,7 @@ function OggiPage() {
 
       <div className="mb-5 grid grid-cols-5 gap-1.5" data-print-hide>
         {weekDaysIso(date, 5).map((iso) => {
-          const summary = dayCoverage(data, iso);
+          const summary = dayCoverage(data, iso, elsewhere);
           const active = iso === date;
           const day = Number(iso.slice(8, 10));
           const dow = toSchoolDay(iso);
@@ -376,12 +395,14 @@ function OggiPage() {
       {doubles.size > 0 && (
         <div role="alert" className="mb-5 rounded-xl border border-destructive/25 bg-danger-soft px-4 py-3">
           <p className="font-display text-lg text-destructive">
-            {new Set([...doubles.values()].map((d) => d.teacherId)).size === 1
-              ? "Un sostituto è assegnato a due classi nella stessa ora"
-              : "Alcuni sostituti sono assegnati a due classi nella stessa ora"}
+            {[...doubles.values()].some((d) => d.elsewhere)
+              ? "Un sostituto è assegnato in due posti nella stessa ora"
+              : new Set([...doubles.values()].map((d) => d.teacherId)).size === 1
+                ? "Un sostituto è assegnato a due classi nella stessa ora"
+                : "Alcuni sostituti sono assegnati a due classi nella stessa ora"}
           </p>
           <p className="mt-1 text-sm text-destructive/90">
-            Un docente non può stare in due classi insieme: scegli un altro sostituto per una delle due ore.
+            Un docente non può stare in due posti insieme: scegli un altro sostituto per l’ora in conflitto.
           </p>
           <ul className="mt-2 flex flex-col gap-1.5">
             {needs
@@ -402,8 +423,8 @@ function OggiPage() {
                       </span>
                       <span className="text-muted-foreground">
                         {" "}
-                        · {t ? teacherShort(t, allTeachers(data)) : "—"} è anche in{" "}
-                        {d.otherClassIds.map(className).join(", ")}. Cambia sostituto
+                        · {t ? teacherShort(t, allTeachers(data)) : "—"}
+                        {alsoPanel(d)}. Cambia sostituto
                       </span>
                     </button>
                   </li>
@@ -572,7 +593,7 @@ function OggiPage() {
                       )}
                       {double && (
                         <p className="mt-1 text-[13px] font-medium text-destructive">
-                          È anche in {double.otherClassIds.map(className).join(", ")} in quest’ora
+                          {alsoCard(double)}
                         </p>
                       )}
                     </button>
