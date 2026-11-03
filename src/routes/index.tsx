@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { DialogActions } from "@/components/dialog-actions";
 import { PageHeader } from "@/components/layout";
 import { AbsenceDialog } from "@/components/absence-dialog";
 import { AssignSheet } from "@/components/assign-sheet";
@@ -620,18 +621,22 @@ function OggiPage() {
               <pre className="mt-1 max-h-[min(52vh,28rem)] overflow-auto whitespace-pre-wrap rounded-md border border-border bg-card p-4 font-sans text-[13px] leading-relaxed">
                 {pdf.text}
               </pre>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <Button onClick={() => void sharePdf()}>
-                  <Share2 />
-                  Condividi / salva PDF
-                </Button>
+              <DialogActions
+                className="mt-3"
+                primary={
+                  <Button onClick={() => void sharePdf()}>
+                    <Share2 />
+                    Condividi / salva PDF
+                  </Button>
+                }
+              >
                 <Button variant="outline" asChild>
                   <a href={pdf.url} target="_blank" rel="noopener" download={pdf.name}>
                     <ExternalLink />
                     Apri PDF
                   </a>
                 </Button>
-              </div>
+              </DialogActions>
             </>
           )}
         </DialogContent>

@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
+import { DialogActions } from "@/components/dialog-actions";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { missingText, type MissingTeacher } from "@/lib/build-timetable";
 import { cn } from "@/lib/utils";
@@ -74,14 +75,18 @@ export function MissingTeachersDialog({
         <p className="text-sm text-muted-foreground">
           Il docente si indica nella sua scheda, in Docenti → «Classi e materie», oppure in «Cattedre e ore».
         </p>
-        <div className="flex flex-wrap justify-end gap-2 pt-1">
+        <DialogActions
+          className="pt-1"
+          primary={
+            <Button asChild>
+              <Link to="/docenti">Apri Docenti</Link>
+            </Button>
+          }
+        >
           <Button variant="outline" onClick={onClose}>
             Chiudi
           </Button>
-          <Button asChild>
-            <Link to="/docenti">Apri Docenti</Link>
-          </Button>
-        </div>
+        </DialogActions>
       </DialogContent>
     </Dialog>
   );

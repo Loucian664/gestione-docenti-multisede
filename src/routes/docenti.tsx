@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import { PageHeader } from "@/components/layout";
 import { Button } from "@/components/ui/button";
+import { DialogActions } from "@/components/dialog-actions";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -510,21 +511,25 @@ function RemoveTeacherDialog({
             {(store.archivedYears?.length ?? 0) > 0 && "Gli anni in archivio non cambiano. "}
             Non si può annullare. Per conservarne una copia, prima esporta il backup in Impostazioni.
           </p>
-          <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border pt-3">
+          <DialogActions
+            className="border-t border-border pt-3"
+            primary={
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  store.removeTeachers(chosen);
+                  toast.message(rest.length ? `Docente tolto da ${names.join(", ")}: resta a ${rest.join(", ")}.` : "Docente eliminato");
+                  onRemoved();
+                }}
+              >
+                Elimina
+              </Button>
+            }
+          >
             <Button variant="outline" onClick={onCancel}>
               Annulla
             </Button>
-            <Button
-              variant="destructive"
-              onClick={() => {
-                store.removeTeachers(chosen);
-                toast.message(rest.length ? `Docente tolto da ${names.join(", ")}: resta a ${rest.join(", ")}.` : "Docente eliminato");
-                onRemoved();
-              }}
-            >
-              Elimina
-            </Button>
-          </div>
+          </DialogActions>
         </div>
       </DialogContent>
     </Dialog>
@@ -922,15 +927,14 @@ function TeacherDialog({ value, onClose }: { value: Teacher | "new"; onClose: ()
               report{refsAll.length > 1 ? ", in tutte le sue sedi" : ""}. Se al suo posto arriva un’altra persona, la
               scheda passa a chi arriva e quelle già segnate restano a {teacherName(current)}.
             </p>
-            <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
+            <DialogActions className="border-t border-border pt-3" primary={<Button onClick={openReplace}>È un’altra persona</Button>}>
               <Button variant="outline" onClick={() => setStep("card")}>
                 Indietro
               </Button>
-              <Button variant="outline" className="ml-auto" onClick={() => save(true)}>
+              <Button variant="outline" onClick={() => save(true)}>
                 Correggi solo il nome
               </Button>
-              <Button onClick={openReplace}>È un’altra persona</Button>
-            </div>
+            </DialogActions>
           </div>
         </DialogContent>
       </Dialog>
@@ -1011,14 +1015,18 @@ function TeacherDialog({ value, onClose }: { value: Teacher | "new"; onClose: ()
                 arriva.
               </p>
             )}
-            <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
+            <DialogActions
+              className="border-t border-border pt-3"
+              primary={
+                <Button type="submit" disabled={!ready}>
+                  Sostituisci
+                </Button>
+              }
+            >
               <Button type="button" variant="outline" onClick={() => setStep("card")}>
                 Indietro
               </Button>
-              <Button type="submit" className="ml-auto" disabled={!ready}>
-                Sostituisci
-              </Button>
-            </div>
+            </DialogActions>
           </form>
         </DialogContent>
       </Dialog>
@@ -1326,16 +1334,17 @@ function TeacherDialog({ value, onClose }: { value: Teacher | "new"; onClose: ()
             Le ore nelle altre sedi dell’app Costruisci le conosce da solo. Se il docente insegna anche in una sede che
             non è nell’app, indica in Orario → Costruisci le ore in cui è altrove.
           </p>
-          <div className="sticky bottom-0 z-10 flex items-center gap-2 border-t border-border bg-popover pt-3">
-            {!isNew && current && (
-              <Button variant="outline" onClick={() => setStep("remove")}>
-                Elimina
+          <div className="sticky bottom-0 z-10 border-t border-border bg-popover pt-3">
+            <DialogActions primary={<Button onClick={() => save()}>Salva</Button>}>
+              {!isNew && current && (
+                <Button variant="outline" onClick={() => setStep("remove")}>
+                  Elimina
+                </Button>
+              )}
+              <Button variant="outline" onClick={onClose}>
+                Annulla
               </Button>
-            )}
-            <Button variant="outline" className="ml-auto" onClick={onClose}>
-              Annulla
-            </Button>
-            <Button onClick={() => save()}>Salva</Button>
+            </DialogActions>
           </div>
         </div>
       </DialogContent>
