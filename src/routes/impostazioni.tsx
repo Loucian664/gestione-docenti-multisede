@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/layout";
 import { ThemePicker } from "@/components/theme-toggle";
 import { SaveSlots } from "@/components/save-slots";
 import { Button } from "@/components/ui/button";
+import { DialogActions } from "@/components/dialog-actions";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -462,22 +463,20 @@ function ImpostazioniPage() {
             Subito dopo puoi tornare indietro con «Annulla». Per conservare una copia, esporta il backup o salva
             l’orario in uno slot.
           </p>
-          <div className="flex flex-wrap justify-end gap-2">
-            <Button variant="outline" className="min-h-11" onClick={exportBackup}>
+          <DialogActions
+            primary={
+              <Button variant="destructive" disabled={removable === 0 && scopeDisp === 0} onClick={emptyTimetable}>
+                {onlyDisp ? "Togli le ore a disposizione" : "Svuota orario"}
+              </Button>
+            }
+          >
+            <Button variant="outline" onClick={exportBackup}>
               Esporta backup
             </Button>
-            <Button variant="outline" className="min-h-11" onClick={closeEmpty}>
+            <Button variant="outline" onClick={closeEmpty}>
               Annulla
             </Button>
-            <Button
-              variant="destructive"
-              className="min-h-11"
-              disabled={removable === 0 && scopeDisp === 0}
-              onClick={emptyTimetable}
-            >
-              {onlyDisp ? "Togli le ore a disposizione" : "Svuota orario"}
-            </Button>
-          </div>
+          </DialogActions>
         </DialogContent>
       </Dialog>
 
@@ -519,10 +518,27 @@ function ImpostazioniPage() {
                 : "L’operazione è irreversibile: esporta prima un backup se vuoi conservarne una copia."}
             </DialogDescription>
           </DialogHeader>
-          <div className="flex flex-wrap justify-end gap-2">
+          <DialogActions
+            primary={
+              clearStep === 1 ? (
+                <Button onClick={() => setClearStep(2)}>Sì, continua</Button>
+              ) : (
+                <Button
+                  variant="destructive"
+                  onClick={() => {
+                    store.clearAll();
+                    setClearOpen(false);
+                    setClearStep(1);
+                    toast.message("Dati cancellati");
+                  }}
+                >
+                  Cancella ora
+                </Button>
+              )
+            }
+          >
             <Button
               variant="outline"
-              className="min-h-11"
               onClick={() => {
                 setClearOpen(false);
                 setClearStep(1);
@@ -530,25 +546,7 @@ function ImpostazioniPage() {
             >
               Annulla
             </Button>
-            {clearStep === 1 ? (
-              <Button className="min-h-11" onClick={() => setClearStep(2)}>
-                Sì, continua
-              </Button>
-            ) : (
-              <Button
-                variant="destructive"
-                className="min-h-11"
-                onClick={() => {
-                  store.clearAll();
-                  setClearOpen(false);
-                  setClearStep(1);
-                  toast.message("Dati cancellati");
-                }}
-              >
-                Cancella ora
-              </Button>
-            )}
-          </div>
+          </DialogActions>
         </DialogContent>
       </Dialog>
 
@@ -597,17 +595,11 @@ function ImpostazioniPage() {
               Non si può annullare. Se vuoi anche una copia su file, prima esporta il backup.
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
-            <Button variant="outline" className="min-h-11 w-full sm:mr-auto sm:w-auto" onClick={exportBackup}>
-              Esporta backup
-            </Button>
-            <div className="flex w-full gap-2 sm:w-auto">
-              <Button variant="outline" className="min-h-11" onClick={() => setNewYear(null)}>
-                Annulla
-              </Button>
+          <DialogActions
+            className="border-t border-border pt-3"
+            primary={
               <Button
                 variant="destructive"
-                className="min-h-11 flex-1 sm:flex-none"
                 disabled={sameYear || !(newYear ?? "").trim()}
                 onClick={() => {
                   store.startNewSchoolYear(newYear ?? "");
@@ -617,8 +609,15 @@ function ImpostazioniPage() {
               >
                 Inizia il nuovo anno
               </Button>
-            </div>
-          </div>
+            }
+          >
+            <Button variant="outline" onClick={exportBackup}>
+              Esporta backup
+            </Button>
+            <Button variant="outline" onClick={() => setNewYear(null)}>
+              Annulla
+            </Button>
+          </DialogActions>
         </DialogContent>
       </Dialog>
 
@@ -631,17 +630,10 @@ function ImpostazioniPage() {
               in Report. L’anno in corso non cambia. Non si può annullare: se vuoi una copia, prima esporta il backup.
             </DialogDescription>
           </DialogHeader>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" className="min-h-11 w-full sm:mr-auto sm:w-auto" onClick={exportBackup}>
-              Esporta backup
-            </Button>
-            <div className="flex w-full gap-2 sm:w-auto">
-              <Button variant="outline" className="min-h-11" onClick={() => setRemovingYear(null)}>
-                Annulla
-              </Button>
+          <DialogActions
+            primary={
               <Button
                 variant="destructive"
-                className="min-h-11 flex-1 sm:flex-none"
                 onClick={() => {
                   if (removingYear) store.removeArchivedYear(removingYear);
                   setRemovingYear(null);
@@ -650,8 +642,15 @@ function ImpostazioniPage() {
               >
                 Elimina
               </Button>
-            </div>
-          </div>
+            }
+          >
+            <Button variant="outline" onClick={exportBackup}>
+              Esporta backup
+            </Button>
+            <Button variant="outline" onClick={() => setRemovingYear(null)}>
+              Annulla
+            </Button>
+          </DialogActions>
         </DialogContent>
       </Dialog>
 
@@ -663,21 +662,23 @@ function ImpostazioniPage() {
               Su questo dispositivo ci sono modifiche più recenti. Importandolo, si torna a quel backup e le modifiche successive andranno perse.
             </DialogDescription>
           </DialogHeader>
-          <div className="flex flex-wrap justify-end gap-2">
-            <Button variant="outline" className="min-h-11" onClick={() => setPendingImport(null)}>
+          <DialogActions
+            primary={
+              <Button
+                onClick={() => {
+                  if (!pendingImport) return;
+                  applyImport(pendingImport.data, pendingImport.name);
+                  setPendingImport(null);
+                }}
+              >
+                Importa comunque
+              </Button>
+            }
+          >
+            <Button variant="outline" onClick={() => setPendingImport(null)}>
               Annulla
             </Button>
-            <Button
-              className="min-h-11"
-              onClick={() => {
-                if (!pendingImport) return;
-                applyImport(pendingImport.data, pendingImport.name);
-                setPendingImport(null);
-              }}
-            >
-              Importa comunque
-            </Button>
-          </div>
+          </DialogActions>
         </DialogContent>
       </Dialog>
     </div>

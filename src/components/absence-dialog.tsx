@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { DialogActions } from "@/components/dialog-actions";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -162,12 +163,11 @@ export function AbsenceDialog({
             <Label htmlFor="notes">Note</Label>
             <Textarea id="notes" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
           </div>
-          <div className="mt-2 flex justify-end gap-2">
+          <DialogActions className="mt-2" primary={<Button type="submit">{initial ? "Salva" : "Registra"}</Button>}>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Annulla
             </Button>
-            <Button type="submit">{initial ? "Salva" : "Registra"}</Button>
-          </div>
+          </DialogActions>
         </form>
       </DialogContent>
     </Dialog>

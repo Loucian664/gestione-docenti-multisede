@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { BadgeCheck, Check } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { DialogActions } from "@/components/dialog-actions";
 import {
   Dialog,
   DialogContent,
@@ -657,12 +658,11 @@ export function SaveToSlotDialog({
           <Input value={name} maxLength={NAME_MAX} onChange={(e) => setName(e.target.value)} />
         </label>
         {fixedSlot ? (
-          <div className="mt-5 flex flex-wrap justify-end gap-2">
+          <DialogActions className="mt-5" primary={<Button onClick={() => pick(fixedSlot)}>Usa nello slot {fixedSlot}</Button>}>
             <Button variant="outline" onClick={onClose}>
               Annulla
             </Button>
-            <Button onClick={() => pick(fixedSlot)}>Usa nello slot {fixedSlot}</Button>
-          </div>
+          </DialogActions>
         ) : (
           <ul className="mt-4 flex flex-col gap-1.5">
             {SAVE_SLOTS.map((n) => {

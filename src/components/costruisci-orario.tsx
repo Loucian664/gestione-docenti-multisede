@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Check, ChevronDown, Eraser, Lock, LockOpen, Save, Search, TriangleAlert, Undo2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DialogActions } from "@/components/dialog-actions";
 import {
   Dialog,
   DialogContent,
@@ -2514,20 +2515,24 @@ function Ritocchi({
                       {issues.length > 0 && <p className="text-destructive">Non rispetta: {issues.join("; ")}.</p>}
                       <EffectLines effect={effect} who={whoNow} nameOf={nameOf} />
                     </div>
-                    <div className="flex flex-wrap justify-end gap-2 pt-1">
+                    <DialogActions
+                      className="pt-1"
+                      primary={
+                        <Button
+                          variant="destructive"
+                          onClick={() => {
+                            setConfirmBreak(false);
+                            move();
+                          }}
+                        >
+                          Sposta lo stesso
+                        </Button>
+                      }
+                    >
                       <Button variant="outline" onClick={() => setConfirmBreak(false)}>
                         Annulla
                       </Button>
-                      <Button
-                        variant="destructive"
-                        onClick={() => {
-                          setConfirmBreak(false);
-                          move();
-                        }}
-                      >
-                        Sposta lo stesso
-                      </Button>
-                    </div>
+                    </DialogActions>
                   </DialogContent>
                 </Dialog>
               </>
@@ -3038,16 +3043,19 @@ function EraseAllDialog({
         <p className="mb-4 text-[12px] text-muted-foreground">
           Le ore di progetto, le ore a disposizione e le × delle ore nelle altre sedi (le mette l’app) restano.
         </p>
-        <div className="flex flex-wrap justify-end gap-2">
-          <Button variant="outline" className="min-h-11" onClick={onClose}>
+        <DialogActions
+          primary={
+            rows.length > 0 && (
+              <Button variant="destructive" disabled={total === 0} onClick={apply}>
+                Cancella {countOf(total, "segno", "segni")}
+              </Button>
+            )
+          }
+        >
+          <Button variant="outline" onClick={onClose}>
             {rows.length ? "Annulla" : "Chiudi"}
           </Button>
-          {rows.length > 0 && (
-            <Button variant="destructive" className="min-h-11" disabled={total === 0} onClick={apply}>
-              Cancella {countOf(total, "segno", "segni")}
-            </Button>
-          )}
-        </div>
+        </DialogActions>
       </DialogContent>
     </Dialog>
   );

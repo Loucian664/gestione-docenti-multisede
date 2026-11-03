@@ -39,6 +39,7 @@ import {
 } from "@/lib/sheet-image";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { DialogActions } from "@/components/dialog-actions";
 import { ScrollGrid } from "@/components/scroll-grid";
 import { sedeColor, teacherCell } from "@/lib/teacher-palette";
 import { CostruisciOrario } from "@/components/costruisci-orario";
@@ -930,20 +931,16 @@ function CellEditor({
             <SubjectSelect value={subject} onChange={setSubject} />
             <Input value={subject} onChange={(e) => setSubject(e.target.value)} className="mt-1" placeholder="O scrivi un nome" />
           </div>
-          <div className="flex justify-end gap-2 pt-2">
+          <DialogActions className="pt-2" primary={<Button onClick={add}>{occupants.length ? "Aggiungi" : "Salva"}</Button>}>
             <Button variant="outline" onClick={onClose}>
               Chiudi
             </Button>
-            <Button onClick={add}>{occupants.length ? "Aggiungi" : "Salva"}</Button>
-          </div>
+          </DialogActions>
         </div>
       </DialogContent>
     </Dialog>
   );
 }
-
-/** I pulsanti alternativi del dialogo dell'ora: stessa misura, e se il testo è lungo va a capo invece di uscire. */
-const ALT_BUTTON = "h-auto min-h-10 whitespace-normal px-2 py-1.5 text-center leading-tight";
 
 function TeacherHourEditor({
   editing,
@@ -1125,12 +1122,11 @@ function TeacherHourEditor({
                 ))}
               </datalist>
             </div>
-            <div className="grid grid-cols-2 gap-2 pt-2">
+            <DialogActions className="pt-2" primary={<Button onClick={saveSede}>Salva</Button>}>
               <Button variant="outline" onClick={toggleProject}>
                 Togli progetto
               </Button>
-              <Button onClick={saveSede}>Salva</Button>
-            </div>
+            </DialogActions>
           </div>
         ) : (
           <div className="flex flex-col gap-3">
@@ -1187,25 +1183,22 @@ function TeacherHourEditor({
                 </span>
               </label>
             )}
-            {/* le alternative a «Salva» sono tutte della stessa misura; «Salva» sotto, a tutta larghezza */}
-            <div className="flex flex-col gap-2 pt-2">
-              <div className={cn("grid gap-2", existing ? "grid-cols-3" : "grid-cols-2")}>
-                {existing && (
-                  <Button variant="outline" className={ALT_BUTTON} onClick={remove}>
-                    Togli ora
-                  </Button>
-                )}
-                <Button variant="outline" className={ALT_BUTTON} onClick={toggleDisp}>
-                  {dispOn ? "Togli disposizione" : "A disposizione"}
+            <DialogActions
+              className="pt-2"
+              primary={<Button onClick={save}>{classId ? "Salva lezione" : "Salva in sede"}</Button>}
+            >
+              {existing && (
+                <Button variant="outline" onClick={remove}>
+                  Togli ora
                 </Button>
-                <Button variant="outline" className={ALT_BUTTON} onClick={toggleProject}>
-                  Progetto
-                </Button>
-              </div>
-              <Button className="w-full" onClick={save}>
-                {classId ? "Salva lezione" : "Salva in sede"}
+              )}
+              <Button variant="outline" onClick={toggleDisp}>
+                {dispOn ? "Togli disposizione" : "A disposizione"}
               </Button>
-            </div>
+              <Button variant="outline" onClick={toggleProject}>
+                Progetto
+              </Button>
+            </DialogActions>
           </div>
         )}
       </DialogContent>

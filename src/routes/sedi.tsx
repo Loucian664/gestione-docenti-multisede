@@ -3,6 +3,7 @@ import { useState, type ReactNode } from "react";
 import { PageHeader } from "@/components/layout";
 import { CampanellaEditor } from "@/components/campanella-editor";
 import { Button } from "@/components/ui/button";
+import { DialogActions } from "@/components/dialog-actions";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -439,44 +440,13 @@ function SedeDialog({ sedeId, onClose }: { sedeId: string; onClose: () => void }
                 </p>
               </div>
             )}
-            <div className="flex flex-wrap items-center gap-2">
-              {step === 0 && (
-                <Button
-                  variant="outline"
-                  disabled={!removable}
-                  onClick={() => setStep(1)}
-                  title={removable ? undefined : "L’ultima sede non si elimina"}
-                >
-                  Elimina sede
-                </Button>
-              )}
-              {step === 1 && (
-                <>
-                  <Button variant="outline" onClick={() => setStep(0)}>
-                    Annulla
-                  </Button>
+            <DialogActions
+              primary={
+                step === 1 ? (
                   <Button variant="destructive" onClick={() => setStep(2)}>
                     Continua
                   </Button>
-                </>
-              )}
-              {step === 2 && (
-                <>
-                  <Button variant="outline" onClick={() => setStep(0)}>
-                    No
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      void shareOrSave(
-                        `gestione-docenti-backup-${store.selectedDate}.json`,
-                        backupJson(data),
-                        "application/json",
-                      ).then((outcome) => toastSave(outcome, "backup"));
-                    }}
-                  >
-                    Esporta backup
-                  </Button>
+                ) : step === 2 ? (
                   <Button
                     variant="destructive"
                     onClick={() => {
@@ -488,12 +458,51 @@ function SedeDialog({ sedeId, onClose }: { sedeId: string; onClose: () => void }
                   >
                     Sì, elimina
                   </Button>
-                </>
+                ) : (
+                  <Button onClick={onClose}>Fatto</Button>
+                )
+              }
+            >
+              {step === 0 && (
+                <Button
+                  variant="outline"
+                  disabled={!removable}
+                  onClick={() => setStep(1)}
+                  title={removable ? undefined : "L’ultima sede non si elimina"}
+                >
+                  Elimina sede
+                </Button>
               )}
-              <Button className="ml-auto" onClick={onClose}>
-                Fatto
-              </Button>
-            </div>
+              {step === 1 && (
+                <Button variant="outline" onClick={() => setStep(0)}>
+                  Annulla
+                </Button>
+              )}
+              {step === 2 && (
+                <Button variant="outline" onClick={() => setStep(0)}>
+                  No
+                </Button>
+              )}
+              {step === 2 && (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    void shareOrSave(
+                      `gestione-docenti-backup-${store.selectedDate}.json`,
+                      backupJson(data),
+                      "application/json",
+                    ).then((outcome) => toastSave(outcome, "backup"));
+                  }}
+                >
+                  Esporta backup
+                </Button>
+              )}
+              {step !== 0 && (
+                <Button variant="outline" onClick={onClose}>
+                  Fatto
+                </Button>
+              )}
+            </DialogActions>
           </div>
           {!removable && <p className="-mt-1 text-[12px] text-muted-foreground">L’ultima sede non si elimina.</p>}
         </div>
@@ -539,14 +548,18 @@ function AddSedeDialog({ onClose }: { onClose: () => void }) {
             <Input id="nuova-sede" value={name} onChange={(e) => setName(e.target.value)} placeholder="Es. il paese" autoFocus />
           </Field>
           {taken && <p className="-mt-1 text-[12px] text-warning">C’è già una sede con questo nome.</p>}
-          <div className="flex justify-end gap-2 pt-1">
+          <DialogActions
+            className="pt-1"
+            primary={
+              <Button type="submit" disabled={!name.trim()}>
+                Aggiungi
+              </Button>
+            }
+          >
             <Button type="button" variant="outline" onClick={onClose}>
               Annulla
             </Button>
-            <Button type="submit" disabled={!name.trim()}>
-              Aggiungi
-            </Button>
-          </div>
+          </DialogActions>
         </form>
       </DialogContent>
     </Dialog>
@@ -635,11 +648,12 @@ function ImportSedeDialog({
           ) : (
             <p className="text-[13px] text-muted-foreground">Nessun docente del file è già presente nelle altre sedi.</p>
           )}
-          <div className="sticky bottom-0 z-10 flex justify-end gap-2 border-t border-border bg-popover pt-3">
-            <Button variant="outline" onClick={onClose}>
-              Annulla
-            </Button>
-            <Button onClick={confirm}>Aggiungi sede</Button>
+          <div className="sticky bottom-0 z-10 border-t border-border bg-popover pt-3">
+            <DialogActions primary={<Button onClick={confirm}>Aggiungi sede</Button>}>
+              <Button variant="outline" onClick={onClose}>
+                Annulla
+              </Button>
+            </DialogActions>
           </div>
         </div>
       </DialogContent>
@@ -781,17 +795,16 @@ function UpdateSedeDialog({
             I docenti con lo stesso cognome e nome restano gli stessi, anche per le altre sedi. Le altre sedi non
             cambiano. Se ci ripensi, subito dopo trovi «Annulla»; per sicurezza puoi salvare prima un backup di tutto.
           </p>
-          <div className="sticky bottom-0 z-10 flex flex-wrap items-center gap-2 border-t border-border bg-popover pt-3">
-            <Button variant="outline" className="w-full sm:mr-auto sm:w-auto" onClick={exportBackup}>
-              <FileDown aria-hidden />
-              Esporta backup
-            </Button>
-            <div className="flex w-full justify-end gap-2 sm:w-auto">
+          <div className="sticky bottom-0 z-10 border-t border-border bg-popover pt-3">
+            <DialogActions primary={<Button onClick={confirm}>Aggiorna sede</Button>}>
+              <Button variant="outline" onClick={exportBackup}>
+                <FileDown aria-hidden />
+                Esporta backup
+              </Button>
               <Button variant="outline" onClick={onClose}>
                 Annulla
               </Button>
-              <Button onClick={confirm}>Aggiorna sede</Button>
-            </div>
+            </DialogActions>
           </div>
         </div>
       </DialogContent>
