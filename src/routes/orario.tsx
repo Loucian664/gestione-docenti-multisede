@@ -942,6 +942,9 @@ function CellEditor({
   );
 }
 
+/** I pulsanti alternativi del dialogo dell'ora: stessa misura, e se il testo è lungo va a capo invece di uscire. */
+const ALT_BUTTON = "h-auto min-h-10 whitespace-normal px-2 py-1.5 text-center leading-tight";
+
 function TeacherHourEditor({
   editing,
   onClose,
@@ -1122,7 +1125,7 @@ function TeacherHourEditor({
                 ))}
               </datalist>
             </div>
-            <div className="flex flex-wrap justify-end gap-2 pt-2">
+            <div className="grid grid-cols-2 gap-2 pt-2">
               <Button variant="outline" onClick={toggleProject}>
                 Togli progetto
               </Button>
@@ -1184,19 +1187,24 @@ function TeacherHourEditor({
                 </span>
               </label>
             )}
-            <div className="flex flex-wrap justify-end gap-2 pt-2">
-              {existing && (
-                <Button variant="outline" onClick={remove}>
-                  Togli ora
+            {/* le alternative a «Salva» sono tutte della stessa misura; «Salva» sotto, a tutta larghezza */}
+            <div className="flex flex-col gap-2 pt-2">
+              <div className={cn("grid gap-2", existing ? "grid-cols-3" : "grid-cols-2")}>
+                {existing && (
+                  <Button variant="outline" className={ALT_BUTTON} onClick={remove}>
+                    Togli ora
+                  </Button>
+                )}
+                <Button variant="outline" className={ALT_BUTTON} onClick={toggleDisp}>
+                  {dispOn ? "Togli disposizione" : "A disposizione"}
                 </Button>
-              )}
-              <Button variant="outline" onClick={toggleDisp}>
-                {dispOn ? "Togli disposizione" : "A disposizione"}
+                <Button variant="outline" className={ALT_BUTTON} onClick={toggleProject}>
+                  Progetto
+                </Button>
+              </div>
+              <Button className="w-full" onClick={save}>
+                {classId ? "Salva lezione" : "Salva in sede"}
               </Button>
-              <Button variant="outline" onClick={toggleProject}>
-                Progetto
-              </Button>
-              <Button onClick={save}>{classId ? "Salva lezione" : "Salva in sede"}</Button>
             </div>
           </div>
         )}
