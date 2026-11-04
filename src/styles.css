@@ -251,3 +251,17 @@ input[type="time"]::-webkit-calendar-picker-indicator {
     color: black !important;
   }
 }
+
+/*
+ * Su telefono e tablet i campi da scrivere hanno almeno 16px: sotto questa
+ * misura Safari su iPhone ingrandisce la pagina quando si tocca il campo e
+ * poi non la riporta indietro. Fuori da ogni @layer, così vale anche sulle
+ * classi text-sm / text-xs dei singoli campi.
+ */
+@media (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
