@@ -503,8 +503,10 @@ function OggiPage() {
                     <p className="text-[13px] text-muted-foreground">
                       {reason}
                       {a.allDay ? " · giornata intera" : ` · ${a.periodIds.length} ore`}
-                      {a.dateFrom !== a.dateTo ? ` · fino a ${formatMedium(a.dateTo)}` : ""}
                     </p>
+                    {a.dateFrom !== a.dateTo && (
+                      <p className="text-[13px] text-muted-foreground">fino a {formatMedium(a.dateTo)}</p>
+                    )}
                   </div>
                   <Badge variant="warning" className="shrink-0 whitespace-nowrap">
                     {t ? teacherShort(t, allTeachers(data)) : ""}
