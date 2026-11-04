@@ -1113,14 +1113,29 @@ function TeacherHourEditor({
                 onKeyDown={(e) => e.key === "Enter" && saveSede()}
                 placeholder="Es. Nicotera, primaria di Rombiolo"
                 maxLength={60}
-                list="sedi-progetto-ora"
-                autoFocus
+                autoComplete="off"
+                enterKeyHint="done"
               />
-              <datalist id="sedi-progetto-ora">
-                {knownSedi.map((s) => (
-                  <option key={s} value={s} />
-                ))}
-              </datalist>
+              {knownSedi.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 pt-1" aria-label="Sedi già usate">
+                  {knownSedi.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => setSede(s)}
+                      aria-pressed={sede.trim() === s}
+                      className={cn(
+                        "min-h-9 rounded-full border px-3 text-sm",
+                        sede.trim() === s
+                          ? "border-primary bg-accent text-accent-foreground"
+                          : "border-border bg-card text-foreground hover:bg-muted",
+                      )}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             <DialogActions className="pt-2" primary={<Button onClick={saveSede}>Salva</Button>}>
               <Button variant="outline" onClick={toggleProject}>
