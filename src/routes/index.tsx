@@ -47,7 +47,7 @@ import { dailySheetCopyPlain, dailySheetHeading, dailySheetHtml, dailySheetText,
 import { copyText, shareOrSaveFile, shareJpeg, toastSave, openPdfTab } from "@/lib/share-file";
 import { textToPdf } from "@/lib/pdf";
 import { bachecaJpeg } from "@/lib/sheet-image";
-import { formatDayMonth, formatLong, isWeekend, shiftSchoolDay, weekDaysIso, toSchoolDay, todayIso } from "@/lib/dates";
+import { formatDayMonth, formatMedium, formatLong, isWeekend, shiftSchoolDay, weekDaysIso, toSchoolDay, todayIso } from "@/lib/dates";
 import { ABSENCE_REASONS, DAY_SHORT, SUBSTITUTION_TYPES } from "@/lib/types";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -503,10 +503,12 @@ function OggiPage() {
                     <p className="text-[13px] text-muted-foreground">
                       {reason}
                       {a.allDay ? " · giornata intera" : ` · ${a.periodIds.length} ore`}
-                      {a.dateFrom !== a.dateTo ? ` · fino al ${a.dateTo}` : ""}
+                      {a.dateFrom !== a.dateTo ? ` · fino a ${formatMedium(a.dateTo)}` : ""}
                     </p>
                   </div>
-                  <Badge variant="warning">{t ? teacherShort(t, allTeachers(data)) : ""}</Badge>
+                  <Badge variant="warning" className="shrink-0 whitespace-nowrap">
+                    {t ? teacherShort(t, allTeachers(data)) : ""}
+                  </Badge>
                 </li>
               );
             })}
