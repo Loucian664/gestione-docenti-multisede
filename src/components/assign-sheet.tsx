@@ -23,6 +23,7 @@ import {
 import { findAnyTeacher } from "@/lib/replace-teacher";
 import { toast } from "sonner";
 import { teacherDotColor } from "@/lib/teacher-palette";
+import { countOf } from "@/lib/utils";
 import { substituteElsewhere } from "@/lib/sedi";
 
 const GROUPS: { bucket: SubstituteBucket | SubstituteBucket[]; title: string; hint: string }[] = [
@@ -236,7 +237,7 @@ export function AssignSheet({
           <SheetDescription>
             {need.slot.subject}
             {absent ? ` — assente ${teacherName(absent)}` : ""}
-            {` · ${ranked.length} docenti in elenco`}
+            {` · ${countOf(ranked.length, "docente", "docenti")} in elenco`}
           </SheetDescription>
         </SheetHeader>
         <div className="flex flex-col gap-4 p-5">
@@ -404,7 +405,7 @@ function TeacherPickRow({
         <span className="min-w-0 flex-1">
           <span className="flex items-baseline justify-between gap-2">
             <span className="font-medium">{teacherShort(row.teacher, teachers)}</span>
-            <span className="text-[11px] text-muted-foreground tabular-nums">{row.monthCount} ore/mese</span>
+            <span className="text-[11px] text-muted-foreground tabular-nums">{row.monthCount === 1 ? "1 ora/mese" : `${row.monthCount} ore/mese`}</span>
           </span>
           <span className="mt-0.5 flex flex-wrap gap-1">
             {row.reasons.slice(0, 3).map((reason) => (

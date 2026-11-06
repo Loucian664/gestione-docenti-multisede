@@ -36,7 +36,7 @@ import { DAY_SHORT, ROLE_LABELS, ACTIVITY_SUBJECTS, CURRICULAR_SUBJECTS, SUBJECT
 import { Plus, Search, LayoutGrid, Trash2, UserRoundPen } from "lucide-react";
 import { MissingTeachersBox } from "@/components/missing-teachers";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
+import { cn, countOf } from "@/lib/utils";
 import { corePeriods } from "@/lib/periods";
 import { formatItDate, isoDate } from "@/lib/dates";
 import {
@@ -1467,7 +1467,7 @@ function PresenceGrid({
       <p className="text-[12px] text-muted-foreground">
         Scegli cosa segnare, poi tocca le ore. «D»: in sede senza classe, disponibile per le sostituzioni.
         «P»: progetto, fuori dalla scuola e mai chiamabile per le sostituzioni. Tocca Lun, Mar… per l’intera
-        giornata. {selected.length} ore in sede{projectCount > 0 ? `, ${projectCount} di progetto` : ""}.
+        giornata. {countOf(selected.length, "ora", "ore")} in sede{projectCount > 0 ? `, ${projectCount} di progetto` : ""}.
       </p>
       <div className="mt-2 inline-flex rounded-lg bg-muted p-1" role="group" aria-label="Cosa segnare">
         {(

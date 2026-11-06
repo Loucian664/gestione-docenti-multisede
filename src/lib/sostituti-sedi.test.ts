@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { autoAssignPlan, coverageNeeds, dayCoverage, doubleCovers, rankSubstitutes } from "./coverage.ts";
 import { buildSeed } from "./seed.ts";
+import { dailySheetHeading } from "./export.ts";
 import { absenceMirrors, editSede, substituteElsewhere } from "./sedi.ts";
 import type { PersistedData } from "./types.ts";
 
@@ -123,5 +124,17 @@ describe("assenza di chi lavora in più sedi", () => {
     // già segnata assente nell'altra sede: niente da aggiungere
     const there = editSede(data, "sede-esempio-b", (b) => ({ ...b, absences: [...b.absences, absenceOf("tb-fra-1", MON)] }));
     assert.deepEqual(absenceMirrors(there, "t-fra-1", { dateFrom: MON, dateTo: MON, allDay: true, periodIds: [] }), []);
+  });
+});
+
+describe("foglio del giorno con più sedi", () => {
+  it("porta il nome del plesso solo se le sedi sono più d'una", () => {
+    const { data } = setup();
+    const several = dailySheetHeading(MON, data);
+    assert.match(several, /LUNEDÌ/);
+    assert.ok(several.includes(data.settings.schoolName.toLocaleUpperCase("it-IT")));
+    const single = dailySheetHeading(MON, { ...data, altreSedi: [] });
+    assert.doesNotMatch(single, /·/);
+    assert.equal(dailySheetHeading(MON), single);
   });
 });

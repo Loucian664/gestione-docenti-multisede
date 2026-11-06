@@ -428,7 +428,9 @@ export const useAppStore = create<AppStore>()(
     (set, get) => {
       const save = (partial: Partial<AppStore>) => {
         noteUserMutation();
-        set({ ...partial, savedAt: Date.now(), origin: "user" });
+        // sempre dopo il salvataggio di prima, anche se l'orologio del dispositivo è tornato indietro: un salvataggio
+        // con una data più vecchia verrebbe scartato in silenzio
+        set({ ...partial, savedAt: Math.max(Date.now(), (Number(get().savedAt) || 0) + 1), origin: "user" });
         writePersistSync(snapshot(get()));
       };
       return {

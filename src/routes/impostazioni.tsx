@@ -23,7 +23,7 @@ import { frozenCattedre } from "@/lib/build-timetable";
 import { builtLessonTest, fixedKinds, fixedKindsNote, stayText } from "@/lib/svuota";
 import { isLockedLesson } from "@/lib/locks";
 import { previousFields } from "@/lib/clear-marks";
-import { nextSchoolYear } from "@/lib/dates";
+import { dateOnLaunch, nextSchoolYear, todayIso } from "@/lib/dates";
 import { archivedCounts, archivedYearLabels } from "@/lib/school-years";
 import { toast } from "sonner";
 
@@ -183,14 +183,15 @@ function ImpostazioniPage() {
 
   function exportBackup() {
     void shareOrSave(
-      `gestione-docenti-backup-${store.selectedDate}.json`,
+      `gestione-docenti-backup-${todayIso()}.json`,
       backupJson(snapshot(store)),
       "application/json",
     ).then((outcome) => toastSave(outcome, "backup"));
   }
 
   function applyImport(parsed: PersistedData, name: string) {
-    store.importData(parsed, name);
+    // dopo l'importazione Oggi riparte da oggi, non dal giorno aperto quando il backup è stato fatto
+    store.importData({ ...parsed, selectedDate: dateOnLaunch() }, name);
     toast.success("Registro importato e salvato su questo dispositivo");
   }
 

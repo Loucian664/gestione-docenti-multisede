@@ -217,7 +217,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
           <div className="flex items-center gap-1">
             {persistReady && uncovered > 0 && (
               <span className="mr-1 rounded-full bg-danger-soft px-2 py-1 text-[11px] font-semibold text-destructive tabular-nums">
-                {uncovered} scoperte
+                {uncovered === 1 ? "1 scoperta" : `${uncovered} scoperte`}
               </span>
             )}
             <ThemeCycleButton />

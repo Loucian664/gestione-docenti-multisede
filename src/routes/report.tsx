@@ -12,7 +12,7 @@ import { loadByTeacher, absencesByReason, eccedenteLines, teacherShort } from "@
 import { formatItDate, isoDate, monthRange, schoolYearRange } from "@/lib/dates";
 import { archivedSedi, archivedYearData, archivedYearLabels } from "@/lib/school-years";
 import { allSedi, sedeIdOf, sedeName } from "@/lib/sedi";
-import { reportXlsx, eccedenteXlsx, eccedentePdf, schoolFileTag } from "@/lib/export";
+import { reportXlsx, eccedenteXlsx, eccedentePdf, orarioDownloadName, schoolFileTag } from "@/lib/export";
 import { shareOrSaveFile, shareJpeg, toastSave, openPdfTab } from "@/lib/share-file";
 import { jpegBlobToPdf } from "@/lib/pdf";
 import { reportJpeg } from "@/lib/sheet-image";
@@ -154,7 +154,7 @@ function ReportPage() {
                 void (async () => {
                   try {
                     const blob = await reportJpeg(data, from, to);
-                    toastSave(await shareJpeg(`report-${from}-${to}.jpg`, blob), "image");
+                    toastSave(await shareJpeg(orarioDownloadName(data.settings.schoolName, `report-${from}-${to}`, "jpg"), blob), "image");
                   } catch {
                     toast.error("Non sono riuscito a creare la foto.");
                   }
@@ -172,7 +172,7 @@ function ReportPage() {
                   try {
                     const blob = await reportJpeg(data, from, to);
                     const pdf = await jpegBlobToPdf(blob);
-                    toastSave(tab.show(`report-${from}-${to}.pdf`, pdf), "pdf");
+                    toastSave(tab.show(orarioDownloadName(data.settings.schoolName, `report-${from}-${to}`, "pdf"), pdf), "pdf");
                   } catch {
                     tab.cancel();
                     toast.error("Non sono riuscito a creare il PDF.");

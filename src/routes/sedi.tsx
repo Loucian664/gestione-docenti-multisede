@@ -32,6 +32,8 @@ import { teacherName } from "@/lib/coverage";
 import { DAY_SHORT, type PersistedData, type SedeData, type Teacher } from "@/lib/types";
 import { ArrowDownAZ, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, FileDown, FileUp, Plus, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
+import { countOf } from "@/lib/utils";
+import { todayIso } from "@/lib/dates";
 
 export const Route = createFileRoute("/sedi")({ component: SediPage });
 
@@ -143,7 +145,7 @@ function SediPage() {
               // il backup della sola sede, per l'app della singola scuola
               const name = sedeName(s.data.settings);
               void shareOrSave(
-                orarioDownloadName(name, `backup-sede-${store.selectedDate}`, "json"),
+                orarioDownloadName(name, `backup-sede-${todayIso()}`, "json"),
                 backupJson(exportSede(data, s.id)),
                 "application/json",
               ).then((outcome) => {
@@ -482,7 +484,7 @@ function SedeDialog({ sedeId, onClose }: { sedeId: string; onClose: () => void }
               )}
               {step === 2 && (
                 <Button variant="outline" onClick={() => setStep(0)}>
-                  No
+                  Annulla
                 </Button>
               )}
               {step === 2 && (
@@ -490,18 +492,13 @@ function SedeDialog({ sedeId, onClose }: { sedeId: string; onClose: () => void }
                   variant="outline"
                   onClick={() => {
                     void shareOrSave(
-                      `gestione-docenti-backup-${store.selectedDate}.json`,
+                      `gestione-docenti-backup-${todayIso()}.json`,
                       backupJson(data),
                       "application/json",
                     ).then((outcome) => toastSave(outcome, "backup"));
                   }}
                 >
                   Esporta backup
-                </Button>
-              )}
-              {step !== 0 && (
-                <Button variant="outline" onClick={onClose}>
-                  Fatto
                 </Button>
               )}
             </DialogActions>
@@ -615,7 +612,7 @@ function ImportSedeDialog({
         <DialogHeader className="sticky top-0 z-10 mb-0 bg-popover pb-4">
           <DialogTitle>Aggiungi sede da backup</DialogTitle>
           <DialogDescription>
-            Le sedi già presenti restano come sono. Dal file: {sede.classes.length} classi, {sede.teachers.length} docenti
+            Le sedi già presenti restano come sono. Dal file: {countOf(sede.classes.length, "classe", "classi")}, {countOf(sede.teachers.length, "docente", "docenti")}
             {sede.slots.length ? ", con il loro orario" : ""}.
             {several ? " Il backup contiene più sedi: prendo solo quella che era in uso." : ""}
           </DialogDescription>
@@ -710,7 +707,7 @@ function UpdateSedeDialog({
 
   function exportBackup() {
     void shareOrSave(
-      `gestione-docenti-backup-${store.selectedDate}.json`,
+      `gestione-docenti-backup-${todayIso()}.json`,
       backupJson(snapshot(store)),
       "application/json",
     ).then((outcome) => toastSave(outcome, "backup"));
