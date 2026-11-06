@@ -1,4 +1,4 @@
-import { eachIsoInRange, formatDayMonth, formatDayName, formatItDate, formatItFileDate, formatLong, isWeekend, toSchoolDay } from "./dates";
+import { eachIsoInRange, formatDayMonth, formatDayName, formatItDate, formatItFileDate, formatLong, isWeekend, todayIso, toSchoolDay } from "./dates";
 import { coverageNeeds, isCovered, isShiftType, classShifts, eccedenteLines, teacherName, teacherSurname, absencesByReason, absencesOnDate, type CoverageNeed, type ClassShift } from "./coverage";
 import { allTeachers, findAnyTeacher } from "./replace-teacher";
 import type { PersistedData, SubstitutionType } from "./types";
@@ -70,7 +70,7 @@ export function substitutionsXlsx(data: PersistedData, date: string): File {
       n.substitution?.notes ?? "",
     ]);
   }
-  return xlsxFile(`sostituzioni-${formatItFileDate(date)}.xlsx`, rows, "Sostituzioni");
+  return xlsxFile(orarioDownloadName(data.settings.schoolName, `sostituzioni-${formatItFileDate(date)}`, "xlsx"), rows, "Sostituzioni");
 }
 
 function roundHour(hhmm: string): string {
@@ -226,7 +226,7 @@ export function absencesRangeXlsx(data: PersistedData, from: string, to: string)
     }
   }
   closeBlock(rows.length);
-  return xlsxSpecFile(`assenze-${formatItFileDate(from)}-${formatItFileDate(to)}.xlsx`, {
+  return xlsxSpecFile(orarioDownloadName(data.settings.schoolName, `assenze-${formatItFileDate(from)}-${formatItFileDate(to)}`, "xlsx"), {
     rows,
     sheetName: "Assenze",
     merges,
@@ -299,7 +299,7 @@ export function reportXlsx(
       row.total,
     ]);
   }
-  return xlsxFile(`report-sostituzioni-${from}-${to}.xlsx`, rows, "Monte ore");
+  return xlsxFile(orarioDownloadName(data.settings.schoolName, `report-sostituzioni-${from}-${to}`, "xlsx"), rows, "Monte ore");
 }
 
 function eccedenteHeading(data: PersistedData): [string, string, string] {
@@ -390,8 +390,11 @@ function classCode(name: string): string {
   return name.replace(/ª\s*/g, "").replace(/\s+/g, "");
 }
 
-export function dailySheetHeading(date: string): string {
-  return formatLong(date).toLocaleUpperCase("it-IT");
+/** Il giorno; con più sedi anche il plesso, perché i fogli di plessi diversi non si confondano. */
+export function dailySheetHeading(date: string, data?: PersistedData): string {
+  const day = formatLong(date).toLocaleUpperCase("it-IT");
+  const several = (data?.altreSedi?.length ?? 0) > 0;
+  return several && data ? `${day} · ${data.settings.schoolName.trim().toLocaleUpperCase("it-IT")}` : day;
 }
 
 function withAssembly(name: string, reason: string | undefined): string {
@@ -484,7 +487,7 @@ function periodMark(label: string): string {
 }
 
 export function dailySheetText(data: PersistedData, date: string, needs: CoverageNeed[]): string {
-  return [dailySheetHeading(date), ...dailySheetBody(data, date, needs)].join("\n");
+  return [dailySheetHeading(date, data), ...dailySheetBody(data, date, needs)].join("\n");
 }
 
 const BOLD_ACCENT: Record<string, string> = {
@@ -522,7 +525,7 @@ export function toPlainBold(s: string): string {
 }
 
 export function dailySheetCopyPlain(data: PersistedData, date: string, needs: CoverageNeed[]): string {
-  return [toPlainBold(dailySheetHeading(date)), ...dailySheetBody(data, date, needs)].join("\n");
+  return [toPlainBold(dailySheetHeading(date, data)), ...dailySheetBody(data, date, needs)].join("\n");
 }
 
 function escapeHtml(s: string): string {
@@ -534,7 +537,7 @@ function escapeHtml(s: string): string {
 }
 
 export function dailySheetHtml(data: PersistedData, date: string, needs: CoverageNeed[]): string {
-  const heading = escapeHtml(dailySheetHeading(date));
+  const heading = escapeHtml(dailySheetHeading(date, data));
   const rows = dailySheetBody(data, date, needs)
     .map((line) => `<div>${escapeHtml(line) || "&nbsp;"}</div>`)
     .join("");
@@ -560,6 +563,7 @@ export function parseBackupJson(raw: string): PersistedData {
   });
   return {
     ...lists(data),
+    selectedDate: data.selectedDate || todayIso(),
     ...(Array.isArray(data.altreSedi)
       ? { altreSedi: data.altreSedi.filter((a) => a?.data).map((a) => ({ ...a, data: lists(a.data) })) }
       : {}),

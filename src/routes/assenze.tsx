@@ -21,14 +21,14 @@ import {
   shiftMonth,
   todayIso,
 } from "@/lib/dates";
-import { absencesRangeText, absencesRangeXlsx, assemblySummary } from "@/lib/export";
+import { absencesRangeText, absencesRangeXlsx, assemblySummary, orarioDownloadName } from "@/lib/export";
 import { shareOrSaveFile, toastSave, openPdfTab, copyText } from "@/lib/share-file";
 import { textToPdf } from "@/lib/pdf";
 import { ChevronLeft, ChevronRight, Plus, Download, FileText, Copy, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { cn } from "@/lib/utils";
+import { cn, countOf } from "@/lib/utils";
 
 export const Route = createFileRoute("/assenze")({ component: AssenzePage });
 
@@ -116,7 +116,7 @@ function AssenzePage() {
               try {
                 const text = absencesRangeText(data, from, to);
                 const blob = textToPdf(text);
-                toastSave(tab.show(`assenze-${formatItFileDate(from)}-${formatItFileDate(to)}.pdf`, blob), "pdf");
+                toastSave(tab.show(orarioDownloadName(data.settings.schoolName, `assenze-${formatItFileDate(from)}-${formatItFileDate(to)}`, "pdf"), blob), "pdf");
               } catch {
                 tab.cancel();
                 toast.error("Non sono riuscito a creare il PDF.");
@@ -289,7 +289,7 @@ function AssenzePage() {
                       </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <Badge variant="outline">{a.allDay ? "Giornata" : `${a.periodIds.length} ore`}</Badge>
+                      <Badge variant="outline">{a.allDay ? "Giornata" : countOf(a.periodIds.length, "ora", "ore")}</Badge>
                       <Badge variant="warning">{reason}</Badge>
                     </div>
                   </button>

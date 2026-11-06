@@ -560,7 +560,7 @@ export function CostruisciOrario({
     const notes = [
       fixed ? (fixed === 1 ? "Sistemata 1 ora a disposizione dall’app." : `Sistemate ${fixed} ore a disposizione dall’app.`) : "",
       moved ? (moved === 1 ? "Spostata 1 ora a disposizione nello stesso giorno." : `Spostate ${moved} ore a disposizione nello stesso giorno.`) : "",
-      removed ? `Tolte ${removed} ore a disposizione che cadevano su una lezione.` : "",
+      removed ? (removed === 1 ? "Tolta 1 ora a disposizione che cadeva su una lezione." : `Tolte ${removed} ore a disposizione che cadevano su una lezione.`) : "",
     ].filter(Boolean);
     toast.success([`Slot ${n} in uso. L’orario in vigore resta nello slot 0.`, ...notes].join(" "));
   }
@@ -3413,7 +3413,7 @@ function DayPatternDialog({
           <DialogTitle>Ore al giorno</DialogTitle>
           <DialogDescription>
             {teacher && info
-              ? `${teacherName(teacher)}: ${info.hours} ore qui${
+              ? `${teacherName(teacher)}: ${countOf(info.hours, "ora", "ore")} qui${
                   info.disp > 0 ? ` (${info.lessons} di lezione e ${info.disp} a disposizione)` : ""
                 }.`
               : ""}
@@ -3978,8 +3978,8 @@ function CattedrePanel({
     <details className="group paper-panel rounded-xl p-5">
       <summary className="flex cursor-pointer list-none items-start justify-between gap-3 [&::-webkit-details-marker]:hidden">
         <StepTitle n={2} title="Cattedre e ore">
-          {classes.length} classi · {allHours} ore
-          {unassigned.length ? ` · ${unassigned.length} materie senza docente` : " · tutte con il docente"}
+          {countOf(classes.length, "classe", "classi")} · {countOf(allHours, "ora", "ore")}
+          {unassigned.length ? ` · ${countOf(unassigned.length, "materia", "materie")} senza docente` : " · tutte con il docente"}
         </StepTitle>
         <ChevronDown
           className="mt-1.5 size-5 shrink-0 text-muted-foreground transition-transform group-open:rotate-180"

@@ -219,8 +219,10 @@ export function frozenCattedre(data: PersistedData): Cattedra[] | null {
 export function cattedreOfTeacher(data: PersistedData, teacherId: string): Cattedra[] {
   const t = data.teachers.find((x) => x.id === teacherId);
   if (t && Array.isArray(t.cardRows)) {
+    // le righe di una classe eliminata non contano più
+    const classes = new Set(data.classes.map((c) => c.id));
     return t.cardRows
-      .filter((r) => r.classId && r.subject && r.hours > 0)
+      .filter((r) => classes.has(r.classId) && r.subject && r.hours > 0)
       .map((r) => ({ classId: r.classId, subject: r.subject, hours: r.hours, teacherId }));
   }
   const saved = data.cattedre ?? [];

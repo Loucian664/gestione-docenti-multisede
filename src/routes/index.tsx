@@ -43,14 +43,14 @@ import {
 } from "@/lib/coverage";
 import { allTeachers, findAnyTeacher } from "@/lib/replace-teacher";
 import { substituteElsewhere } from "@/lib/sedi";
-import { dailySheetCopyPlain, dailySheetHeading, dailySheetHtml, dailySheetText, substitutionsXlsx } from "@/lib/export";
+import { dailySheetCopyPlain, dailySheetHeading, dailySheetHtml, dailySheetText, orarioDownloadName, substitutionsXlsx } from "@/lib/export";
 import { copyText, shareOrSaveFile, shareJpeg, toastSave, openPdfTab } from "@/lib/share-file";
 import { textToPdf } from "@/lib/pdf";
 import { bachecaJpeg } from "@/lib/sheet-image";
 import { formatDayMonth, formatMedium, formatLong, isWeekend, shiftSchoolDay, weekDaysIso, toSchoolDay, todayIso } from "@/lib/dates";
 import { ABSENCE_REASONS, DAY_SHORT, SUBSTITUTION_TYPES } from "@/lib/types";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
+import { cn, countOf } from "@/lib/utils";
 
 export const Route = createFileRoute("/")({ component: OggiPage });
 
@@ -161,7 +161,7 @@ function OggiPage() {
   async function exportPhoto() {
     try {
       const blob = await bachecaJpeg(data, date);
-      const outcome = await shareJpeg(`sostituzioni-${date}.jpg`, blob);
+      const outcome = await shareJpeg(orarioDownloadName(data.settings.schoolName, `sostituzioni-${date}`, "jpg"), blob);
       toastSave(outcome, "image");
     } catch {
       toast.error("Non sono riuscito a creare la foto.");
@@ -171,7 +171,7 @@ function OggiPage() {
   function exportPdf() {
     const text = `${dailySheetText(data, date, needs)}\n\nFirma del responsabile di plesso ________________`;
     const blob = textToPdf(text);
-    const name = `sostituzioni-${date}.pdf`;
+    const name = orarioDownloadName(data.settings.schoolName, `sostituzioni-${date}`, "pdf");
     const url = URL.createObjectURL(blob);
     if (pdf?.url) URL.revokeObjectURL(pdf.url);
     setPdf({ url, name, text });
@@ -293,8 +293,8 @@ function OggiPage() {
         </p>
       </div>
 
-      <div className="mb-5 grid grid-cols-5 gap-1.5" data-print-hide>
-        {weekDaysIso(date, 5).map((iso) => {
+      <div className={cn("mb-5 grid gap-1.5", data.settings.days.includes(6) ? "grid-cols-6" : "grid-cols-5")} data-print-hide>
+        {weekDaysIso(date, data.settings.days.includes(6) ? 6 : 5).map((iso) => {
           const summary = dayCoverage(data, iso, elsewhere);
           const active = iso === date;
           const day = Number(iso.slice(8, 10));
@@ -502,7 +502,7 @@ function OggiPage() {
                     <p className="font-medium">{t ? teacherName(t) : a.teacherId}</p>
                     <p className="text-[13px] text-muted-foreground">
                       {reason}
-                      {a.allDay ? " · giornata intera" : ` · ${a.periodIds.length} ore`}
+                      {a.allDay ? " · giornata intera" : ` · ${countOf(a.periodIds.length, "ora", "ore")}`}
                     </p>
                     {a.dateFrom !== a.dateTo && (
                       <p className="text-[13px] text-muted-foreground">fino a {formatMedium(a.dateTo)}</p>
@@ -692,7 +692,7 @@ function Stat({
 function PrintSheet({ date, needs }: { date: string; needs: CoverageNeed[] }) {
   const store = useAppStore();
   const data = officialData(snapshot(store));
-  const heading = dailySheetHeading(date);
+  const heading = dailySheetHeading(date, data);
   const body = dailySheetText(data, date, needs)
     .split("\n")
     .slice(1)
