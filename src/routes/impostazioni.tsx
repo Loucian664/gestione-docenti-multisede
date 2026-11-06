@@ -43,7 +43,7 @@ function ImpostazioniPage() {
   const [emptyLocked, setEmptyLocked] = useState(false);
   // «Svuota orario» toglie anche le lezioni che Costruisci non rimette (sostegno, pomeriggio…)
   const [emptyFixed, setEmptyFixed] = useState(false);
-  const [pendingImport, setPendingImport] = useState<{ data: PersistedData; name: string } | null>(null);
+  const [pendingImport, setPendingImport] = useState<{ data: PersistedData; name: string; older: boolean } | null>(null);
   const [newYear, setNewYear] = useState<string | null>(null);
   const [removingYear, setRemovingYear] = useState<string | null>(null);
   const sedi = allSedi(snapshot(store));
@@ -206,8 +206,8 @@ function ImpostazioniPage() {
         const hasWork =
           current.origin === "user" &&
           allSedi(current).some((x) => (x.data.teachers?.length ?? 0) > 0 || (x.data.slots?.length ?? 0) > 0);
-        if (hasWork && curAt > 0 && incAt > 0 && incAt < curAt) {
-          setPendingImport({ data: parsed, name: file.name });
+        if (hasWork) {
+          setPendingImport({ data: parsed, name: file.name, older: curAt > 0 && incAt > 0 && incAt < curAt });
           return;
         }
         applyImport(parsed, file.name);
@@ -657,11 +657,25 @@ function ImpostazioniPage() {
       <Dialog open={Boolean(pendingImport)} onOpenChange={(o) => !o && setPendingImport(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Questo backup è più vecchio</DialogTitle>
+            <DialogTitle>{pendingImport?.older ? "Questo backup è più vecchio" : "Sostituire i dati di questo dispositivo?"}</DialogTitle>
             <DialogDescription>
-              Su questo dispositivo ci sono modifiche più recenti. Importandolo, si torna a quel backup e le modifiche successive andranno perse.
+              {pendingImport?.older
+                ? "Su questo dispositivo ci sono modifiche più recenti. Importandolo, si torna a quel backup e le modifiche successive andranno perse."
+                : "Importando il file, tutti i dati di questo dispositivo vengono sostituiti. Non si può annullare: per conservarli, prima esporta un backup."}
             </DialogDescription>
           </DialogHeader>
+          {pendingImport && (
+            <dl className="mt-3 grid gap-2 rounded-md bg-muted px-3 py-2 text-sm">
+              <div>
+                <dt className="text-[12px] text-muted-foreground">Ora sul dispositivo</dt>
+                <dd>{registerSummary(snapshot(store))}</dd>
+              </div>
+              <div>
+                <dt className="text-[12px] text-muted-foreground">Nel file</dt>
+                <dd>{registerSummary(pendingImport.data)}</dd>
+              </div>
+            </dl>
+          )}
           <DialogActions
             primary={
               <Button
@@ -671,7 +685,7 @@ function ImpostazioniPage() {
                   setPendingImport(null);
                 }}
               >
-                Importa comunque
+                {pendingImport?.older ? "Importa comunque" : "Sì, sostituisci"}
               </Button>
             }
           >
@@ -687,6 +701,19 @@ function ImpostazioniPage() {
 
 function countText(n: number, one: string, many: string): string {
   return n === 1 ? `1 ${one}` : `${n} ${many}`;
+}
+
+/** Cosa c'è in un registro, in una riga (tutte le sedi): serve a confrontare il file con i dati del dispositivo. */
+function registerSummary(d: PersistedData): string {
+  const sedi = allSedi(d);
+  const sum = (f: (x: PersistedData) => number) => sedi.reduce((n, s) => n + f(s.data as unknown as PersistedData), 0);
+  return [
+    countText(sedi.length, "sede", "sedi"),
+    countText(sum((x) => x.teachers?.length ?? 0), "docente", "docenti"),
+    countText(sum((x) => x.classes?.length ?? 0), "classe", "classi"),
+    countText(sum((x) => x.absences?.length ?? 0), "assenza", "assenze"),
+    countText(sum((x) => x.substitutions?.length ?? 0), "sostituzione", "sostituzioni"),
+  ].join(", ");
 }
 
 function newYearText(year: string, absences: number, substitutions: number, former: number, several: boolean): string {

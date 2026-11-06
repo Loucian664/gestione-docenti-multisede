@@ -8,7 +8,7 @@
  * Un docente che insegna in più sedi ha una scheda in ognuna, con lo stesso `personId`. Nome, materie,
  * ruolo e colore restano uguali in tutte; classi, ore, × e disposizioni sono di ogni sede.
  */
-import type { DayOfWeek, Period, PersistedData, RemovedSede, SedeData, Settings, Teacher } from "./types";
+import { DAY_SHORT, type DayOfWeek, type Period, type PersistedData, type RemovedSede, type SedeData, type Settings, type Teacher } from "./types";
 import {
   applyTeacherCattedre,
   cattedreOfTeacher,
@@ -16,7 +16,7 @@ import {
   missingTeachers,
   type MissingTeacher,
 } from "./build-timetable";
-import { todayIso, toSchoolDay } from "./dates";
+import { eachIsoInRange, todayIso, toSchoolDay } from "./dates";
 import { isTeacherAbsent, type ElsewhereCheck } from "./coverage";
 import { officialData } from "./saved-timetables";
 import { removalImpact, replaceTeacher } from "./replace-teacher";
@@ -871,6 +871,69 @@ export function substituteElsewhere(data: PersistedData): ElsewhereCheck {
     }
     return null;
   };
+}
+
+/** L'assenza di una persona che lavora anche in un'altra sede, da segnare anche lì (dove ha lezione). */
+export type AbsenceMirror = {
+  sedeId: string;
+  sedeName: string;
+  /** la scheda della persona in quella sede */
+  teacherId: string;
+  allDay: boolean;
+  periodIds: string[];
+  /** le lezioni che lì restano scoperte, per dirlo a chi registra: «Ven 6ª · 1ª A» */
+  lessons: string[];
+};
+
+/**
+ * Chi lavora in più sedi e manca in una, manca anche nelle altre: dove ha lezione nei giorni (e nelle ore, se l'assenza
+ * è a ore) dell'assenza, e non è già segnato assente, l'assenza va segnata anche lì, altrimenti quelle ore non risultano
+ * da coprire. Le ore si confrontano dagli orari delle campanelle. Non serve per chi è di sostegno (non si copre).
+ */
+export function absenceMirrors(
+  data: PersistedData,
+  teacherId: string,
+  draft: { dateFrom: string; dateTo: string; allDay: boolean; periodIds: string[] },
+): AbsenceMirror[] {
+  const t = data.teachers.find((x) => x.id === teacherId);
+  if (!t) return [];
+  const from = draft.dateTo < draft.dateFrom ? draft.dateTo : draft.dateFrom;
+  const to = draft.dateTo < draft.dateFrom ? draft.dateFrom : draft.dateTo;
+  const dates = eachIsoInRange(from, to).slice(0, 400);
+  const chosen = data.settings.periods.filter((p) => draft.periodIds.includes(p.id));
+  const out: AbsenceMirror[] = [];
+  for (const link of linkedElsewhere(data, t)) {
+    if (link.teacher.role === "sostegno") continue;
+    const view = officialData(sedeAsData(data, link.sede));
+    const lessons = new Map<string, { text: string; periodId: string }>();
+    for (const date of dates) {
+      const day = toSchoolDay(date);
+      if (!day || !view.settings.days.includes(day)) continue;
+      for (const slot of view.slots) {
+        if (slot.teacherId !== link.teacher.id || slot.day !== day) continue;
+        const period = view.settings.periods.find((p) => p.id === slot.periodId);
+        if (!period) continue;
+        if (!draft.allDay && !chosen.some((p) => overlaps(p, period))) continue;
+        if (isTeacherAbsent(view, link.teacher.id, date, slot.periodId)) continue;
+        const cls = view.classes.find((c) => c.id === slot.classId)?.name;
+        const mark = period.label.match(/\d+ª/)?.[0] ?? period.label;
+        lessons.set(`${day}|${slot.periodId}|${slot.classId}`, {
+          text: `${DAY_SHORT[day]} ${mark}${cls ? ` · ${cls}` : ""}`,
+          periodId: slot.periodId,
+        });
+      }
+    }
+    if (lessons.size === 0) continue;
+    out.push({
+      sedeId: link.sedeId,
+      sedeName: sedeName(view.settings),
+      teacherId: link.teacher.id,
+      allDay: draft.allDay,
+      periodIds: draft.allDay ? [] : [...new Set([...lessons.values()].map((l) => l.periodId))],
+      lessons: [...lessons.values()].map((l) => l.text),
+    });
+  }
+  return out;
 }
 
 /** Le ore altrove che non sono già una × messa a mano: sono quelle che l'app aggiunge da sé. */

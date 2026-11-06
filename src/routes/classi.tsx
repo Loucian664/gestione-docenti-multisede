@@ -186,6 +186,16 @@ function ClassDialog({
   const home = sedi.find((s) => s.id === sedeId);
   // una classe con lezioni o cattedre resta nella sua sede
   const locked = Boolean(current && home && classInUse(home.data, current.id));
+  const [askDelete, setAskDelete] = useState(false);
+  const lessonsLost = current ? (home?.data.slots ?? []).filter((s) => s.classId === current.id).length : 0;
+  const cattedreLost = current ? (home?.data.cattedre ?? []).filter((x) => x.classId === current.id).length : 0;
+  const lostText = [
+    lessonsLost > 0 && `${lessonsLost} ${lessonsLost === 1 ? "lezione" : "lezioni"} dell’orario`,
+    cattedreLost > 0 && `${cattedreLost} ${cattedreLost === 1 ? "cattedra" : "cattedre"}`,
+  ]
+    .filter(Boolean)
+    .join(" e ");
+  const lostSentence = lostText ? `Si tolgono anche ${lostText}.` : "La classe non ha lezioni né cattedre.";
 
   function save() {
     const name = `${grade}ª ${section.trim().toUpperCase()}`;
@@ -215,6 +225,35 @@ function ClassDialog({
         <DialogHeader>
           <DialogTitle>{isNew ? "Nuova classe" : "Modifica classe"}</DialogTitle>
         </DialogHeader>
+        {askDelete && current ? (
+          <div className="flex flex-col gap-3">
+            <p className="text-sm">
+              Eliminare la classe <strong>{current.name}</strong>?
+            </p>
+            <p className="text-sm text-muted-foreground">
+              {lostSentence} Non si può annullare. Per conservarne una copia, prima esporta il backup in Impostazioni.
+            </p>
+            <DialogActions
+              className="pt-2"
+              primary={
+                <Button
+                  variant="destructive"
+                  onClick={() => {
+                    store.removeClassIn(sedeId, current.id);
+                    toast.message("Classe eliminata");
+                    onClose();
+                  }}
+                >
+                  Sì, elimina
+                </Button>
+              }
+            >
+              <Button variant="outline" onClick={() => setAskDelete(false)}>
+                Annulla
+              </Button>
+            </DialogActions>
+          </div>
+        ) : (
         <div className="grid min-w-0 gap-3">
           {sedi.length > 1 && (
             <div className="flex min-w-0 flex-col gap-1.5">
@@ -270,19 +309,13 @@ function ClassDialog({
           </div>
           <DialogActions className="pt-2" primary={<Button onClick={save}>Salva</Button>}>
             {!isNew && current && (
-              <Button
-                variant="outline"
-                onClick={() => {
-                  store.removeClassIn(sedeId, current.id);
-                  toast.message("Classe rimossa");
-                  onClose();
-                }}
-              >
+              <Button variant="outline" onClick={() => setAskDelete(true)}>
                 Elimina
               </Button>
             )}
           </DialogActions>
         </div>
+        )}
       </DialogContent>
     </Dialog>
   );

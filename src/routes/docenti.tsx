@@ -759,7 +759,7 @@ function TeacherDialog({ value, onClose }: { value: Teacher | "new"; onClose: ()
       `Restano senza docente: ${groups
         .map((g) => `${several ? `${g.sede}: ` : ""}${g.items.map(missingText).join(", ")}`)
         .join(" · ")}.`,
-      { description: "Il docente si indica nella sua scheda, in «Classi e materie»." },
+      { duration: 9000, description: "Il docente si indica nella sua scheda, in «Classi e materie»." },
     );
   }
 
@@ -834,6 +834,7 @@ function TeacherDialog({ value, onClose }: { value: Teacher | "new"; onClose: ()
           : "Docente salvato",
       elsewhereNote || dropped
         ? {
+            duration: 8000,
             description: [
               elsewhereNote ? `Classi aggiornate anche a ${elsewhereNote}.` : "",
               dropped
@@ -870,6 +871,7 @@ function TeacherDialog({ value, onClose }: { value: Teacher | "new"; onClose: ()
     if (!store.replaceTeacher(current.id, newName, fromDate, everywhere)) return;
     const who = teacherName(current);
     toast.success(`${`${newName.lastName.trim()} ${newName.firstName.trim()}`.trim()} al posto di ${who}`, {
+      duration: 10000,
       description: [
         `Dal ${formatItDate(fromDate)}${elsewhere.length ? (everywhere ? ", in tutte le sue sedi" : `, solo a ${here}`) : ""}.`,
         `Le assenze e le sostituzioni dei giorni prima restano a ${who}, in Docenti → Non più in servizio.`,

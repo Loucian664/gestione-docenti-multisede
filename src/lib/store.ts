@@ -132,6 +132,8 @@ type Actions = {
     per: Record<string, { slots: TimetableSlot[]; patches?: Record<string, Partial<Teacher>>; cattedre?: Cattedra[] }>,
   ) => void;
   addAbsence: (a: Omit<Absence, "id">) => string;
+  /** Segna un'assenza in un'altra sede (per chi lavora in più sedi): lì le sue ore risultano da coprire. */
+  addAbsenceIn: (sedeId: string, a: Omit<Absence, "id">) => string;
   updateAbsence: (id: string, patch: Partial<Absence>) => void;
   /** Restituisce cosa ha tolto, per poterlo rimettere con restoreAbsence. */
   removeAbsence: (id: string) => RemovedAbsence | null;
@@ -548,6 +550,12 @@ export const useAppStore = create<AppStore>()(
         addAbsence: (a) => {
           const id = uid("a");
           save({ absences: [...get().absences, { ...a, id }], selectedDate: a.dateFrom });
+          return id;
+        },
+
+        addAbsenceIn: (sedeId, a) => {
+          const id = uid("a");
+          save(editSede(snapshot(get()), sedeId, (sede) => ({ ...sede, absences: [...sede.absences, { ...a, id }] })));
           return id;
         },
 

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { autoAssignPlan, coverageNeeds, dayCoverage, doubleCovers, rankSubstitutes } from "./coverage.ts";
 import { buildSeed } from "./seed.ts";
-import { editSede, substituteElsewhere } from "./sedi.ts";
+import { absenceMirrors, editSede, substituteElsewhere } from "./sedi.ts";
 import type { PersistedData } from "./types.ts";
 
 const MON = "2026-11-02";
@@ -94,5 +94,34 @@ describe("sostituti che lavorano anche in un'altra sede", () => {
     assert.match([...doubles.values()][0]!.elsewhere!, /^In /);
     assert.equal(dayCoverage(d, MON, check).doubled, 1);
     assert.equal(dayCoverage(d, MON).doubled, 0);
+  });
+});
+
+describe("assenza di chi lavora in più sedi", () => {
+  it("va segnata anche nell'altra sede, dove ha lezione, con le ore che toccano", () => {
+    const { data } = setup();
+    // lunedì (1ª ora in 1ª A nella sede B): giornata intera e assenza a ore sulla 1ª ora
+    const all = absenceMirrors(data, "t-fra-1", { dateFrom: MON, dateTo: MON, allDay: true, periodIds: [] });
+    assert.equal(all.length, 1);
+    assert.equal(all[0]!.teacherId, "tb-fra-1");
+    assert.equal(all[0]!.allDay, true);
+    assert.ok(all[0]!.lessons.some((l) => /^Lun 1ª · 1ª A$/.test(l)));
+    const part = absenceMirrors(data, "t-fra-1", { dateFrom: MON, dateTo: MON, allDay: false, periodIds: ["p1"] });
+    assert.equal(part.length, 1);
+    assert.equal(part[0]!.allDay, false);
+    assert.ok(part[0]!.periodIds.length >= 1);
+    assert.deepEqual(part[0]!.lessons, ["Lun 1ª · 1ª A"]);
+  });
+
+  it("non c'è nulla da segnare senza lezioni lì, per chi non è in comune o è già assente lì", () => {
+    const { data } = setup();
+    const free = freeCellInB(data, 1);
+    // a ore su un'ora in cui lì non ha lezione: niente
+    assert.deepEqual(absenceMirrors(data, "t-fra-1", { dateFrom: MON, dateTo: MON, allDay: false, periodIds: [free] }), []);
+    const solo = data.teachers.find((t) => !t.personId)!;
+    assert.deepEqual(absenceMirrors(data, solo.id, { dateFrom: MON, dateTo: MON, allDay: true, periodIds: [] }), []);
+    // già segnata assente nell'altra sede: niente da aggiungere
+    const there = editSede(data, "sede-esempio-b", (b) => ({ ...b, absences: [...b.absences, absenceOf("tb-fra-1", MON)] }));
+    assert.deepEqual(absenceMirrors(there, "t-fra-1", { dateFrom: MON, dateTo: MON, allDay: true, periodIds: [] }), []);
   });
 });
