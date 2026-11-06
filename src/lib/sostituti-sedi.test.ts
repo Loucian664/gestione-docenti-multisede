@@ -138,3 +138,35 @@ describe("foglio del giorno con più sedi", () => {
     assert.equal(dailySheetHeading(MON), single);
   });
 });
+
+describe("sostituti con un impegno in un'altra sede l'ora prima o dopo", () => {
+  it("serve il tempo per spostarsi: segnalato, in fondo al gruppo e mai scelto in automatico", () => {
+    const { data } = setup();
+    const check = substituteElsewhere(data);
+    assert.equal(typeof check.near, "function");
+    // lunedì alla 1ª ora t-fra-1 ha lezione nella sede B: l'ora dopo (la 2ª) è attaccata
+    const near = data.settings.periods
+      .filter((p) => check("t-fra-1", MON, p.id) === null)
+      .map((p) => ({ id: p.id, note: check.near!("t-fra-1", MON, p.id) }))
+      .filter((x) => x.note);
+    assert.ok(near.length > 0, "almeno un'ora attaccata a quelle dell'altra sede");
+    for (const x of near) assert.match(x.note!, /^(Viene da|Va in) .* l’ora (prima|dopo)$/);
+    // chi non ha una scheda nell'altra sede non ha mai nulla vicino
+    const solo = data.teachers.find((t) => !t.personId)!;
+    assert.equal(check.near!(solo.id, MON, near[0]!.id), null);
+
+    // un'assenza nell'ora attaccata: il docente compare con l'avviso e l'assegnazione automatica non lo sceglie
+    const periodId = near[0]!.id;
+    const absent = data.slots.find((s) => s.day === 1 && s.periodId === periodId && s.teacherId !== "t-fra-1")?.teacherId;
+    assert.ok(absent, "serve un docente di un’altra classe con lezione in quell’ora");
+    const d: PersistedData = { ...data, absences: [absenceOf(absent, MON)], selectedDate: MON };
+    const need = coverageNeeds(d, MON).find((n) => n.slot.periodId === periodId)!;
+    const rows = rankSubstitutes(d, need, undefined, check);
+    const row = rows.find((r) => r.teacher.id === "t-fra-1")!;
+    assert.match(row.travel!, /^(Viene da|Va in) /);
+    assert.equal(row.reasons[0], row.travel);
+    assert.ok(autoAssignPlan(d, MON, check).every((p) => p.substituteId !== "t-fra-1"));
+    // senza il controllo dell'altra sede nulla cambia
+    assert.equal(rankSubstitutes(d, need).find((r) => r.teacher.id === "t-fra-1")!.travel, undefined);
+  });
+});
