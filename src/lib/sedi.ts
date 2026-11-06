@@ -832,7 +832,7 @@ export function substituteElsewhere(data: PersistedData): ElsewhereCheck {
     }
     return v;
   };
-  return (teacherId, date, periodId) => {
+  const same = (teacherId: string, date: string, periodId: string): string | null => {
     const t = data.teachers.find((x) => x.id === teacherId);
     const day = toSchoolDay(date);
     const here = data.settings.periods.find((p) => p.id === periodId);
@@ -871,6 +871,53 @@ export function substituteElsewhere(data: PersistedData): ElsewhereCheck {
     }
     return null;
   };
+
+  // l'ora prima o l'ora dopo in un'altra sede: serve il tempo per spostarsi (in Costruisci ci vuole un'ora libera)
+  const near = (teacherId: string, date: string, periodId: string): string | null => {
+    const t = data.teachers.find((x) => x.id === teacherId);
+    const day = toSchoolDay(date);
+    const here = data.settings.periods.find((p) => p.id === periodId);
+    if (!t || !day || !here) return null;
+    for (const link of linkedElsewhere(data, t)) {
+      const view = viewOf(link.sedeId, link.sede);
+      const name = sedeName(view.settings);
+      const theirT = view.teachers.find((x) => x.id === link.teacher.id) ?? link.teacher;
+      const busyIds = new Set<string>([
+        ...view.slots.filter((s) => s.teacherId === link.teacher.id && s.day === day).map((s) => s.periodId),
+        ...(theirT.dispSlots ?? []).filter((d) => d.day === day).map((d) => d.periodId),
+        ...(view.substitutions ?? [])
+          .filter((s) => s.date === date && s.substituteId === link.teacher.id && s.type !== "divisione")
+          .map((s) => s.periodId),
+      ]);
+      for (const id of busyIds) {
+        const theirs = view.settings.periods.find((x) => x.id === id);
+        if (!theirs || overlaps(here, theirs)) continue;
+        const side = adjacency(here, theirs);
+        if (side === "prima") return `Viene da ${name} l’ora prima`;
+        if (side === "dopo") return `Va in ${name} l’ora dopo`;
+      }
+    }
+    return null;
+  };
+
+  return Object.assign(same, { near });
+}
+
+/**
+ * Se l'ora `q` di un'altra sede è attaccata a `here`: «prima» se finisce poco prima che questa cominci, «dopo» se
+ * comincia poco dopo che questa finisce (fino a 20 minuti: l'intervallo tra due ore). Senza orari, ore vicine nell'elenco.
+ */
+function adjacency(here: Period, q: Period): "prima" | "dopo" | null {
+  const hs = minutes(here.start);
+  const he = minutes(here.end);
+  const qs = minutes(q.start);
+  const qe = minutes(q.end);
+  if (hs == null || he == null || qs == null || qe == null) {
+    return q.index === here.index - 1 ? "prima" : q.index === here.index + 1 ? "dopo" : null;
+  }
+  if (qe <= hs && hs - qe <= 20) return "prima";
+  if (qs >= he && qs - he <= 20) return "dopo";
+  return null;
 }
 
 /** L'assenza di una persona che lavora anche in un'altra sede, da segnare anche lì (dove ha lezione). */

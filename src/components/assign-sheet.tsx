@@ -183,7 +183,9 @@ export function AssignSheet({
         : chosenRow.bucket === "altrove"
           ? `${chosenRow.busyLabel} in quest’ora: non può essere in due sedi insieme.`
           : `${chosenRow.busyLabel ?? "È in un’altra classe"} in quest’ora: la sua classe resterebbe scoperta.`
-      : null;
+      : chosenRow?.travel
+        ? `${chosenRow.travel}: potrebbe non fare in tempo a spostarsi.`
+        : null;
   const chosenLabel =
     type === "divisione"
       ? (divisione?.label ?? "Divisione classe")
@@ -386,7 +388,8 @@ function TeacherPickRow({
     row.bucket === "non-in-sede" ||
     row.bucket === "sostegno" ||
     row.bucket === "fuori-orario" ||
-    row.bucket === "altrove";
+    row.bucket === "altrove" ||
+    Boolean(row.travel);
   const teachers = useAppStore((s) => s.teachers);
   return (
     <li>

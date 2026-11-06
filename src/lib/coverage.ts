@@ -273,6 +273,8 @@ export type RankedSubstitute = {
   busyLabel?: string;
   hole: boolean;
   alreadyCovering: boolean;
+  /** ha lezione in un'altra sede l'ora prima o l'ora dopo: serve il tempo per spostarsi (solo con più sedi) */
+  travel?: string;
 };
 
 function periodIndex(data: PersistedData, periodId: string): number {
@@ -488,7 +490,13 @@ const BUCKET_ORDER: Record<SubstituteBucket, number> = {
  * Dove sta già un docente in quell'ora in un'altra sede (null se è libero). Lo passa solo l'app con più sedi:
  * chi ha lezione, è a disposizione, sostituisce o è assente in un'altra sede non può sostituire qui.
  */
-export type ElsewhereCheck = (teacherId: string, date: string, periodId: string) => string | null;
+export type ElsewhereCheck = ((teacherId: string, date: string, periodId: string) => string | null) & {
+  /**
+   * Chi in quell'ora è libero ma ha un impegno in un'altra sede l'ora prima o l'ora dopo: serve il tempo per
+   * spostarsi, come in Costruisci. Va in fondo al suo gruppo e fuori dall'assegnazione automatica.
+   */
+  near?: (teacherId: string, date: string, periodId: string) => string | null;
+};
 
 export function rankSubstitutes(
   data: PersistedData,
@@ -533,6 +541,7 @@ export function rankSubstitutes(
         : undefined;
       const busyCattedra = occupyingElse && !pullable;
       const otherSede = elsewhere?.(teacher.id, need.date, need.slot.periodId) ?? null;
+      const travel = otherSede ? null : (elsewhere?.near?.(teacher.id, need.date, need.slot.periodId) ?? null);
       const alreadyCovering = coveringThisHour.has(teacher.id) || alreadyUsed.has(teacher.id);
       const coveringClass = data.classes.find((c) => c.id === coveringThisHour.get(teacher.id));
       const isSostegno = teacher.role === "sostegno";
@@ -720,6 +729,12 @@ export function rankSubstitutes(
         reasons.unshift(busyLabel);
       }
 
+      if (travel && bucket !== "altrove") {
+        // l'altra sede è vicina nel tempo: se lo si sceglie va avvisato, e non si assegna da soli
+        score -= 30;
+        reasons.unshift(travel);
+      }
+
       const monthCount = counts[teacher.id] ?? 0;
       score += Math.max(0, 10 - monthCount * 2);
       if (monthCount > 0) reasons.push(`${monthCount} ore questo mese`);
@@ -736,6 +751,7 @@ export function rankSubstitutes(
         busyLabel,
         hole,
         alreadyCovering,
+        ...(travel && bucket !== "altrove" ? { travel } : {}),
       };
     })
     .sort((a, b) => {
@@ -764,6 +780,7 @@ export function autoAssignPlan(data: PersistedData, date: string, elsewhere?: El
       (r) =>
         !used.has(r.teacher.id) &&
         !r.alreadyCovering &&
+        !r.travel &&
         r.teacher.role !== "sostegno" &&
         (r.bucket === "disp" ||
           r.bucket === "buco" ||
