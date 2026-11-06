@@ -8,6 +8,7 @@ import {
   BookOpen,
   BarChart3,
   School,
+  ChevronDown,
 } from "lucide-react";
 import { Fragment, useEffect, useLayoutEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
@@ -208,7 +209,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
           <div>
             <p className="font-display text-lg leading-none">Orario Generale</p>
             {persistReady ? (
-              <SedeSwitcher compact className="mt-0.5" />
+              <SedeSwitcher compact />
             ) : (
               <p className="mt-0.5 text-[11px] text-muted-foreground">{"\u00a0"}</p>
             )}
@@ -299,7 +300,7 @@ function SedeSwitcher({ compact = false, className }: { compact?: boolean; class
     );
   }
   return (
-    <label className={cn("block", className)}>
+    <label className={cn("relative block", className)}>
       <span className="sr-only">Sede in uso</span>
       <select
         value={current}
@@ -312,18 +313,22 @@ function SedeSwitcher({ compact = false, className }: { compact?: boolean; class
         className={cn(
           "block max-w-full min-w-0 appearance-none rounded-md pr-6 focus-visible:outline-none focus-visible:ring-2",
           compact
-            ? "h-6 border-0 bg-transparent pl-0 text-[11px] text-muted-foreground focus-visible:ring-ring/30"
+            ? "mt-1.5 h-11 w-full min-w-[11rem] border border-border bg-card pl-3 pr-8 text-sm font-medium text-foreground shadow-sm focus-visible:ring-ring/30"
             : "h-9 w-full border border-white/15 bg-white/5 pl-2.5 text-[13px] font-medium text-sidebar-foreground hover:bg-white/10 focus-visible:ring-white/30",
         )}
-        style={{
-          // la freccia della tendina, a destra
-          backgroundImage: `url("data:image/svg+xml,${encodeURIComponent(
-            `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="8" fill="none"><path d="M1 1.5 6 6.5 11 1.5" stroke="${compact ? "#6b6458" : "#b7c4bd"}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
-          )}")`,
-          backgroundPosition: "right 8px center",
-          backgroundSize: "10px",
-          backgroundRepeat: "no-repeat",
-        }}
+        style={
+          compact
+            ? undefined
+            : {
+                // la freccia della tendina, a destra
+                backgroundImage: `url("data:image/svg+xml,${encodeURIComponent(
+                  `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="8" fill="none"><path d="M1 1.5 6 6.5 11 1.5" stroke="#b7c4bd" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+                )}")`,
+                backgroundPosition: "right 8px center",
+                backgroundSize: "10px",
+                backgroundRepeat: "no-repeat",
+              }
+        }
       >
         {sedi.map((s) => (
           <option key={s.id} value={s.id} className="text-foreground">
@@ -331,6 +336,9 @@ function SedeSwitcher({ compact = false, className }: { compact?: boolean; class
           </option>
         ))}
       </select>
+      {compact && (
+        <ChevronDown className="pointer-events-none absolute right-3 bottom-3.5 size-4 text-muted-foreground" aria-hidden />
+      )}
     </label>
   );
 }

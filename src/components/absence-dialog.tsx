@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { DialogActions } from "@/components/dialog-actions";
@@ -8,7 +8,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { NativeSelect } from "@/components/ui/native-select";
 import { ABSENCE_REASONS } from "@/lib/types";
 import type { Absence, AbsenceReason } from "@/lib/types";
-import { useAppStore } from "@/lib/store";
+import { snapshot, useAppStore } from "@/lib/store";
+import { absenceMirrors } from "@/lib/sedi";
 import { teacherName } from "@/lib/coverage";
 import { isMensaPeriod, visiblePeriods } from "@/lib/periods";
 import { toast } from "sonner";
@@ -31,6 +32,7 @@ export function AbsenceDialog({
   const periods = visiblePeriods(settings).filter((p) => !isMensaPeriod(p));
   const selectedDate = useAppStore((s) => s.selectedDate);
   const addAbsence = useAppStore((s) => s.addAbsence);
+  const addAbsenceIn = useAppStore((s) => s.addAbsenceIn);
   const updateAbsence = useAppStore((s) => s.updateAbsence);
 
   const [teacherId, setTeacherId] = useState(initial?.teacherId ?? teachers[0]?.id ?? "");
@@ -40,6 +42,23 @@ export function AbsenceDialog({
   const [allDay, setAllDay] = useState(initial?.allDay ?? true);
   const [periodIds, setPeriodIds] = useState<string[]>(initial?.periodIds ?? []);
   const [notes, setNotes] = useState(initial?.notes ?? "");
+
+  // chi lavora anche in un'altra sede: lì le sue ore restano da coprire solo se l'assenza è segnata anche lì
+  const [noMirror, setNoMirror] = useState<Record<string, boolean>>({});
+  const store = useAppStore();
+  const mirrors = useMemo(
+    () =>
+      initial || !open || !teacherId
+        ? []
+        : absenceMirrors(snapshot(store), teacherId, {
+            dateFrom,
+            dateTo,
+            allDay,
+            periodIds: allDay ? [] : periodIds,
+          }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [initial, open, teacherId, dateFrom, dateTo, allDay, periodIds, store.teachers, store.altreSedi],
+  );
 
   useEffect(() => {
     if (!open || initial) return;
@@ -68,7 +87,14 @@ export function AbsenceDialog({
       toast.success("Assenza aggiornata");
     } else {
       addAbsence(payload);
-      toast.success("Assenza registrata. Assegna ora le sostituzioni.");
+      const also = mirrors.filter((m) => !noMirror[m.sedeId]);
+      for (const m of also) {
+        addAbsenceIn(m.sedeId, { ...payload, teacherId: m.teacherId, allDay: m.allDay, periodIds: m.periodIds });
+      }
+      toast.success("Assenza registrata. Assegna ora le sostituzioni.", {
+        duration: also.length ? 8000 : undefined,
+        description: also.length ? `Segnata anche a ${also.map((m) => m.sedeName).join(", ")}.` : undefined,
+      });
     }
     onOpenChange(false);
   }
@@ -157,6 +183,28 @@ export function AbsenceDialog({
                   );
                 })}
               </div>
+            </div>
+          )}
+          {mirrors.length > 0 && (
+            <div className="flex flex-col gap-1 rounded-md border border-border bg-card px-3 py-1">
+              {mirrors.map((m) => (
+                <label key={m.sedeId} className="flex min-h-11 cursor-pointer items-start gap-3 py-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={!noMirror[m.sedeId]}
+                    onChange={(e) => setNoMirror((prev) => ({ ...prev, [m.sedeId]: !e.target.checked }))}
+                    className="mt-0.5 size-4 shrink-0 accent-primary"
+                  />
+                  <span>
+                    <span className="font-medium">Segna l’assenza anche a {m.sedeName}</span>
+                    <span className="mt-0.5 block text-[12px] text-muted-foreground">
+                      Lì ha lezione: {m.lessons.slice(0, 4).join(", ")}
+                      {m.lessons.length > 4 ? ` e altre ${m.lessons.length - 4}` : ""}. Se poi la modifichi o la elimini,
+                      fallo anche nell’altra sede.
+                    </span>
+                  </span>
+                </label>
+              ))}
             </div>
           )}
           <div className="flex flex-col gap-1.5">

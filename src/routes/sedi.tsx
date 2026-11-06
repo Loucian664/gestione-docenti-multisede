@@ -82,6 +82,7 @@ function SediPage() {
     }
     store.sortSedi();
     toast.message("Sedi in ordine alfabetico", {
+      duration: 12000,
       action: { label: "Annulla", onClick: () => useAppStore.getState().importData(prev, prev.importedBackupName) },
     });
   }
@@ -149,6 +150,7 @@ function SediPage() {
                 toastSave(outcome, "backup");
                 if (outcome !== "cancelled")
                   toast.message(`Backup di ${name} pronto`, {
+                    duration: 12000,
                     description:
                       "Nell’app della scuola: Impostazioni → Importa backup. Sostituisce tutto, anche assenze e sostituzioni: va fatto a inizio anno.",
                   });
@@ -522,6 +524,7 @@ function AddSedeDialog({ onClose }: { onClose: () => void }) {
     if (!name.trim()) return;
     const id = store.addSede(name.trim());
     toast.success(`Sede «${name.trim()}» aggiunta`, {
+      duration: 8000,
       action: { label: "Usala ora", onClick: () => useAppStore.getState().switchSede(id) },
     });
     onClose();
@@ -594,6 +597,7 @@ function ImportSedeDialog({
     const named: PersistedData = { ...incoming, settings: { ...incoming.settings, schoolName: name.trim() || sedeName(sede.settings) } };
     const id = store.importSede(named, links);
     toast.success(`Sede «${sedeName(named.settings)}» aggiunta da ${fileName}`, {
+      duration: 8000,
       action: { label: "Usala ora", onClick: () => useAppStore.getState().switchSede(id) },
     });
     onClose();
@@ -718,6 +722,7 @@ function UpdateSedeDialog({
       .map((m) => ({ incomingId: m.incoming.id, sedeId: m.matches[0]!.sedeId, teacherId: m.matches[0]!.teacher.id }));
     const prev = store.updateSedeFromBackup(sedeId, incoming, links);
     toast.success(`Sede «${name}» aggiornata da ${fileName}`, {
+      duration: 12000,
       action: { label: "Annulla", onClick: () => useAppStore.getState().importData(prev, prev.importedBackupName) },
     });
     onClose();
