@@ -60,9 +60,8 @@
 - `.github/workflows/pages.yml`: a ogni push su `main` esegue `npm run build:pages` (con
   `GITHUB_PAGES=true` e `BASE_PATH=/<nome repository>/`) e pubblica su
   https://loucian664.github.io/gestione-docenti-multisede/. Non esegue i test.
-- `server/`, `migrations/`, `src/lib/auth`, `src/lib/db.ts`, `startup.sh`, `public/__grok` sono resti
-  del modello iniziale (Grok App Builder): il sito pubblicato non usa server, database né login, e le
-  regole di quel modello (porta 8080, `startup.sh`, ecc.) qui non valgono.
+- Il sito pubblicato non usa server, database né login: i resti del modello iniziale (Grok App Builder)
+  sono stati tolti, non rimetterli.
 
 ## Controlli prima di un push
 
@@ -82,7 +81,7 @@ Una copia di prova, non il codice vero:
 1. In una copia di `src` e `public`, il router usa `createHashHistory()` (in `src/router.tsx`:
    `history: typeof window !== "undefined" ? createHashHistory() : undefined`).
 2. `GITHUB_PAGES=true BASE_PATH=./ npm run build:pages`, poi `dist/client` → cartella `app/`, con
-   `_shell.html` rinominato `index.html` e senza `__grok/install`.
+   `_shell.html` rinominato `index.html`.
 3. In `app/index.html` sostituisci `"/./assets/` con `"./assets/` e i caratteri NUL con `\u0000`; nei
    `.js` e `.css` di `assets/` scrivi `�` al posto del carattere U+FFFD.
 4. Una pagina `index.html` che apre `app/index.html` in un iframe a tutto schermo, pubblicata come
