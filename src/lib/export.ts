@@ -1,5 +1,5 @@
 import { eachIsoInRange, formatDayMonth, formatDayName, formatItDate, formatItFileDate, formatLong, isWeekend, todayIso, toSchoolDay } from "./dates";
-import { coverageNeeds, isCovered, isShiftType, classShifts, eccedenteLines, teacherName, teacherSurname, absencesByReason, absencesOnDate, type CoverageNeed, type ClassShift } from "./coverage";
+import { coverageNeeds, isCovered, isShiftType, classShifts, eccedenteLines, teacherName, teacherSurname, absencesByReason, absencesOnDate, hasAbsences, isHourReason, decimalHours, type CoverageNeed, type ClassShift } from "./coverage";
 import { allTeachers, findAnyTeacher } from "./replace-teacher";
 import type { PersistedData, SubstitutionType } from "./types";
 import { ABSENCE_REASONS, SUBSTITUTION_TYPES } from "./types";
@@ -289,13 +289,13 @@ export function reportXlsx(
     ]);
   }
   rows.push([]);
-  rows.push(["Assenze per motivo (giorni scolastici)"]);
-  rows.push(["Docente", ...ABSENCE_REASONS.map((r) => r.label), "Totale"]);
-  for (const row of absencesByReason(data, from, to).filter((r) => r.total > 0)) {
+  rows.push(["Assenze per motivo (giorni scolastici; assemblea sindacale e permessi brevi in ore)"]);
+  rows.push(["Docente", ...ABSENCE_REASONS.map((r) => (isHourReason(r.value) ? `${r.label} (ore)` : r.label)), "Giorni"]);
+  for (const row of absencesByReason(data, from, to).filter(hasAbsences)) {
     const t = findTeacher(data, row.teacherId);
     rows.push([
       t ? teacherName(t) : row.teacherId,
-      ...ABSENCE_REASONS.map((r) => row.byReason[r.value]),
+      ...ABSENCE_REASONS.map((r) => (isHourReason(r.value) ? decimalHours(row.minutes[r.value]) : row.byReason[r.value])),
       row.total,
     ]);
   }

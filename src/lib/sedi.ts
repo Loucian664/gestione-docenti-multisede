@@ -8,7 +8,7 @@
  * Un docente che insegna in più sedi ha una scheda in ognuna, con lo stesso `personId`. Nome, materie,
  * ruolo e colore restano uguali in tutte; classi, ore, × e disposizioni sono di ogni sede.
  */
-import { DAY_SHORT, type DayOfWeek, type Period, type PersistedData, type RemovedSede, type SedeData, type Settings, type Teacher } from "./types";
+import { DAY_SHORT, type AbsenceReason, type DayOfWeek, type Period, type PersistedData, type RemovedSede, type SedeData, type Settings, type Teacher } from "./types";
 import {
   applyTeacherCattedre,
   cattedreOfTeacher,
@@ -17,7 +17,7 @@ import {
   type MissingTeacher,
 } from "./build-timetable";
 import { eachIsoInRange, todayIso, toSchoolDay } from "./dates";
-import { isTeacherAbsent, type ElsewhereCheck } from "./coverage";
+import { isTeacherAbsent, reasonSpans, type AbsenceSpan, type ElsewhereCheck } from "./coverage";
 import { officialData } from "./saved-timetables";
 import { removalImpact, replaceTeacher } from "./replace-teacher";
 import { uid } from "./utils";
@@ -981,6 +981,28 @@ export function absenceMirrors(
     });
   }
   return out;
+}
+
+/**
+ * Le ore di assemblea sindacale o di permesso breve della persona nel periodo, in tutte le sedi: il limite annuo
+ * vale per la persona. La stessa ora segnata in due sedi conta una volta (si confrontano gli orari).
+ * `skipId` è l'assenza che si sta modificando, nella sede in uso.
+ */
+export function personReasonSpans(
+  data: PersistedData,
+  teacherId: string,
+  reason: AbsenceReason,
+  from: string,
+  to: string,
+  skipId?: string,
+): AbsenceSpan[] {
+  const here = reasonSpans(data, teacherId, reason, from, to, skipId);
+  const t = data.teachers.find((x) => x.id === teacherId) ?? (data.formerTeachers ?? []).find((x) => x.id === teacherId);
+  if (!t) return here;
+  const there = linkedElsewhere(data, t).flatMap((r) =>
+    reasonSpans(officialData(sedeAsData(data, r.sede)), r.teacher.id, reason, from, to),
+  );
+  return [...here, ...there];
 }
 
 /** Le ore altrove che non sono già una × messa a mano: sono quelle che l'app aggiunge da sé. */

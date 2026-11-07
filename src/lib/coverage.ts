@@ -957,9 +957,117 @@ export function eccedenteLines(data: PersistedData, from: string, to: string): E
     .map(({ index: _index, ...line }) => line);
 }
 
+/**
+ * Motivi che si contano a ore, con il tetto per anno scolastico: assemblea sindacale 10 ore; permessi brevi fino
+ * all'orario settimanale del docente (18 ore per una cattedra intera).
+ */
+export const HOUR_REASON_LIMITS: Partial<Record<AbsenceReason, number>> = {
+  assemblea_sindacale: 10,
+  permesso_breve: 18,
+};
+
+export function isHourReason(reason: AbsenceReason): boolean {
+  return HOUR_REASON_LIMITS[reason] !== undefined;
+}
+
+/** Un tratto di assenza in un giorno, in minuti dalla mezzanotte. */
+export type AbsenceSpan = { date: string; start: number; end: number };
+
+function clockMinutes(hhmm: string | undefined): number | null {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm ?? "");
+  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+}
+
+/** Le ore di quel giorno in cui la scuola ha lezione (senza mensa); senza orario, tutte le ore della mattina e del pomeriggio. */
+function schoolPeriodIdsOn(data: PersistedData, iso: string): string[] {
+  const day = toSchoolDay(iso);
+  const periods = data.settings.periods.filter((p) => !isMensaPeriod(p));
+  const used = periods.filter((p) => data.slots.some((s) => s.day === day && s.periodId === p.id));
+  return (used.length ? used : periods).map((p) => p.id);
+}
+
+/**
+ * I tratti segnati da un'assenza, giorno di scuola per giorno, nel periodo `from`–`to`: le ore scelte, con gli orari
+ * delle campanelle (senza orari, 60 minuti). A giornata intera, o senza ore scelte, le ore di lezione della scuola
+ * quel giorno. Si contano anche se il docente in quelle ore non ha servizio.
+ */
+export function absenceSpans(
+  data: PersistedData,
+  a: Pick<Absence, "dateFrom" | "dateTo" | "allDay" | "periodIds">,
+  from: string,
+  to: string,
+): AbsenceSpan[] {
+  const start = a.dateFrom > from ? a.dateFrom : from;
+  const end = a.dateTo < to ? a.dateTo : to;
+  if (start > end) return [];
+  const spans: AbsenceSpan[] = [];
+  for (const iso of eachIsoInRange(start, end)) {
+    if (isWeekend(iso, data.settings.days)) continue;
+    const ids = new Set(a.allDay || a.periodIds.length === 0 ? schoolPeriodIdsOn(data, iso) : a.periodIds);
+    for (const p of data.settings.periods) {
+      if (!ids.has(p.id)) continue;
+      const s = clockMinutes(p.start);
+      const e = clockMinutes(p.end);
+      if (s != null && e != null && e > s) spans.push({ date: iso, start: s, end: e });
+      else spans.push({ date: iso, start: p.index * 60, end: p.index * 60 + 60 });
+    }
+  }
+  return spans;
+}
+
+/** Minuti coperti dai tratti: un'ora segnata due volte (o in due sedi) conta una volta sola. */
+export function spanMinutes(spans: readonly AbsenceSpan[]): number {
+  const sorted = [...spans].sort((a, b) => a.date.localeCompare(b.date) || a.start - b.start);
+  let total = 0;
+  let date = "";
+  let reach = -1;
+  for (const s of sorted) {
+    if (s.date !== date) {
+      date = s.date;
+      reach = -1;
+    }
+    const from = Math.max(s.start, reach);
+    if (s.end > from) total += s.end - from;
+    reach = Math.max(reach, s.end);
+  }
+  return total;
+}
+
+/** I tratti delle assenze di un docente per quel motivo, nel periodo (senza l'assenza `skipId`, quella che si modifica). */
+export function reasonSpans(
+  data: PersistedData,
+  teacherId: string,
+  reason: AbsenceReason,
+  from: string,
+  to: string,
+  skipId?: string,
+): AbsenceSpan[] {
+  return data.absences
+    .filter((a) => a.teacherId === teacherId && a.reason === reason && a.id !== skipId)
+    .flatMap((a) => absenceSpans(data, a, from, to));
+}
+
+/** Minuti in ore: «2», «1 h 35 min», «50 min». */
+export function formatHours(minutes: number): string {
+  const total = Math.round(minutes);
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  if (m === 0) return String(h);
+  return h === 0 ? `${m} min` : `${h} h ${m} min`;
+}
+
+/** Minuti in ore con due decimali, per i fogli di calcolo. */
+export function decimalHours(minutes: number): number {
+  return Math.round((minutes / 60) * 100) / 100;
+}
+
 export type AbsenceReasonRow = {
   teacherId: string;
+  /** giorni di scuola con un'assenza per quel motivo (anche di poche ore) */
   byReason: Record<AbsenceReason, number>;
+  /** minuti di assenza per i motivi che si contano a ore (assemblea, permesso breve); 0 per gli altri */
+  minutes: Record<AbsenceReason, number>;
+  /** giorni di assenza per i motivi che si contano a giorni */
   total: number;
 };
 
@@ -967,13 +1075,27 @@ function emptyReasons(): Record<AbsenceReason, number> {
   return Object.fromEntries(ABSENCE_REASONS.map((r) => [r.value, 0])) as Record<AbsenceReason, number>;
 }
 
-/** Giorni scolastici di assenza nel periodo, per docente e motivo. */
+/** C'è almeno un'assenza: giorni per i motivi a giorni, ore per quelli a ore. */
+export function hasAbsences(row: AbsenceReasonRow): boolean {
+  return row.total > 0 || Object.values(row.minutes).some((m) => m > 0);
+}
+
+/** Valore da mostrare per un motivo: giorni, oppure ore per assemblea e permessi brevi. */
+export function reasonValue(row: AbsenceReasonRow, reason: AbsenceReason): number {
+  return isHourReason(reason) ? row.minutes[reason] : row.byReason[reason];
+}
+
+/**
+ * Assenze nel periodo, per docente e motivo: giorni scolastici, ma ore per assemblea sindacale e permessi brevi
+ * (le ore segnate, secondo le campanelle).
+ */
 export function absencesByReason(data: PersistedData, from: string, to: string): AbsenceReasonRow[] {
   const map = new Map<string, AbsenceReasonRow>();
   for (const t of data.teachers) {
-    map.set(t.id, { teacherId: t.id, byReason: emptyReasons(), total: 0 });
+    map.set(t.id, { teacherId: t.id, byReason: emptyReasons(), minutes: emptyReasons(), total: 0 });
   }
   const schoolDays = data.settings.days;
+  const spans = new Map<string, AbsenceSpan[]>();
   for (const a of data.absences) {
     const row = map.get(a.teacherId);
     if (!row) continue;
@@ -987,7 +1109,18 @@ export function absencesByReason(data: PersistedData, from: string, to: string):
     if (n === 0) continue;
     const key = ABSENCE_REASONS.some((r) => r.value === a.reason) ? a.reason : "altro";
     row.byReason[key] += n;
-    row.total += n;
+    if (isHourReason(key)) {
+      const k = `${a.teacherId}|${key}`;
+      spans.set(k, [...(spans.get(k) ?? []), ...absenceSpans(data, a, from, to)]);
+    } else {
+      row.total += n;
+    }
   }
-  return [...map.values()].sort((a, b) => b.total - a.total);
+  for (const [k, list] of spans) {
+    const [teacherId, reason] = k.split("|") as [string, AbsenceReason];
+    const row = map.get(teacherId);
+    if (row) row.minutes[reason] = spanMinutes(list);
+  }
+  const hours = (r: AbsenceReasonRow) => Object.values(r.minutes).reduce((n, m) => n + m, 0);
+  return [...map.values()].sort((a, b) => b.total - a.total || hours(b) - hours(a));
 }

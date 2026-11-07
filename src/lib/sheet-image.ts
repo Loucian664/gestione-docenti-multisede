@@ -7,6 +7,9 @@ import {
   classShifts,
   loadByTeacher,
   absencesByReason,
+  hasAbsences,
+  isHourReason,
+  formatHours,
   awayAt,
   eccedenteLines,
   teacherDayWindow,
@@ -519,20 +522,26 @@ export async function reportJpeg(data: PersistedData, from: string, to: string):
     rows: rows.length ? rows : [{ title: "—", cells: ["0", "0", "0", "0", "0", "0", "0"] }],
   });
 
-  const abs = absencesByReason(data, from, to).filter((r) => r.total > 0);
+  const abs = absencesByReason(data, from, to).filter(hasAbsences);
   if (abs.length === 0) return subBlob;
   const absRows: Row[] = abs.map((r) => {
     const t = data.teachers.find((x) => x.id === r.teacherId);
     return {
       title: t ? teacherShort(t, data.teachers) : r.teacherId,
-      cells: [...ABSENCE_REASONS.map((x) => String(r.byReason[x.value])), String(r.total)],
+      cells: [
+        ...ABSENCE_REASONS.map((x) => (isHourReason(x.value) ? formatHours(r.minutes[x.value]) : String(r.byReason[x.value]))),
+        String(r.total),
+      ],
     };
   });
   const absBlob = await paintTable({
     kicker: `${data.settings.schoolName} · ${formatItDate(from)} → ${formatItDate(to)}`,
     title: "Assenze per motivo",
     corner: "Docente",
-    columns: [...ABSENCE_REASONS.map((x) => ({ title: REASON_SHORT[x.value] ?? x.label })), { title: "Tot." }],
+    columns: [
+      ...ABSENCE_REASONS.map((x) => ({ title: `${REASON_SHORT[x.value] ?? x.label}${isHourReason(x.value) ? " (h)" : ""}` })),
+      { title: "Gg." },
+    ],
     rows: absRows,
   });
   return stackJpegBlobs([subBlob, absBlob]);

@@ -9,8 +9,17 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { ABSENCE_REASONS } from "@/lib/types";
 import type { Absence, AbsenceReason } from "@/lib/types";
 import { snapshot, useAppStore } from "@/lib/store";
-import { absenceMirrors } from "@/lib/sedi";
-import { teacherName } from "@/lib/coverage";
+import { absenceMirrors, personReasonSpans } from "@/lib/sedi";
+import {
+  absenceSpans,
+  formatHours,
+  HOUR_REASON_LIMITS,
+  isHourReason,
+  spanMinutes,
+  teacherName,
+} from "@/lib/coverage";
+import { officialData } from "@/lib/saved-timetables";
+import { schoolYearRange } from "@/lib/dates";
 import { isMensaPeriod, visiblePeriods } from "@/lib/periods";
 import { toast } from "sonner";
 
@@ -73,6 +82,26 @@ export function AbsenceDialog({
     setNoMirror({});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initial]);
+
+  // assemblea e permessi brevi si contano a ore: quante ne ha già usate nell'anno, e quante con questa
+  const usage = useMemo(() => {
+    if (!open || !teacherId || !isHourReason(reason)) return null;
+    const data = officialData(snapshot(store));
+    const year = schoolYearRange(data.settings.schoolYear, dateFrom);
+    const before = personReasonSpans(data, teacherId, reason, year.from, year.to, initial?.id);
+    const draft =
+      !allDay && periodIds.length === 0
+        ? []
+        : absenceSpans(data, { dateFrom, dateTo: dateTo < dateFrom ? dateFrom : dateTo, allDay, periodIds }, year.from, year.to);
+    return {
+      before: spanMinutes(before),
+      after: spanMinutes([...before, ...draft]),
+      draft: draft.length > 0,
+      limit: HOUR_REASON_LIMITS[reason] ?? 0,
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, teacherId, reason, dateFrom, dateTo, allDay, periodIds, initial, store.absences, store.altreSedi]);
+  const usageOver = usage ? usage.after > usage.limit * 60 : false;
 
   function togglePeriod(id: string) {
     setPeriodIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
@@ -149,7 +178,12 @@ export function AbsenceDialog({
             <NativeSelect
               id="reason"
               value={reason}
-              onChange={(e) => setReason(e.target.value as AbsenceReason)}
+              onChange={(e) => {
+                const next = e.target.value as AbsenceReason;
+                setReason(next);
+                // assemblea e permessi brevi: di solito poche ore, da scegliere
+                if (isHourReason(next)) setAllDay(false);
+              }}
             >
               {ABSENCE_REASONS.map((r) => (
                 <option key={r.value} value={r.value}>
@@ -218,6 +252,31 @@ export function AbsenceDialog({
               ))}
             </div>
           )}
+          {usage && (
+            <p
+              role="status"
+              className={
+                usageOver
+                  ? "rounded-md bg-warning-soft px-3 py-2 text-[13px] leading-snug text-foreground"
+                  : "rounded-md bg-muted px-3 py-2 text-[13px] leading-snug"
+              }
+            >
+              {reason === "assemblea_sindacale" ? (
+                <>
+                  Assemblea sindacale in quest’anno scolastico: {hoursText(usage.before)} su 10
+                  {usage.draft ? `; con questa ${hoursText(usage.after)}` : ""}.
+                  {usageOver && <strong className="mt-0.5 block text-warning">Si superano le 10 ore annue.</strong>}
+                </>
+              ) : (
+                <>
+                  Permessi brevi in quest’anno scolastico: {hoursText(usage.before)}
+                  {usage.draft ? `; con questo ${hoursText(usage.after)}` : ""}. Limite: l’orario settimanale del docente
+                  (18 ore per una cattedra intera).
+                  {usageOver && <strong className="mt-0.5 block text-warning">Si superano le 18 ore.</strong>}
+                </>
+              )}
+            </p>
+          )}
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="notes">Note</Label>
             <Textarea id="notes" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
@@ -231,4 +290,12 @@ export function AbsenceDialog({
       </DialogContent>
     </Dialog>
   );
+}
+
+/** «nessuna ora», «1 ora», «2 ore», «1 h 35 min». */
+function hoursText(minutes: number): string {
+  if (minutes <= 0) return "nessuna ora";
+  if (minutes % 60 !== 0) return formatHours(minutes);
+  const h = minutes / 60;
+  return `${h} ${h === 1 ? "ora" : "ore"}`;
 }
