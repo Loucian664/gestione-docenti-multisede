@@ -106,6 +106,15 @@
   --shell-glow: rgba(157, 196, 179, 0.06);
 }
 
+/* Icone centrate «a occhio» nei tasti: i valori li calcola src/lib/optical-icons.ts */
+@layer components {
+  svg.lucide[data-oi] {
+    margin-left: var(--oi-ml, 0px);
+    margin-right: var(--oi-mr, 0px);
+    translate: var(--oi-tx, 0px) var(--oi-ty, 0px);
+  }
+}
+
 @layer base {
   html {
     -webkit-font-smoothing: antialiased;

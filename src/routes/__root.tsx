@@ -4,6 +4,7 @@ import { ThemeProvider, useTheme } from "@/components/theme-provider";
 import { useEffect, useRef } from "react";
 import { Toaster, toast, useSonner } from "sonner";
 import { THEME_BOOT_SCRIPT } from "@/lib/theme";
+import { startOpticalIcons } from "@/lib/optical-icons";
 import appCss from "../styles.css?url";
 
 const APP_NAME = "Orario Generale";
@@ -85,6 +86,12 @@ function ThemedToaster() {
   );
 }
 
+/** Icone dei tasti centrate sul disegno vero, non sul quadrato che lo contiene (vedi `lib/optical-icons`). */
+function OpticalIcons() {
+  useEffect(() => startOpticalIcons(), []);
+  return null;
+}
+
 function RootComponent() {
   return (
     <html lang="it" className="antialiased" suppressHydrationWarning>
@@ -98,6 +105,7 @@ function RootComponent() {
             <Outlet />
           </AppLayout>
           <ThemedToaster />
+          <OpticalIcons />
         </ThemeProvider>
         <Scripts />
       </body>

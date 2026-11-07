@@ -2887,7 +2887,7 @@ function AvailabilityPanel({
       </div>
 
       {teachers.length > 6 && (
-        <label className="relative mt-4 block max-w-xs">
+        <label className="relative mt-4 block md:max-w-xs">
           <span className="sr-only">Cerca docente</span>
           <Search
             className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
@@ -2903,7 +2903,7 @@ function AvailabilityPanel({
       )}
 
       {shown.length > 0 && (
-        <div className="mt-4 flex justify-end gap-1">
+        <div className="mt-4 -mr-3 flex justify-end gap-1">
           <Button size="sm" variant="ghost" onClick={() => setAllOpen(true)}>
             Apri tutte
           </Button>

@@ -96,16 +96,17 @@ function SediPage() {
         description="Le sedi dell’istituto, ciascuna con classi, docenti e campanella. Quella in uso si sceglie nel menu."
         actions={
           <>
-            <Button onClick={() => setAdding(true)}>
+            {/* al telefono i tre tasti riempiono le righe: i bordi restano allineati alle schede delle sedi */}
+            <Button className="max-sm:grow" onClick={() => setAdding(true)}>
               <Plus />
               Aggiungi sede
             </Button>
-            <Button variant="outline" onClick={sortByName} disabled={sedi.length < 2}>
+            <Button variant="outline" className="max-sm:grow" onClick={sortByName} disabled={sedi.length < 2}>
               <ArrowDownAZ />
               Ordina A–Z
             </Button>
             <Button variant="outline" asChild>
-              <label className="cursor-pointer">
+              <label className="cursor-pointer max-sm:grow">
                 <FileUp />
                 Aggiungi da backup
                 <input
@@ -248,8 +249,11 @@ function SedeCard({
           {sede.active && <Badge>In uso</Badge>}
         </div>
         {!single && (
-          <div className="-mr-2 -mt-2 flex shrink-0">
-            {/* una colonna sul telefono: su e giù; due colonne dal tablet in su: prima e dopo */}
+          <div className="-mt-2 -mr-[15px] flex shrink-0">
+            {/*
+              una colonna sul telefono: su e giù; due colonne dal tablet in su: prima e dopo. Il margine a destra (12 px di
+              vuoto nel tasto + 3 attorno alla freccia) fa finire la freccia sul bordo dei tasti della scheda.
+            */}
             <Button
               variant="ghost"
               size="icon"

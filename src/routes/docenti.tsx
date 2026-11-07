@@ -203,7 +203,7 @@ function DocentiPage() {
         {list.map((row) => {
           const t = row.main.teacher;
           return (
-            <li key={row.key} className="flex items-start gap-2 py-3 pr-2 pl-4">
+            <li key={row.key} className="flex items-start gap-2 py-3 pr-1 pl-4">
               <button type="button" onClick={() => open(row, "scheda")} className="min-w-0 flex-1 text-left">
                 <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
                   <span className="size-2.5 shrink-0 rounded-full" style={{ background: teacherDotColor(t.color) }} />
@@ -215,7 +215,8 @@ function DocentiPage() {
                 {several && <span className="block text-[12px] text-muted-foreground">{sediText(row)}</span>}
               </button>
               <div className="flex shrink-0 flex-col items-end gap-1">
-                <span className="pt-0.5 text-right text-[13px] whitespace-nowrap text-muted-foreground tabular-nums">
+                {/* a destra 4 + 12 px come il vuoto interno del tasto «Orario»: scritte e tasto finiscono sulla stessa riga */}
+                <span className="pt-0.5 pr-3 text-right text-[13px] whitespace-nowrap text-muted-foreground tabular-nums">
                   {hoursOf(row).map((line) => (
                     <span key={line} className="block">
                       {line}
@@ -343,7 +344,7 @@ function FormerTeachers({
       <summary className="cursor-pointer px-4 py-3 text-sm font-medium">Non più in servizio ({list.length})</summary>
       <ul className="divide-y divide-border border-t border-border">
         {list.map((p) => (
-          <li key={p.key} className="flex items-center gap-2 py-2.5 pr-2 pl-4">
+          <li key={p.key} className="flex items-center gap-2 py-2.5 pr-1 pl-4">
             <div className="min-w-0 flex-1">
               <span className="font-medium">{teacherName(p.records[0]!.teacher)}</span>
               {formerLines(p, several).map((line) => (

@@ -177,7 +177,7 @@ function AssenzePage() {
           </div>
           <div className={cn("grid gap-1", withSaturday ? "grid-cols-6" : "grid-cols-5")}>
             {WEEKDAYS.slice(0, withSaturday ? 6 : 5).map((d) => (
-              <div key={d} className="px-1 py-1 text-center text-[11px] font-medium text-muted-foreground">
+              <div key={d} className="px-1.5 py-1 text-[11px] font-medium text-muted-foreground sm:px-2">
                 {d}
               </div>
             ))}

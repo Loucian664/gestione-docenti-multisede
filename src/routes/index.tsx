@@ -270,20 +270,24 @@ function OggiPage() {
             </label>
           </div>
         </div>
-        <div className="flex flex-wrap justify-center gap-2 lg:justify-end" data-print-hide>
-          <Button variant="outline" size="sm" className="shrink-0" onClick={copySheet} title="Copia il testo per WhatsApp o mail">
+        {/*
+          Sul telefono i quattro tasti vanno da bordo a bordo, come la riga della data e i giorni; sul computer stanno a
+          destra.
+        */}
+        <div className="flex w-full flex-wrap gap-1.5 lg:w-auto lg:justify-end lg:gap-2" data-print-hide>
+          <Button variant="outline" size="sm" className="flex-1 px-2 lg:flex-none lg:px-3" onClick={copySheet} title="Copia il testo per WhatsApp o mail">
             <Copy />
             Copia foglio
           </Button>
-          <Button variant="outline" size="sm" className="shrink-0" onClick={() => void exportCsv()} title="Salva o condividi la tabella Excel">
+          <Button variant="outline" size="sm" className="flex-1 px-2 lg:flex-none lg:px-3" onClick={() => void exportCsv()} title="Salva o condividi la tabella Excel">
             <Download />
             Excel
           </Button>
-          <Button variant="outline" size="sm" className="shrink-0" onClick={() => void exportPhoto()} title="Salva o condividi un’immagine del foglio">
+          <Button variant="outline" size="sm" className="flex-1 px-2 lg:flex-none lg:px-3" onClick={() => void exportPhoto()} title="Salva o condividi un’immagine del foglio">
             <ImageIcon />
             Foto
           </Button>
-          <Button variant="outline" size="sm" className="shrink-0" onClick={exportPdf} title="Apri il PDF da stampare o condividere">
+          <Button variant="outline" size="sm" className="flex-1 px-2 lg:flex-none lg:px-3" onClick={exportPdf} title="Apri il PDF da stampare o condividere">
             <FileText />
             PDF
           </Button>

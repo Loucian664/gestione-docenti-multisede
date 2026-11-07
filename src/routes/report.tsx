@@ -158,6 +158,7 @@ function ReportPage() {
       <PageHeader
         title="Equità e monte ore"
         description="Sostituzioni svolte da ciascun docente e assenze del periodo selezionato. In fondo, il riepilogo dell’anno scolastico."
+        actionsFullWidth
         actions={
           <>
             <Button
@@ -224,11 +225,11 @@ function ReportPage() {
             </NativeSelect>
           </div>
         )}
-        <div className="flex min-w-0 flex-col gap-1.5">
+        <div className="flex min-w-0 flex-col gap-1.5 max-sm:flex-1">
           <Label htmlFor="from">Dal</Label>
           <Input id="from" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
         </div>
-        <div className="flex min-w-0 flex-col gap-1.5">
+        <div className="flex min-w-0 flex-col gap-1.5 max-sm:flex-1">
           <Label htmlFor="to">Al</Label>
           <Input id="to" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
         </div>

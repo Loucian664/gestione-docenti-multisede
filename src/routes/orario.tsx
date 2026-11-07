@@ -182,6 +182,7 @@ function OrarioPage() {
       <PageHeader
         title="Orario"
         description="Consulta, modifica e stampa l’orario di classi e docenti. In «Costruisci» puoi generare una proposta di orario."
+        actionsFullWidth
         actions={
           <>
             <Button
@@ -375,7 +376,7 @@ function OrarioPage() {
                 type="button"
                 onClick={() => setQuadroDay(d)}
                 className={cn(
-                  "h-10 min-w-14 rounded-md px-3 text-sm font-medium",
+                  "h-10 min-w-14 rounded-md px-3 text-sm font-medium max-md:flex-1",
                   quadroDay === d ? "bg-primary text-primary-foreground" : "bg-secondary text-secondary-foreground",
                 )}
               >

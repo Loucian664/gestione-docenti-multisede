@@ -29,7 +29,7 @@ function Tabs({
             title={item.title}
             onClick={() => onValueChange(item.value)}
             className={cn(
-              "h-8 shrink-0 rounded-md px-3 text-[13px] font-medium transition-colors duration-150",
+              "h-8 shrink-0 rounded-md px-3 text-[13px] font-medium transition-colors duration-150 max-md:flex-1",
               active ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
             )}
           >
