@@ -102,6 +102,7 @@ import {
 } from "@/lib/sedi-insieme";
 import { ClasseGenerale, GiornoGenerale, SettimanaGenerale } from "@/components/vista-generale";
 import { MissingTeachersBox, MissingTeachersDialog } from "@/components/missing-teachers";
+import { CalcoloLungo } from "@/components/calcolo-lungo";
 import { HardIssuesBox } from "@/components/vincoli-box";
 import { SAVE_SLOTS } from "@/lib/saved-timetables";
 
@@ -1020,6 +1021,8 @@ export function CostruisciOrario({
         )}
         {running && <SearchProgress progress={running} onStop={() => handleRef.current?.stop()} />}
       </section>
+
+      <CalcoloLungo />
 
       {edit && (
         <Ritocchi
