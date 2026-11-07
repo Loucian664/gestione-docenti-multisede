@@ -255,18 +255,19 @@ riga mostra un avviso.
 - Le lettere delle sedi non servono: si usano i nomi reali. La sede «ferma» per ora non serve.
 - Dati delle sedi (18/10/2026): ore di 60 minuti per tutte le sedi, Rombiolo compresa (8-14; Mensa 14-15,
   7ª 15-16, 8ª 16-17), così le ore delle sedi coincidono. Stessa persona solo con cognome e nome uguali.
-  Ogni docente fa 18 ore, salvo rare eccezioni (Porcu Greta: 9 a Rombiolo e 9 a Cessaniti). Corsi
-  è potenziamento a San Calogero. Strumento come a Rombiolo (senza orario), con Viola a Rombiolo. La
-  pluriclasse di Zaccanopoli è una classe sola («1ª-2ª-3ª A»). Dove PDF e orario in vigore non coincidono
+  Ogni docente fa 18 ore, salvo rare eccezioni (es. una docente: 9 ore a Rombiolo e 9 a Cessaniti). San
+  Calogero ha un docente di potenziamento. Strumento come a Rombiolo (senza orario), con un docente che sta
+  a Rombiolo.
+  La pluriclasse di Zaccanopoli è una classe sola («1ª-2ª-3ª A»). Dove PDF e orario in vigore non coincidono
   vale l'orario in vigore (es. matematica di 3ª A e 3ª B a Cessaniti). Il Progetto LEL (Latino) sta al
   pomeriggio come nell'orario in vigore. La regola di Rombiolo sui rientri (mattina dalla 4ª ora) per ora
   vale solo lì.
 - Correzioni (utente, 18/10): il backup di Rombiolo è la fonte più affidabile e non si tocca; ogni docente fa
   18 ore e gli errori del PDF si sistemano «anche per arrangiare». Fatto: conflitti tra orari risolti con
-  scambi di ore nella stessa classe delle altre sedi (Pastore Dora e Fumagalli a Nicotera), Latino di Verga a
-  Nicotera al mercoledì 14-15, Lisi 10 ore a disposizione a Cessaniti, Stella Rina 7 ore a disposizione da
-  mettere a Nicotera, «Su più plessi» per chi completa altrove (Bassi Rita, Rota, Rocchi, Sordi).
-  Restano a 20 ore Di Nardo, Fumagalli, Nobili e Scotti (10 classi da 2 ore negli orari in vigore).
+  scambi di ore nella stessa classe delle altre sedi (due docenti a Nicotera), Latino a Nicotera al mercoledì
+  14-15, un docente con 10 ore a disposizione a Cessaniti, una docente con 7 ore a disposizione da mettere a
+  Nicotera, «Su più plessi» per chi completa altrove (quattro docenti). Restano a 20 ore quattro docenti (10
+  classi da 2 ore negli orari in vigore).
 - Le × a mano dei docenti in comune (147, messe a Rombiolo per le ore nelle altre scuole) sono tolte dai dati
   veri dell'anteprima (decisione dell'utente del 18/10: l'app serve dal prossimo anno); le ore nelle altre sedi
   diventano × da sole.
