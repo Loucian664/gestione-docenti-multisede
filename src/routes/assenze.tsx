@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { PageHeader } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -60,6 +60,7 @@ function AssenzePage() {
   const [peek, setPeek] = useState<string | null>(null);
   const summaryRef = useRef<HTMLElement>(null);
   const tapped = useRef<HTMLElement | null>(null);
+  const [summaryMin, setSummaryMin] = useState(0);
   const initialRange = monthRange(data.selectedDate);
   const [from, setFrom] = useState(initialRange.from);
   const [to, setTo] = useState(initialRange.to);
@@ -95,19 +96,26 @@ function AssenzePage() {
     })
     .sort((x, y) => x.name.localeCompare(y.name, "it"));
 
-  // Il riepilogo sta sotto il calendario: se dopo il tocco resta fuori dallo schermo, la pagina sale quanto basta a
-  // vederne l'inizio, ma non oltre il giorno appena toccato, che deve restare a portata per il secondo tocco.
-  useEffect(() => {
-    const day = tapped.current;
+  // Il riepilogo sta sotto il calendario. Due cose perché la pagina stia ferma mentre si toccano i giorni:
+  // - il suo spazio non si accorcia mai: passando a un giorno con meno assenti la pagina resterebbe più corta e il
+  //   telefono la farebbe scendere;
+  // - dopo un tocco, se l'inizio del riepilogo (sempre gli stessi 160 px, non la sua altezza) è fuori dallo schermo,
+  //   la pagina sale quanto basta, ma non oltre il giorno toccato, che deve restare a portata per il secondo tocco.
+  //   Dal secondo giorno in poi di solito è già in vista e non si muove niente.
+  useLayoutEffect(() => {
     const box = summaryRef.current;
+    if (!box) return;
+    setSummaryMin((m) => Math.max(m, box.offsetHeight));
+    const day = tapped.current;
     tapped.current = null;
-    if (!day || !box) return;
+    if (!day) return;
     const nav = document.querySelector<HTMLElement>("nav.fixed"); // barra in basso del telefono
     const bottom = window.innerHeight - (nav?.offsetHeight ?? 0);
-    const want = box.getBoundingClientRect().top + Math.min(box.offsetHeight, 160) + 12 - bottom;
+    const want = box.getBoundingClientRect().top + 160 + 12 - bottom;
     const room = day.getBoundingClientRect().top - 12;
     const by = Math.min(want, room);
-    if (by > 0) window.scrollBy({ top: by, behavior: "smooth" });
+    // sotto i 24 px non vale la pena: sarebbero piccoli scatti a ogni tocco
+    if (by > 24) window.scrollBy({ top: by, behavior: "smooth" });
   }, [peek]);
 
   return (
@@ -302,7 +310,12 @@ function AssenzePage() {
               <span className="size-2.5 rounded-sm bg-danger-soft ring-1 ring-border" /> Scoperto
             </li>
           </ul>
-          <section ref={summaryRef} aria-live="polite" className="mt-4 border-t border-border pt-4">
+          <section
+            ref={summaryRef}
+            aria-live="polite"
+            className="mt-4 border-t border-border pt-4"
+            style={{ minHeight: summaryMin || undefined }}
+          >
             {peek && peekDay ? (
               <>
                 <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
