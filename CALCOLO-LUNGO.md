@@ -26,7 +26,10 @@ i salvataggi «Tutte le sedi insieme».
 
 ## Passi
 
-1. Serve Node 22 o più recente. Nella repository: `npm ci`.
+1. Serve Node.js nella versione indicata in `package.json`, alla voce `engines`: il programma la controlla prima di
+   partire. Se quella dell'ambiente non va bene, installane una adatta (per esempio con nvm; il sito si pubblica con
+   quella di `node-version` in `.github/workflows/pages.yml`), senza aggiornare le dipendenze né modificare il
+   codice. Nella repository: `npm ci`.
 2. Esegui il comando del messaggio, con il percorso del backup al posto di `<percorso del backup>`, per esempio:
    `node scripts/calcolo-lungo.mjs --backup backup.json --sedi tutte --modo da-zero --slot 1,4,5 --minuti 60`
    Se il messaggio manca o è incompleto, chiedi all'utente sedi (solo quella in uso o tutte), partenza, slot (e quali
@@ -63,6 +66,7 @@ i salvataggi «Tutte le sedi insieme».
 
 ## File
 
-`scripts/calcolo-lungo.mjs` (compila e avvia), `scripts/calcolo-lungo-run.ts` (processi e salvataggi),
+`scripts/calcolo-lungo.mjs` (controlla la versione di Node con `scripts/versione-node.mjs`, compila e avvia),
+`scripts/calcolo-lungo-run.ts` (processi e salvataggi),
 `src/lib/calcolo-lungo.ts` (richiesta, messaggio, versioni, codice di controllo; con i test),
 `src/components/calcolo-lungo.tsx` (il riquadro dell'app).

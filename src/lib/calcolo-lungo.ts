@@ -140,7 +140,7 @@ export function longRunMessage(
     `Partenza: ${req.mode === "improve" ? "migliora l’orario attuale" : "da zero"}. Slot: ${slotText}${others}. Durata: ${duration}.`,
     "",
     "Cosa fare:",
-    "1. Scarica la repository ed esegui npm ci (serve Node 22 o più recente).",
+    "1. Scarica la repository ed esegui npm ci (serve Node.js nella versione indicata in package.json, alla voce «engines»).",
     `2. Esegui questo comando; si ferma da solo dopo ${duration}, lascialo arrivare alla fine:`,
     `   ${longRunCommand(req)}`,
     "3. Restituisci il file che scrive il programma (finisce con «-calcolo-lungo.json») e il riepilogo che stampa. Se il comando si interrompe prima, il file contiene le versioni migliori trovate fino a quel momento: restituisci quello e dillo.",

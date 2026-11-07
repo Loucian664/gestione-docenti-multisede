@@ -53,6 +53,9 @@ describe("calcolo lungo: la richiesta", () => {
       /\n   node scripts\/calcolo-lungo\.mjs --backup <percorso del backup> --sedi sede --modo da-zero --slot 2,4 --sostituisci 2 --minuti 60\n/,
     );
     assert.match(text, /Non scrivere mai un orario a mano\./);
+    // nessun numero di versione, che tra qualche anno sarebbe vecchio: la versione di Node la dice la repository
+    assert.match(text, /npm ci \(serve Node\.js nella versione indicata in package\.json, alla voce «engines»\)/);
+    assert.doesNotMatch(text, /Node \d/);
   });
 
   it("si ferma su slot occupati non da sostituire, sullo slot in uso, sullo 0 e sugli slot inesistenti", () => {
