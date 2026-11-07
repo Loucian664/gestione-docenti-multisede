@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Check, ChevronDown, Eraser, Lock, LockOpen, Save, Search, TriangleAlert, Undo2, X } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Eraser, Lock, LockOpen, Save, Search, TriangleAlert, Undo2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DialogActions } from "@/components/dialog-actions";
 import {
@@ -395,8 +395,12 @@ export function CostruisciOrario({
   }, [previewData, proposalReport, inUseReport, data, included, previewTeachers, propDisp, dispPlan]);
   const hasDocentiChanges = (docentiChanges?.length ?? 0) > 0;
   const showVigore = docentiShow === "vigore" && hasDocentiChanges && inUseReport !== null;
-  // una proposta nuova (o un altro slot) si guarda dall'orario nuovo
-  useEffect(() => setDocentiShow("nuovo"), [result]);
+  // una proposta nuova (o un altro slot) si guarda dall'orario nuovo, con l'elenco dei cambi chiuso
+  const [docentiListKey, setDocentiListKey] = useState(0);
+  useEffect(() => {
+    setDocentiShow("nuovo");
+    setDocentiListKey((k) => k + 1);
+  }, [result]);
   // la testata di «Proposta» (fissa in alto) è in vista? Allora la barra di avanzamento sta lì
   const showHeader = Boolean(!edit && previewSlots && previewData && result);
   useEffect(() => {
@@ -1303,6 +1307,7 @@ export function CostruisciOrario({
             <>
               {docentiChanges && (
                 <DocentiChanges
+                  key={docentiListKey}
                   changes={docentiChanges}
                   teachers={previewTeachers.length}
                   showing={showVigore ? "vigore" : "nuovo"}
@@ -3765,39 +3770,51 @@ function DocentiChanges({
   if (!total) {
     return <p className="mt-3 text-[13px] text-muted-foreground">Nessuna ora cambia rispetto all’orario in vigore.</p>;
   }
-  // con molti cambi (un orario nuovo) l'elenco resta chiuso: si apre docente per docente
+  // con molti cambi (un orario nuovo) anche i docenti restano chiusi: si aprono uno per uno
   const open = total <= 12;
   const others = teachers - changes.length;
   return (
     <div className="mt-3 flex flex-col gap-2">
-      <p className="text-[13px]">
-        Rispetto all’orario in vigore {total === 1 ? "cambia" : "cambiano"}{" "}
-        <span className="font-semibold">{countOf(total, "ora", "ore")}</span> di{" "}
-        {countOf(changes.length, "docente", "docenti")}
-        {others === 1 ? "; l’altro docente non cambia" : others > 1 ? `; gli altri ${others} non cambiano` : ""}.
-      </p>
-      <div className="flex flex-col gap-1.5">
-        {changes.map(({ teacher, changes: list }) => (
-          <details key={teacher.id} open={open} className="rounded-lg border border-border bg-card px-3 py-1.5">
-            <summary className="cursor-pointer text-[13px] font-medium">
-              {teacherName(teacher)}{" "}
-              <span className="font-normal text-muted-foreground">
-                · {countOf(list.length, "ora cambiata", "ore cambiate")}
-              </span>
-            </summary>
-            <ul className="mb-1 mt-1 flex list-disc flex-col gap-0.5 pl-5 text-[13px]">
-              {list.map((c) => (
-                <li key={`${c.day}-${c.periodId}`}>
-                  <span className="font-medium">
-                    {DAY_SHORT[c.day]} {c.index}ª
-                  </span>{" "}
-                  · prima {hourWords(c.before)}, ora {hourWords(c.after)}
-                </li>
-              ))}
-            </ul>
-          </details>
-        ))}
-      </div>
+      {/* chiuso: si usa di rado, e così non spinge giù la tabella */}
+      <details className="group rounded-lg border border-border bg-card">
+        <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2.5 text-[13px] [&::-webkit-details-marker]:hidden">
+          <ChevronRight
+            className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90"
+            aria-hidden
+          />
+          <span>
+            Cambi rispetto all’orario in vigore: <span className="font-semibold">{countOf(total, "ora", "ore")}</span>{" "}
+            di {countOf(changes.length, "docente", "docenti")}
+          </span>
+        </summary>
+        <div className="flex flex-col gap-1.5 border-t border-border px-3 pb-3 pt-2">
+          {others > 0 && (
+            <p className="text-[13px] text-muted-foreground">
+              {others === 1 ? "L’altro docente non cambia." : `Gli altri ${others} docenti non cambiano.`}
+            </p>
+          )}
+          {changes.map(({ teacher, changes: list }) => (
+            <details key={teacher.id} open={open} className="rounded-lg border border-border px-3 py-1.5">
+              <summary className="cursor-pointer text-[13px] font-medium">
+                {teacherName(teacher)}{" "}
+                <span className="font-normal text-muted-foreground">
+                  · {countOf(list.length, "ora cambiata", "ore cambiate")}
+                </span>
+              </summary>
+              <ul className="mb-1 mt-1 flex list-disc flex-col gap-0.5 pl-5 text-[13px]">
+                {list.map((c) => (
+                  <li key={`${c.day}-${c.periodId}`}>
+                    <span className="font-medium">
+                      {DAY_SHORT[c.day]} {c.index}ª
+                    </span>{" "}
+                    · prima {hourWords(c.before)}, ora {hourWords(c.after)}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ))}
+        </div>
+      </details>
       {/* sempre una riga sola: passando da «Nuovo» a «In vigore» la tabella non si sposta */}
       <p
         className={cn(
@@ -5092,8 +5109,12 @@ function InsiemeProposta({
   );
   const hasDocentiChanges = (docentiChanges?.length ?? 0) > 0;
   const showVigore = docentiShow === "vigore" && hasDocentiChanges;
-  // un'altra versione, un'altra proposta o un altro slot si guarda dall'orario nuovo
-  useEffect(() => setDocentiShow("nuovo"), [value, version]);
+  // un'altra versione, un'altra proposta o un altro slot si guarda dall'orario nuovo, con l'elenco dei cambi chiuso
+  const [docentiListKey, setDocentiListKey] = useState(0);
+  useEffect(() => {
+    setDocentiShow("nuovo");
+    setDocentiListKey((k) => k + 1);
+  }, [value, version]);
   const [day, setDay] = useState<DayOfWeek>(data.settings.days[0] ?? 1);
   const [dialog, setDialog] = useState<"save" | "use" | null>(null);
   const name = value.slot
@@ -5320,6 +5341,7 @@ function InsiemeProposta({
           <div>
             {docentiChanges && (
               <DocentiChanges
+                key={docentiListKey}
                 changes={docentiChanges}
                 teachers={docentiCount}
                 showing={showVigore ? "vigore" : "nuovo"}
