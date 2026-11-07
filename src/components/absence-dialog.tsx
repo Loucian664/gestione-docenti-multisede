@@ -107,9 +107,12 @@ export function AbsenceDialog({
     setPeriodIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   }
 
+  // senza «Giornata intera» serve almeno un'ora: un'assenza senza ore non si copre in Oggi, ma il report la conterebbe
+  const noHours = !allDay && periodIds.length === 0;
+
   function submit(e: FormEvent) {
     e.preventDefault();
-    if (!teacherId) return;
+    if (!teacherId || noHours) return;
     const payload = {
       teacherId,
       dateFrom,
@@ -228,6 +231,9 @@ export function AbsenceDialog({
                   );
                 })}
               </div>
+              {noHours && (
+                <p className="mt-1.5 text-[12px] text-warning">Scegli almeno un’ora, oppure «Giornata intera».</p>
+              )}
             </div>
           )}
           {mirrors.length > 0 && (
@@ -281,7 +287,7 @@ export function AbsenceDialog({
             <Label htmlFor="notes">Note</Label>
             <Textarea id="notes" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
           </div>
-          <DialogActions className="mt-2" primary={<Button type="submit">{initial ? "Salva" : "Registra"}</Button>}>
+          <DialogActions className="mt-2" primary={<Button type="submit" disabled={noHours}>{initial ? "Salva" : "Registra"}</Button>}>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Annulla
             </Button>
