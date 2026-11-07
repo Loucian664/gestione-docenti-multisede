@@ -371,7 +371,7 @@ function OggiPage() {
         <div className="mb-5 rounded-xl border border-border bg-card px-4 py-3" data-print-hide>
           <p className="font-display text-lg">Orario variato</p>
           <p className="mt-1 text-[13px] text-muted-foreground">
-            Classi scoperte nelle prime o nelle ultime ore: puoi posticiparne l’ingresso o anticiparne l’uscita. Con
+            Classi senza docente nelle prime o nelle ultime ore per un’assemblea sindacale: puoi posticiparne l’ingresso o anticiparne l’uscita. Con
             «Conferma» le ore non risultano più da coprire e la variazione compare nel riepilogo.
           </p>
           <ul className="mt-2 flex flex-col gap-2">
