@@ -231,7 +231,14 @@ export function AssignSheet({
 
   return (
     <Sheet open={Boolean(need)} onOpenChange={(o) => !o && onClose()}>
-      <SheetContent className="overflow-y-auto">
+      <SheetContent
+        className="overflow-y-auto"
+        // all'apertura niente cursore nella ricerca: su iPhone farebbe salire la tastiera, che serve solo toccando il campo
+        onOpenAutoFocus={(e) => {
+          e.preventDefault();
+          (e.currentTarget as HTMLElement).focus();
+        }}
+      >
         <SheetHeader>
           <SheetTitle>
             {cls?.name} · {period?.label}
