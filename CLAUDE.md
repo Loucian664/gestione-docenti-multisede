@@ -28,6 +28,8 @@
 4. Non cambiare colori, caratteri o logica oltre quanto chiesto. Mai `prettier --write` (né
    `npm run format`) su file interi.
 5. Chiudi i server temporanei dopo le prove.
+6. `AGENTS.md` ha le regole essenziali per gli altri assistenti (Codex, Gemini…): se cambi una regola qui,
+   cambiala anche lì.
 
 ## Nomi veri: mai pubblicarli
 
@@ -88,34 +90,11 @@ Una copia di prova, non il codice vero:
 
 ## Calcolo lungo dell'orario
 
-Chi usa l'app prepara la richiesta in Orario → Costruisci → «Calcolo lungo con Claude Code»: l'app salva il backup
-e copia un messaggio che inizia con «Calcolo lungo dell’orario.» e dice sedi, partenza, slot e durata. Lo stesso
-motore di «Proponi orario» gira molto più a lungo e le versioni migliori, diverse tra loro, tornano negli slot
-scelti dentro il backup.
-
-1. Il backup allegato contiene nomi veri: copialo nella cartella temporanea della sessione, mai nella repository.
-2. Dal messaggio: sedi («Sedi: tutte insieme» → `--sedi tutte`, «Sede: …» → `--sedi sede`, la sede in uso nel
-   backup), partenza («da zero» → `--modo da-zero`, «migliora l’orario attuale» → `--modo migliora`), slot
-   (`--slot 3,4,5`), slot occupati da sostituire, quelli con «(sostituisce «…»)» (`--sostituisci 4`), durata in
-   minuti (`--minuti`). Se il messaggio manca o è incompleto, chiedi all'utente queste quattro cose.
-3. Se manca `node_modules`, `npm ci`. Poi avvia in background (comando in background con timeout pari alla durata
-   più 15 minuti, al massimo 2 ore):
-   `node scripts/calcolo-lungo.mjs --backup <backup> --sedi tutte --modo da-zero --slot 3,4,5 --minuti 60 --uscita <backup-calcolo-lungo.json>`
-   Opzioni: `--corsa <secondi>` (durata di ogni corsa del motore, 120), `--processi <n>` (processori meno uno).
-4. Se il programma si rifiuta (slot occupato non da sostituire, slot in uso, materie senza docente, sedi che non si
-   possono costruire insieme…), spiega il motivo all'utente con parole sue e chiedi come procedere: non forzare.
-5. Alla fine manda all'utente il backup di uscita come file, con un riepilogo in parole semplici: per ogni slot le
-   ore buche e le eventuali voci da sistemare, a confronto con l'orario attuale (il programma le stampa). Le
-   versioni sono in ordine di valutazione complessiva dell'app, non solo di ore buche. Con tutte le sedi insieme
-   ogni versione ha un'impostazione (equilibrato, giorni in un plesso, meno ore buche, come «Proponi» insieme) ed è
-   scritta nello stesso slot di ogni sede, collegata come i salvataggi «Tutte le sedi insieme».
-6. Ricorda all'utente: Impostazioni → Importa backup. Se nel frattempo ha segnato assenze o sostituzioni, l'app
-   avvisa che il backup è più vecchio: in quel caso meglio non importarlo e rifare il calcolo da un backup nuovo.
-7. Per il calcolo non si modifica il codice e non si pubblica nulla.
-
-Il programma: `scripts/calcolo-lungo.mjs` (compila e avvia), `scripts/calcolo-lungo-run.ts` (processi),
-`src/lib/calcolo-lungo.ts` (richiesta, versioni, backup; con i test). Il riquadro dell'app:
-`src/components/calcolo-lungo.tsx`.
+Se il messaggio dell'utente inizia con «Calcolo lungo dell’orario», segui `CALCOLO-LUNGO.md`: istruzioni valide per
+qualsiasi assistente, con le regole (mai un orario scritto a mano, backup con nomi veri solo nella cartella
+temporanea, niente modifiche al codice né pubblicazioni) e le opzioni del programma (`--sedi sede|tutte`). In questo
+ambiente: avvia il comando in background con un timeout pari alla durata più 15 minuti (al massimo 2 ore) e attendi
+la notifica di fine.
 
 ## Mappa del codice
 

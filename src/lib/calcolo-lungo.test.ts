@@ -7,7 +7,10 @@ import {
   durationText,
   isComplete,
   lessonDistance,
+  longRunImportNote,
   longRunMessage,
+  longRunSlotStatus,
+  longRunStatus,
   occupiedSlots,
   pickVersions,
   requestProblems,
@@ -16,7 +19,7 @@ import {
   type LongRunRequest,
 } from "./calcolo-lungo.ts";
 import { applyOrganicoFixes, buildSeed } from "./seed.ts";
-import { allSedi, editSede, withOtherSedi } from "./sedi.ts";
+import { allSedi, editSede, sedeName, withOtherSedi } from "./sedi.ts";
 import { solveTimetable, type TimetableReport } from "./timetable-solver.ts";
 import type { PersistedData, SavedTimetable, TimetableSlot } from "./types.ts";
 
@@ -40,10 +43,16 @@ describe("calcolo lungo: la richiesta", () => {
     const data = seed({ savedTimetables: [saved(2, "Prova A")] });
     assert.deepEqual(requestProblems(data, req()), []);
     const text = longRunMessage(data, req({ slots: [4, 2], replace: [2] }), "Utente/app", "backup.json");
-    assert.match(text, /Repository: Utente\/app/);
-    assert.match(text, /Partenza: da zero/);
-    assert.match(text, /Slot da usare: 2 \(sostituisce «Prova A»\), 4\./);
-    assert.match(text, /Durata: 1 ora/);
+    assert.match(text, /^Calcolo lungo dell’orario/);
+    assert.match(text, /Repository: https:\/\/github\.com\/Utente\/app — istruzioni complete nel file CALCOLO-LUNGO\.md/);
+    assert.match(text, /Sede: .* \(quella in uso nel backup\)\./);
+    assert.match(text, /Partenza: da zero\. Slot: 2 \(sostituisce «Prova A»\), 4; gli altri restano come sono\. Durata: 1 ora\./);
+    // il comando è già pronto: chi lo esegue mette solo il percorso del backup
+    assert.match(
+      text,
+      /\n   node scripts\/calcolo-lungo\.mjs --backup <percorso del backup> --sedi sede --modo da-zero --slot 2,4 --sostituisci 2 --minuti 60\n/,
+    );
+    assert.match(text, /Non scrivere mai un orario a mano\./);
   });
 
   it("si ferma su slot occupati non da sostituire, sullo slot in uso, sullo 0 e sugli slot inesistenti", () => {
@@ -66,7 +75,7 @@ describe("calcolo lungo: la richiesta", () => {
       "2 ore",
     ]);
     const text = longRunMessage(seed(), req({ slots: [1, 2, 3, 4, 5] }), "Utente/app", "backup.json");
-    assert.match(text, /Slot da usare: 1, 2, 3, 4, 5\.\n/);
+    assert.match(text, /Slot: 1, 2, 3, 4, 5\. Durata/);
   });
 
   it("«Migliora» senza un orario da migliorare non si può", () => {
@@ -125,7 +134,9 @@ describe("calcolo lungo: tutte le sedi insieme", () => {
     assert.deepEqual(requestProblems(data, req({ slots: [1, 2], scope: "tutte" })), []);
     assert.ok(requestProblems(data, req({ slots: [3], scope: "tutte" })).some((p) => /slot 3 è occupato da «Prova B, /.test(p)));
     assert.deepEqual(requestProblems(data, req({ slots: [3], scope: "sede" })), []);
-    assert.match(longRunMessage(data, req({ scope: "tutte" }), "U/r", "b.json"), /Sedi: tutte insieme \(/);
+    const text = longRunMessage(data, req({ scope: "tutte" }), "U/r", "b.json");
+    assert.match(text, /Sedi: tutte insieme \(.*\); ogni versione va nello stesso slot di ogni sede\./);
+    assert.match(text, /--sedi tutte --modo da-zero --slot 3,4 --minuti 60/);
   });
 
   it("le versioni: equilibrato, poi giorni in un plesso, meno ore buche", () => {
@@ -143,5 +154,21 @@ describe("calcolo lungo: tutte le sedi insieme", () => {
     assert.ok(entries.every((e) => e?.name === "Calcolo lungo 1 di 1 · equilibrato"));
     assert.ok(entries[0]?.insieme && entries.every((e) => e?.insieme === entries[0]?.insieme));
     assert.equal(out.savedAt, 1001);
+    // il codice di controllo in ogni sede; se in una sede l'orario cambia, all'importazione lo slot va controllato
+    assert.ok(entries.every((e) => e && longRunStatus(e, e) === "verificato"));
+    assert.deepEqual(longRunImportNote(out), { text: "Slot 2: calcolato dal programma del calcolo lungo.", warn: false });
+    const other = allSedi(out)[1]!;
+    const changed = editSede(out, other.id, (d) => ({
+      ...d,
+      savedTimetables: (d.savedTimetables ?? []).map((x) => (x.n === 2 ? { ...x, disp: { t: [{ day: 1, periodId: "p1" }] } } : x)),
+    }));
+    const note = longRunImportNote(changed)!;
+    assert.equal(note.warn, true);
+    assert.match(note.text, /^Attenzione: lo slot 2 \(.+\) non risulta calcolato dal programma/);
+    // nel dialogo dello slot: insieme conta ogni sede, e dice in quale è cambiato; da solo, solo la sede in uso
+    assert.deepEqual(longRunSlotStatus(out, 2, true), { status: "verificato", sedi: [] });
+    assert.deepEqual(longRunSlotStatus(changed, 2, true), { status: "cambiato", sedi: [sedeName(other.data.settings)] });
+    assert.deepEqual(longRunSlotStatus(changed, 2, false), { status: "verificato", sedi: [] });
+    assert.deepEqual(longRunSlotStatus(changed, 4, true), { status: null, sedi: [] });
   });
 });

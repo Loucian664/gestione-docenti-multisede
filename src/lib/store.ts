@@ -360,6 +360,8 @@ function keepActive(state: PersistedData): SavedTimetable[] {
     ...part,
     // salvato per tutte le sedi insieme: lo resta
     ...(old?.insieme && n !== 0 ? { insieme: old.insieme } : {}),
+    // il codice del calcolo lungo resta: se l'orario è cambiato, lo slot risulta «cambiato dopo il calcolo»
+    ...(old?.calcoloLungo ? { calcoloLungo: old.calcoloLungo } : {}),
   };
   return [...list.filter((x) => x.n !== n), entry].sort((a, b) => a.n - b.n);
 }

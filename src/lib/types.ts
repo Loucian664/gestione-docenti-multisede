@@ -197,6 +197,8 @@ export type SavedTimetable = {
    * tutte le sedi; «Usa», «Rendi in vigore», «Svuota» e «Rinomina» valgono per tutte.
    */
   insieme?: string;
+  /** codice di controllo del calcolo lungo: c'è solo nelle versioni scritte dal programma (`longRunCheck`) */
+  calcoloLungo?: string;
 };
 
 /** I dati di una sede in un anno in archivio. */

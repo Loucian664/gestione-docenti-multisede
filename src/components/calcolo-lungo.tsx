@@ -21,13 +21,13 @@ import { allSedi, sedeAsData, sedeName } from "@/lib/sedi";
 import { canBuildTogether } from "@/lib/sedi-insieme";
 import { builtLessonTest } from "@/lib/svuota";
 
-/** La repository di questa app: Claude Code la apre e vi trova le istruzioni (CLAUDE.md). */
+/** La repository di questa app: l'assistente la apre e vi trova il programma e le istruzioni (CALCOLO-LUNGO.md). */
 const REPOSITORY = "Loucian664/gestione-docenti-multisede";
 
 /**
- * «Calcolo lungo con Claude Code»: si scelgono partenza, slot e durata; «Prepara» esporta il backup e copia il
- * messaggio da incollare in Claude Code, che fa girare lo stesso motore per molto più tempo e restituisce il
- * backup con le versioni negli slot scelti.
+ * «Calcolo lungo con un assistente di programmazione»: si scelgono partenza, slot e durata; «Prepara» esporta il backup
+ * e copia il messaggio da incollare in Claude Code (o in un altro assistente che possa aprire la repository ed eseguire
+ * programmi), che fa girare lo stesso motore per molto più tempo e restituisce il backup con le versioni negli slot scelti.
  */
 export function CalcoloLungo() {
   const store = useAppStore();
@@ -82,7 +82,7 @@ export function CalcoloLungo() {
     setMessage(text);
     // prima il messaggio negli appunti (serve il tocco), poi il backup
     void copy(text).then((ok) => {
-      if (ok) toast.success("Messaggio per Claude Code copiato");
+      if (ok) toast.success("Messaggio copiato: incollalo nell’assistente");
     });
     // il file, mai negli appunti: lì c'è il messaggio
     const file = new File([backupJson(data)], name, { type: "application/json" });
@@ -94,16 +94,17 @@ export function CalcoloLungo() {
   return (
     <details className="group paper-panel rounded-xl p-5">
       <summary className="flex cursor-pointer list-none items-center justify-between gap-3 [&::-webkit-details-marker]:hidden">
-        <h2 className="font-display text-lg">Calcolo lungo con Claude Code</h2>
+        <h2 className="font-display text-lg">Calcolo lungo con un assistente di programmazione</h2>
         <ChevronDown
           className="size-5 shrink-0 text-muted-foreground transition-transform group-open:rotate-180"
           aria-hidden
         />
       </summary>
       <p className="mt-2 text-sm text-muted-foreground">
-        «Proponi orario» cerca al massimo 35 secondi. Con Claude Code lo stesso motore può cercare per ore e restituire
-        più versioni, le migliori e diverse tra loro, negli slot che scegli. L’orario in vigore e gli slot non scelti
-        restano come sono.
+        «Proponi orario» cerca al massimo 35 secondi. Con un assistente di programmazione (oggi Claude Code; va bene
+        anche un altro che possa aprire la repository ed eseguire programmi) lo stesso motore cerca fino a un’ora e
+        mezza e restituisce più versioni, le migliori e diverse tra loro, negli slot che scegli. L’orario in vigore e gli
+        slot non scelti restano come sono.
       </p>
 
       <div className="mt-4 flex flex-col gap-4">
@@ -212,7 +213,7 @@ export function CalcoloLungo() {
 
       {message && (
         <div className="mt-4">
-          <p className="text-sm font-semibold text-foreground">Messaggio per Claude Code</p>
+          <p className="text-sm font-semibold text-foreground">Messaggio da incollare</p>
           <pre className="mt-1 whitespace-pre-wrap rounded-md bg-muted px-3 py-2 text-[13px] leading-snug">{message}</pre>
           <Button
             variant="outline"
@@ -232,15 +233,18 @@ export function CalcoloLungo() {
       <ol className="mt-4 list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
         <li>«Prepara» salva il backup e copia il messaggio.</li>
         <li>
-          Apri Claude Code (claude.ai/code, o l’app Claude → Code) sulla repository {REPOSITORY}, incolla il messaggio e
-          allega il backup.
+          Apri l’assistente (Claude Code: claude.ai/code, o l’app Claude → Code), incolla il messaggio e allega il
+          backup. Il messaggio contiene già l’indirizzo della repository {REPOSITORY} e il comando da eseguire.
         </li>
         <li>
           Finché il calcolo non è finito, non segnare assenze né sostituzioni: il backup che torna sostituisce i dati di
           questo dispositivo.
         </li>
         <li>Importa il backup che ricevi: Impostazioni → Importa backup.</li>
-        <li>Apri le versioni dagli slot, confrontale e usa quella che preferisci.</li>
+        <li>
+          Importando, l’app controlla che le versioni siano proprio quelle calcolate dal programma. Poi aprile dagli
+          slot, confrontale e usa quella che preferisci.
+        </li>
       </ol>
     </details>
   );

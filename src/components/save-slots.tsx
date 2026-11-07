@@ -24,6 +24,7 @@ import {
   type TimetablePart,
 } from "@/lib/saved-timetables";
 import { evaluateCurrent } from "@/lib/timetable-solver";
+import { andList, longRunSlotStatus } from "@/lib/calcolo-lungo";
 import { insiemeSlot } from "@/lib/sedi-insieme";
 import type { PersistedData, SavedTimetable } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -457,6 +458,10 @@ function SlotDialog({
   } else if (info) {
     const k = info.n;
     const clean = name.trim().slice(0, NAME_MAX);
+    // le versioni del calcolo lungo: proprio quelle calcolate dal programma, o cambiate dopo (insieme: in ogni sede)
+    const check = info.save ? longRunSlotStatus(data, k, Boolean(info.insieme)) : null;
+    const longRun = check?.status ?? null;
+    const where = info.insieme && (data.altreSedi ?? []).length > 0 ? ` in ${andList(check?.sedi ?? [])}` : "";
     body = (
       <>
         <DialogHeader>
@@ -490,6 +495,20 @@ function SlotDialog({
           </span>
         </label>
         <p className="mt-3 text-sm">{lessonsLine(info)}</p>
+        {longRun === "verificato" && (
+          <p className="mt-1 text-sm text-primary">Calcolato dal programma del calcolo lungo.</p>
+        )}
+        {longRun === "cambiato" && (
+          <p className="mt-1 text-sm text-warning">
+            Cambiato dopo il calcolo lungo{where}: se non l’hai modificato tu, controllalo prima di usarlo.
+          </p>
+        )}
+        {longRun === "senza-controllo" && (
+          <p className="mt-1 text-sm text-warning">
+            Il nome dice «Calcolo lungo», ma l’orario non risulta calcolato dal programma{where}: controllalo prima di
+            usarlo.
+          </p>
+        )}
         {info.same && <p className="mt-1 text-sm text-primary">È uguale all’orario in vigore.</p>}
         {info.dropped > 0 && (
           <p className="mt-1 text-sm text-warning">
