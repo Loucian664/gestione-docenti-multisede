@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { PageHeader } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -7,11 +7,12 @@ import { Tabs } from "@/components/ui/tabs";
 import { AbsenceDialog } from "@/components/absence-dialog";
 import { useAppStore, snapshot } from "@/lib/store";
 import { officialData } from "@/lib/saved-timetables";
-import { dayCoverage, teacherName, teacherShort } from "@/lib/coverage";
+import { dayCoverage, isCovered, teacherName, teacherShort } from "@/lib/coverage";
 import { allTeachers, findAnyTeacher } from "@/lib/replace-teacher";
 import { substituteElsewhere } from "@/lib/sedi";
-import { ABSENCE_REASONS, type Absence } from "@/lib/types";
+import { ABSENCE_REASONS, type Absence, type Period } from "@/lib/types";
 import {
+  formatDayMonth,
   formatItFileDate,
   formatMedium,
   formatMonthYear,
@@ -34,6 +35,16 @@ export const Route = createFileRoute("/assenze")({ component: AssenzePage });
 
 const WEEKDAYS = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab"];
 
+/** «1ª, 2ª e 3ª ora» dalle ore scelte, nell'ordine della campanella. */
+function hoursText(ids: readonly string[], periods: readonly Period[]): string {
+  const labels = periods.filter((p) => ids.includes(p.id)).map((p) => p.label);
+  if (labels.length === 0) return "nessuna ora indicata";
+  if (!labels.every((l) => / ora$/.test(l))) return labels.join(", ");
+  const nums = labels.map((l) => l.replace(/ ora$/, ""));
+  const list = nums.length === 1 ? nums[0] : `${nums.slice(0, -1).join(", ")} e ${nums[nums.length - 1]}`;
+  return `${list} ora`;
+}
+
 function AssenzePage() {
   const store = useAppStore();
   // le assenze si coprono con l'orario in vigore (slot 0)
@@ -44,6 +55,11 @@ function AssenzePage() {
   const [editing, setEditing] = useState<Absence | null>(null);
   const [view, setView] = useState<"calendario" | "elenco">("calendario");
   const [monthIso, setMonthIso] = useState(data.selectedDate);
+  // il primo tocco su un giorno ne mostra il riepilogo sotto il calendario, il secondo apre la bacheca; all'inizio
+  // nessun giorno è scelto, così servono sempre due tocchi
+  const [peek, setPeek] = useState<string | null>(null);
+  const summaryRef = useRef<HTMLElement>(null);
+  const tapped = useRef<HTMLElement | null>(null);
   const initialRange = monthRange(data.selectedDate);
   const [from, setFrom] = useState(initialRange.from);
   const [to, setTo] = useState(initialRange.to);
@@ -69,12 +85,36 @@ function AssenzePage() {
   const withSaturday = data.settings.days.includes(6);
   const cells = useMemo(() => monthSchoolDays(monthIso, withSaturday), [monthIso, withSaturday]);
   const sintesi = useMemo(() => assemblySummary(data, data.selectedDate), [data]);
+  const peekDay = peek ? dayCoverage(data, peek, elsewhere) : null;
+  const peekRows = (peekDay?.absences ?? [])
+    .map((a) => {
+      const t = findAnyTeacher(data, a.teacherId);
+      const needs = (peekDay?.needs ?? []).filter((n) => n.absence.id === a.id);
+      const covered = needs.filter(isCovered).length;
+      return { a, name: t ? teacherName(t) : "Docente rimosso", hours: needs.length, covered };
+    })
+    .sort((x, y) => x.name.localeCompare(y.name, "it"));
+
+  // Il riepilogo sta sotto il calendario: se dopo il tocco resta fuori dallo schermo, la pagina sale quanto basta a
+  // vederne l'inizio, ma non oltre il giorno appena toccato, che deve restare a portata per il secondo tocco.
+  useEffect(() => {
+    const day = tapped.current;
+    const box = summaryRef.current;
+    tapped.current = null;
+    if (!day || !box) return;
+    const nav = document.querySelector<HTMLElement>("nav.fixed"); // barra in basso del telefono
+    const bottom = window.innerHeight - (nav?.offsetHeight ?? 0);
+    const want = box.getBoundingClientRect().top + Math.min(box.offsetHeight, 160) + 12 - bottom;
+    const room = day.getBoundingClientRect().top - 12;
+    const by = Math.min(want, room);
+    if (by > 0) window.scrollBy({ top: by, behavior: "smooth" });
+  }, [peek]);
 
   return (
     <div>
       <PageHeader
         title="Assenze e supplenze"
-        description="Calendario delle assenze e delle ore coperte. Seleziona un giorno per aprirne la bacheca."
+        description="Calendario delle assenze e delle ore coperte. Tocca un giorno per vederne il riepilogo, toccalo di nuovo per aprirne la bacheca."
         actions={
           <Button
             onClick={() => {
@@ -184,7 +224,7 @@ function AssenzePage() {
             {cells.map((iso) => {
               const inMonth = sameMonth(iso, monthIso);
               const summary = dayCoverage(data, iso, elsewhere);
-              const selected = iso === data.selectedDate;
+              const selected = iso === peek;
               const today = iso === todayIso();
               const names = summary.absences
                 .map((a) => findAnyTeacher(data, a.teacherId))
@@ -202,9 +242,15 @@ function AssenzePage() {
                 <button
                   key={iso}
                   type="button"
-                  onClick={() => {
-                    store.setSelectedDate(iso);
-                    void navigate({ to: "/" });
+                  aria-label={selected ? `${formatDayMonth(iso)}: apri la bacheca` : undefined}
+                  onClick={(e) => {
+                    if (selected) {
+                      store.setSelectedDate(iso);
+                      void navigate({ to: "/" });
+                      return;
+                    }
+                    tapped.current = e.currentTarget;
+                    setPeek(iso);
                   }}
                   className={cn(
                     "flex min-h-[4.75rem] flex-col rounded-lg px-1.5 py-1.5 text-left sm:min-h-[5.5rem] sm:px-2",
@@ -256,6 +302,77 @@ function AssenzePage() {
               <span className="size-2.5 rounded-sm bg-danger-soft ring-1 ring-border" /> Scoperto
             </li>
           </ul>
+          <section ref={summaryRef} aria-live="polite" className="mt-4 border-t border-border pt-4">
+            {peek && peekDay ? (
+              <>
+                <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                  <h2 className="font-display text-lg first-letter:uppercase">{formatDayMonth(peek)}</h2>
+                  {peekRows.length > 0 && (
+                    <p
+                      className={cn(
+                        "text-[13px] font-medium",
+                        peekDay.needs.length === 0
+                          ? "text-muted-foreground"
+                          : peekDay.uncovered > 0 || peekDay.doubled > 0
+                            ? "text-destructive"
+                            : "text-success",
+                      )}
+                    >
+                      {peekDay.needs.length === 0
+                        ? "Nessuna ora da coprire"
+                        : peekDay.uncovered > 0
+                          ? `${peekDay.uncovered} ${peekDay.uncovered === 1 ? "ora scoperta" : "ore scoperte"} su ${peekDay.needs.length}`
+                          : peekDay.doubled > 0
+                            ? `${countOf(peekDay.doubled, "ora", "ore")} con doppio incarico`
+                            : peekDay.needs.length === 1
+                              ? "1 ora, coperta"
+                              : `${peekDay.needs.length} ore, tutte coperte`}
+                    </p>
+                  )}
+                </div>
+                {peekRows.length === 0 ? (
+                  <p className="mt-1 text-sm text-muted-foreground">Nessuna assenza.</p>
+                ) : (
+                  <ul className="mt-1 flex flex-col divide-y divide-border/70">
+                    {peekRows.map(({ a, name, hours, covered }) => (
+                      <li key={a.id} className="flex items-start justify-between gap-3 py-2">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium">{name}</p>
+                          <p className="text-[12px] text-muted-foreground">
+                            {ABSENCE_REASONS.find((r) => r.value === a.reason)?.label ?? "Assenza"}
+                            {" · "}
+                            {a.allDay ? "tutto il giorno" : hoursText(a.periodIds, data.settings.periods)}
+                            {a.dateFrom !== a.dateTo ? ` · dal ${formatMedium(a.dateFrom)} al ${formatMedium(a.dateTo)}` : ""}
+                          </p>
+                          {a.notes && <p className="line-clamp-2 text-[12px] text-muted-foreground">{a.notes}</p>}
+                        </div>
+                        {/* con un solo assente il conto è già in alto, accanto alla data */}
+                        {peekRows.length > 1 && (
+                          <p
+                            className={cn(
+                              "shrink-0 text-right text-[12px] font-medium tabular-nums",
+                              hours === 0 ? "text-muted-foreground" : covered === hours ? "text-success" : "text-destructive",
+                            )}
+                          >
+                            {hours === 0
+                              ? "nessuna ora da coprire"
+                              : covered === hours
+                                ? countOf(hours, "ora coperta", "ore coperte")
+                                : `${hours - covered} ${hours - covered === 1 ? "scoperta" : "scoperte"} su ${hours}`}
+                          </p>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <p className="mt-2 text-[12px] text-muted-foreground">Tocca di nuovo il giorno per aprirne la bacheca.</p>
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Tocca un giorno per vederne qui il riepilogo; toccalo di nuovo per aprirne la bacheca.
+              </p>
+            )}
+          </section>
         </div>
       )}
 
