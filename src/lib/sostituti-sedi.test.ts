@@ -3,7 +3,8 @@ import { describe, it } from "node:test";
 import { autoAssignPlan, coverageNeeds, dayCoverage, doubleCovers, rankSubstitutes } from "./coverage.ts";
 import { buildSeed } from "./seed.ts";
 import { dailySheetHeading } from "./export.ts";
-import { absenceMirrors, editSede, substituteElsewhere } from "./sedi.ts";
+import { absenceMirrors, editSede, personReasonSpans, substituteElsewhere } from "./sedi.ts";
+import { spanMinutes } from "./coverage.ts";
 import type { PersistedData } from "./types.ts";
 
 const MON = "2026-11-02";
@@ -168,5 +169,25 @@ describe("sostituti con un impegno in un'altra sede l'ora prima o dopo", () => {
     assert.ok(autoAssignPlan(d, MON, check).every((p) => p.substituteId !== "t-fra-1"));
     // senza il controllo dell'altra sede nulla cambia
     assert.equal(rankSubstitutes(d, need).find((r) => r.teacher.id === "t-fra-1")!.travel, undefined);
+  });
+});
+
+describe("ore di assemblea di chi lavora in più sedi", () => {
+  it("si sommano le sedi; la stessa ora segnata in due sedi conta una volta", () => {
+    const { data } = setup();
+    const assembly = (id: string, teacherId: string, periodIds: string[]) => ({
+      ...absenceOf(teacherId, MON),
+      id,
+      reason: "assemblea_sindacale" as const,
+      allDay: false,
+      periodIds,
+    });
+    const here = { ...data, absences: [...data.absences, assembly("a-qui", "t-fra-1", ["p1", "p2"])] };
+    const both = editSede(here, "sede-esempio-b", (b) => ({ ...b, absences: [...b.absences, assembly("a-la", "tb-fra-1", ["p2", "p3"])] }));
+    const used = (d: PersistedData, skip?: string) =>
+      spanMinutes(personReasonSpans(d, "t-fra-1", "assemblea_sindacale", "2026-09-01", "2027-08-31", skip));
+    assert.equal(used(here), 110, "1ª e 2ª ora qui");
+    assert.equal(used(both), 165, "la 2ª ora, segnata in tutte e due le sedi, conta una volta");
+    assert.equal(used(both, "a-qui"), 110, "senza l'assenza che si modifica restano le ore dell'altra sede");
   });
 });
