@@ -65,10 +65,8 @@
 
 ## Controlli prima di un push
 
-- Test di `src/lib`: per ogni `src/lib/*.test.ts`
-  `node_modules/.bin/rolldown <file> --platform node --format esm --file <cartella>/<nome>.mjs`,
-  poi `node --test <cartella>/*.mjs` (197 test al 19/10/2026). `npm test` non li esegue.
-- `npx tsc --noEmit`: nessun errore (dal 19/10/2026); deve restare così.
+- Test di `src/lib`: `npx tsx --test src/lib/*.test.ts`. `npm test` esegue solo quelli di `scripts/`.
+- `npx tsc --noEmit`: nessun errore; deve restare così.
 - `GITHUB_PAGES=true BASE_PATH=/gestione-docenti-multisede/ npm run build:pages` deve riuscire.
 - Nei test del motore usa l'orologio finto (`now: ticks()` in `src/lib/timetable-solver.test.ts`), così
   il risultato non dipende dalla velocità del computer. Il test «al massimo un'ora libera tra le
@@ -281,7 +279,7 @@ riga mostra un avviso.
 
 ## Piano a tappe
 
-0. Distinguere le due app: icona, nome «Orario Generale», README e GUIDA-GITHUB con il nuovo indirizzo,
+0. Distinguere le due app: icona, nome «Orario Generale», README con il nuovo indirizzo,
    via «Scarica zip per GitHub».
 1. Voce «Sedi» nel menu, dopo Classi: per ogni sede nome, responsabile, giorni e campanella. Ogni classe
    in una sede. Docenti: elenco unico con filtri per sede e per materia, ore per sede nella scheda, sede

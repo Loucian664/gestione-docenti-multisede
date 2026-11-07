@@ -24,13 +24,13 @@ I dati delle due app sono **separati**: quello che si fa in una non compare nell
 
 ## Funzioni
 
+- Sedi: le sedi dell’istituto, con il backup di una sola sede per l’app della singola scuola («Esporta sede»)
 - Orario per classe, per docente e quadro settimanale
-- Costruisci: proposta di orario a partire da cattedre, vincoli e ore dei docenti in altre sedi
+- Costruisci: proposta di orario per una sede o per tutte le sedi insieme, a partire da cattedre, vincoli e ore dei docenti in altre sedi
+- Calcolo lungo dell’orario con un assistente di programmazione (istruzioni in `CALCOLO-LUNGO.md`)
 - Registro quotidiano: assenze, coperture, disponibilità
 - Esportazione in Excel, PDF e immagine
 - Backup e ripristino in JSON
-
-In arrivo: la sezione **Sedi**, l’orario costruito per tutte le sedi insieme e l’esportazione dell’orario di una sede per l’app della singola scuola.
 
 I dati restano **locali al browser**. Il sito ospita solo il programma: ogni dispositivo ha i suoi dati, salvo importazione di un backup.
 
@@ -52,5 +52,3 @@ Le modifiche pubblicate su `main` aggiornano automaticamente il sito (GitHub Pag
 ## Nota
 
 Uso interno scolastico. Non sostituisce il registro ufficiale.
-
-Basata su Gestione Docenti, fatta con Grok Build (beta).
