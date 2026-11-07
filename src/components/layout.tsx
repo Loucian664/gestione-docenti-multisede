@@ -204,9 +204,10 @@ export function AppLayout({ children }: { children: ReactNode }) {
       <div className="flex min-w-0 flex-1 flex-col">
         <header
           data-print-hide
-          className="flex items-center justify-between gap-3 border-b border-border bg-card/80 px-4 py-3 backdrop-blur md:hidden"
+          className="flex items-center justify-between gap-2 border-b border-border bg-card/80 px-4 py-3 backdrop-blur md:hidden"
         >
-          <div>
+          {/* può stringersi: con la scritta a 16 px del telefono la sede, le icone e «N scoperte» non stavano più in 320–390 px */}
+          <div className="min-w-0">
             <p className="font-display text-lg leading-none">Orario Generale</p>
             {persistReady ? (
               <SedeSwitcher compact />
@@ -216,7 +217,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
           </div>
           <div className="flex items-center gap-1">
             {persistReady && uncovered > 0 && (
-              <span className="mr-1 rounded-full bg-danger-soft px-2 py-1 text-[11px] font-semibold text-destructive tabular-nums">
+              <span className="mr-1 shrink-0 whitespace-nowrap rounded-full bg-danger-soft px-2 py-1 text-[11px] font-semibold text-destructive tabular-nums">
                 {uncovered === 1 ? "1 scoperta" : `${uncovered} scoperte`}
               </span>
             )}
@@ -313,7 +314,7 @@ function SedeSwitcher({ compact = false, className }: { compact?: boolean; class
         className={cn(
           "block max-w-full min-w-0 appearance-none rounded-md pr-6 focus-visible:outline-none focus-visible:ring-2",
           compact
-            ? "mt-1.5 h-11 w-full min-w-[11rem] border border-border bg-card pl-3 pr-8 text-sm font-medium text-foreground shadow-sm focus-visible:ring-ring/30"
+            ? "mt-1.5 h-11 w-full border border-border bg-card pl-3 pr-8 text-sm font-medium text-foreground shadow-sm focus-visible:ring-ring/30"
             : "h-9 w-full border border-white/15 bg-white/5 pl-2.5 text-[13px] font-medium text-sidebar-foreground hover:bg-white/10 focus-visible:ring-white/30",
         )}
         style={

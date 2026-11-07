@@ -143,10 +143,11 @@ function SedeClasses({
                         </span>
                       )}
                     </button>
+                    {/* larga quanto la scelta più lunga: «Tempo prolungato» si legge anche sul telefono */}
                     <NativeSelect
                       value={c.tempo}
                       aria-label={`Tempo ${c.name}`}
-                      className="h-10 w-40 shrink-0"
+                      className="h-10 w-auto shrink-0"
                       onChange={(e) => onTempo(c, e.target.value as Tempo)}
                     >
                       <option value="TN">Tempo normale</option>

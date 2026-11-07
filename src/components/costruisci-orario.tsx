@@ -4174,48 +4174,65 @@ function CattedrePanel({
             <tr className="border-b border-border text-left text-[12px] text-muted-foreground">
               <th className="py-1.5 font-medium">Materia</th>
               <th className="py-1.5 pr-2 text-right font-medium">Ore</th>
-              <th className="py-1.5 font-medium">Docente</th>
+              <th className="py-1.5 font-medium max-sm:hidden">Docente</th>
               <th className="w-10 py-1.5" />
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => (
-              <tr key={row.subject} className="border-b border-border/70 last:border-0">
-                <td className="py-1.5 pr-2">{row.subject}</td>
-                <td className="py-1.5">
-                  <Input
-                    type="number"
-                    min={0}
-                    max={18}
-                    inputMode="numeric"
-                    className="ml-auto h-10 w-16 text-right tabular-nums"
-                    value={row.hours}
-                    onChange={(e) => patch(row.subject, { hours: Math.max(0, Number(e.target.value) || 0) })}
-                    aria-label={`Ore di ${row.subject}`}
-                  />
-                </td>
-                <td className="py-1.5">
-                  <NativeSelect value={row.teacherId} onChange={(e) => patch(row.subject, { teacherId: e.target.value })}>
-                    <option value="">— scegli —</option>
-                    {teachers.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {teacherName(t)}
-                      </option>
-                    ))}
-                  </NativeSelect>
-                </td>
-                <td className="py-1.5 text-right">
-                  <button
-                    type="button"
-                    className="inline-flex size-10 items-center justify-center text-muted-foreground"
-                    aria-label={`Togli ${row.subject}`}
-                    onClick={() => onWrite(cattedre.filter((r) => !(r.classId === classId && r.subject === row.subject)))}
-                  >
-                    <X className="size-4" aria-hidden />
-                  </button>
-                </td>
-              </tr>
-            ))}
+            {rows.map((row, i) => {
+              const last = i === rows.length - 1;
+              const docente = (
+                <NativeSelect
+                  value={row.teacherId}
+                  aria-label={`Docente di ${row.subject}`}
+                  onChange={(e) => patch(row.subject, { teacherId: e.target.value })}
+                >
+                  <option value="">— scegli —</option>
+                  {teachers.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {teacherName(t)}
+                    </option>
+                  ))}
+                </NativeSelect>
+              );
+              // sul telefono il docente va nella riga sotto, a tutta larghezza: accanto a materia e ore il nome
+              // restava tagliato
+              return (
+                <Fragment key={row.subject}>
+                  <tr className={cn("border-border/70", !last && "sm:border-b")}>
+                    <td className="py-1.5 pr-2">{row.subject}</td>
+                    <td className="py-1.5">
+                      <Input
+                        type="number"
+                        min={0}
+                        max={18}
+                        inputMode="numeric"
+                        className="ml-auto h-10 w-16 text-right tabular-nums"
+                        value={row.hours}
+                        onChange={(e) => patch(row.subject, { hours: Math.max(0, Number(e.target.value) || 0) })}
+                        aria-label={`Ore di ${row.subject}`}
+                      />
+                    </td>
+                    <td className="py-1.5 max-sm:hidden">{docente}</td>
+                    <td className="py-1.5 text-right">
+                      <button
+                        type="button"
+                        className="inline-flex size-10 items-center justify-center text-muted-foreground"
+                        aria-label={`Togli ${row.subject}`}
+                        onClick={() => onWrite(cattedre.filter((r) => !(r.classId === classId && r.subject === row.subject)))}
+                      >
+                        <X className="size-4" aria-hidden />
+                      </button>
+                    </td>
+                  </tr>
+                  <tr className={cn("sm:hidden", !last && "border-b border-border/70")}>
+                    <td colSpan={4} className="pb-2">
+                      {docente}
+                    </td>
+                  </tr>
+                </Fragment>
+              );
+            })}
           </tbody>
           <tfoot>
             <tr>
