@@ -54,6 +54,7 @@ import {
 } from "@/lib/timetable-solver";
 import { runTimetable, runTimetableVersions, type RunProgress } from "@/lib/timetable-runner";
 import { teacherName, teacherShort } from "@/lib/coverage";
+import { hourState, hourWords, weekChanges, type TeacherChanges, type WeekView } from "@/lib/confronto-orari";
 import { subjectAbbr, weekCellLines } from "@/lib/sheet-image";
 import {
   DAY_SHORT,
@@ -224,6 +225,8 @@ export function CostruisciOrario({
   const [newSubject, setNewSubject] = useState("");
   const [newHours, setNewHours] = useState("1");
   const [previewMode, setPreviewMode] = useState<"settimana" | "docenti" | "class" | "quadro">("settimana");
+  // scheda «Docenti»: l'orario nuovo (proposta o slot aperto) oppure quello in vigore, per confrontarli
+  const [docentiShow, setDocentiShow] = useState<"nuovo" | "vigore">("nuovo");
   const [previewClassId, setPreviewClassId] = useState(data.classes[0]?.id ?? "");
   const [previewDay, setPreviewDay] = useState<DayOfWeek>(data.settings.days[0] ?? 1);
   const [classPick, setClassPick] = useState<ClassPick | null>(null);
@@ -366,6 +369,34 @@ export function CostruisciOrario({
     () => (previewSlots ? { ...propBase, slots: previewSlots } : null),
     [propBase, previewSlots],
   );
+  // scheda «Docenti»: le ore a disposizione della proposta e il confronto con l'orario in vigore
+  const propDisp = useMemo(
+    () => (result ? dispOutcome(propBase, result.slots, result.disp).dispSlots : {}),
+    [propBase, result],
+  );
+  const inUseReport = useMemo(
+    () => (previewMode === "docenti" && result ? evaluateCurrent(data) : null),
+    [previewMode, result, data],
+  );
+  const docentiChanges = useMemo(() => {
+    if (!previewData || !proposalReport || !inUseReport) return null;
+    return weekChanges(
+      { data, teachers: included, gaps: inUseReport.gapsByTeacher },
+      {
+        data: previewData,
+        teachers: previewTeachers,
+        gaps: proposalReport.gapsByTeacher,
+        disp: propDisp,
+        added: dispPlan?.moves ?? [],
+      },
+      data.settings.days,
+      corePeriods(data.settings.periods),
+    );
+  }, [previewData, proposalReport, inUseReport, data, included, previewTeachers, propDisp, dispPlan]);
+  const hasDocentiChanges = (docentiChanges?.length ?? 0) > 0;
+  const showVigore = docentiShow === "vigore" && hasDocentiChanges && inUseReport !== null;
+  // una proposta nuova (o un altro slot) si guarda dall'orario nuovo
+  useEffect(() => setDocentiShow("nuovo"), [result]);
   // la testata di «Proposta» (fissa in alto) è in vista? Allora la barra di avanzamento sta lì
   const showHeader = Boolean(!edit && previewSlots && previewData && result);
   useEffect(() => {
@@ -1116,6 +1147,9 @@ export function CostruisciOrario({
                 {savedIn ? `Salvata nello slot ${savedIn}` : openSave ? "Aperto dallo slot" : "Non ancora salvata"}
               </span>
             )}
+            {previewMode === "docenti" && hasDocentiChanges && (
+              <VigoreSwitch value={showVigore ? "vigore" : "nuovo"} onChange={setDocentiShow} />
+            )}
             {/* «Salva» resta in alto anche sul telefono; sul computer va prima di «Usa…» */}
             <Button
               variant="outline"
@@ -1266,15 +1300,40 @@ export function CostruisciOrario({
           )}
 
           {previewMode === "docenti" && (
-            <TeacherWeekPreview
-              data={previewData}
-              report={proposalReport}
-              added={dispPlan?.moves ?? []}
-              disp={dispOutcome(propBase, result.slots, result.disp).dispSlots}
-              teachers={previewTeachers}
-              days={data.settings.days}
-              periods={morning}
-            />
+            <>
+              {docentiChanges && (
+                <DocentiChanges
+                  changes={docentiChanges}
+                  teachers={previewTeachers.length}
+                  showing={showVigore ? "vigore" : "nuovo"}
+                  what={openSave ? `lo slot ${openSave.n}` : "la proposta"}
+                />
+              )}
+              {/* stesso riquadro per i due orari: passando dall'uno all'altro la tabella resta dov'è */}
+              {showVigore && inUseReport ? (
+                <TeacherWeekPreview
+                  key="docenti"
+                  data={data}
+                  report={inUseReport}
+                  added={[]}
+                  disp={{}}
+                  teachers={included}
+                  days={data.settings.days}
+                  periods={morning}
+                />
+              ) : (
+                <TeacherWeekPreview
+                  key="docenti"
+                  data={previewData}
+                  report={proposalReport}
+                  added={dispPlan?.moves ?? []}
+                  disp={propDisp}
+                  teachers={previewTeachers}
+                  days={data.settings.days}
+                  periods={morning}
+                />
+              )}
+            </>
           )}
 
           {previewMode === "class" && (
@@ -3658,6 +3717,100 @@ function ClassPickDialog({
   );
 }
 
+/** Scheda «Docenti»: «Nuovo» (la proposta o lo slot aperto) oppure «In vigore»; sta nella testata fissa in alto. */
+function VigoreSwitch({ value, onChange }: { value: "nuovo" | "vigore"; onChange: (v: "nuovo" | "vigore") => void }) {
+  const items = [
+    { value: "nuovo", label: "Nuovo" },
+    { value: "vigore", label: "In vigore" },
+  ] as const;
+  return (
+    <div
+      role="group"
+      aria-label="Orario da guardare"
+      className="flex gap-1 rounded-lg bg-secondary p-1 max-md:order-last max-md:w-full"
+    >
+      {items.map((it) => (
+        <button
+          key={it.value}
+          type="button"
+          aria-pressed={value === it.value}
+          onClick={() => onChange(it.value)}
+          className={cn(
+            "h-8 rounded-md px-3 text-[13px] font-medium max-md:flex-1",
+            value === it.value ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          {it.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Scheda «Docenti»: le ore che cambiano rispetto all’orario in vigore, docente per docente. */
+function DocentiChanges({
+  changes,
+  teachers,
+  showing,
+  what,
+}: {
+  changes: TeacherChanges[];
+  /** quanti docenti ci sono nella scheda */
+  teachers: number;
+  showing: "nuovo" | "vigore";
+  /** «la proposta» o «lo slot 2» */
+  what: string;
+}) {
+  const total = changes.reduce((n, c) => n + c.changes.length, 0);
+  if (!total) {
+    return <p className="mt-3 text-[13px] text-muted-foreground">Nessuna ora cambia rispetto all’orario in vigore.</p>;
+  }
+  // con molti cambi (un orario nuovo) l'elenco resta chiuso: si apre docente per docente
+  const open = total <= 12;
+  const others = teachers - changes.length;
+  return (
+    <div className="mt-3 flex flex-col gap-2">
+      <p className="text-[13px]">
+        Rispetto all’orario in vigore {total === 1 ? "cambia" : "cambiano"}{" "}
+        <span className="font-semibold">{countOf(total, "ora", "ore")}</span> di{" "}
+        {countOf(changes.length, "docente", "docenti")}
+        {others === 1 ? "; l’altro docente non cambia" : others > 1 ? `; gli altri ${others} non cambiano` : ""}.
+      </p>
+      <div className="flex flex-col gap-1.5">
+        {changes.map(({ teacher, changes: list }) => (
+          <details key={teacher.id} open={open} className="rounded-lg border border-border bg-card px-3 py-1.5">
+            <summary className="cursor-pointer text-[13px] font-medium">
+              {teacherName(teacher)}{" "}
+              <span className="font-normal text-muted-foreground">
+                · {countOf(list.length, "ora cambiata", "ore cambiate")}
+              </span>
+            </summary>
+            <ul className="mb-1 mt-1 flex list-disc flex-col gap-0.5 pl-5 text-[13px]">
+              {list.map((c) => (
+                <li key={`${c.day}-${c.periodId}`}>
+                  <span className="font-medium">
+                    {DAY_SHORT[c.day]} {c.index}ª
+                  </span>{" "}
+                  · prima {hourWords(c.before)}, ora {hourWords(c.after)}
+                </li>
+              ))}
+            </ul>
+          </details>
+        ))}
+      </div>
+      {/* sempre una riga sola: passando da «Nuovo» a «In vigore» la tabella non si sposta */}
+      <p
+        className={cn(
+          "rounded-lg px-3 py-2 text-[13px] font-medium",
+          showing === "vigore" ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground",
+        )}
+      >
+        {showing === "vigore" ? "Qui sotto: l’orario in vigore" : `Qui sotto: ${what}`}
+      </p>
+    </div>
+  );
+}
+
 function TeacherWeekPreview({
   data,
   report,
@@ -3689,10 +3842,7 @@ function TeacherWeekPreview({
   };
 }) {
   const gapsOf = new Map(report.gapsByTeacher.map((g) => [g.id, g]));
-  const has = (list: { day: DayOfWeek; periodId: string }[] | undefined, day: DayOfWeek, periodId: string) =>
-    (list ?? []).some((a) => a.day === day && a.periodId === periodId);
-  const isAdded = (teacherId: string, day: DayOfWeek, periodId: string) =>
-    added.some((m) => m.teacherId === teacherId && m.to.day === day && m.to.periodId === periodId);
+  const view: WeekView = { data, teachers, gaps: report.gapsByTeacher, disp, added, away: sedi?.away };
   return (
     <div className="paper-panel mt-3 overflow-x-auto rounded-xl">
       <p className="px-3 pt-3 text-[12px] text-muted-foreground">
@@ -3720,9 +3870,7 @@ function TeacherWeekPreview({
         <tbody>
           {teachers.map((t) => {
             const g = gapsOf.get(t.id);
-            const tDisp = disp[t.id] ?? t.dispSlots;
             const tSedi = sedi?.teacher(t.id) ?? [];
-            const away = sedi ? sedi.away(t.id) : t.awaySlots;
             return (
               <tr key={t.id} className="border-b border-border align-top last:border-0">
                 <td className="sticky left-0 z-10 bg-card px-3 py-2">
@@ -3738,53 +3886,49 @@ function TeacherWeekPreview({
                 {days.map((d) => (
                   <td key={d} className="px-2 py-2 text-[11px] font-normal leading-[1.35]">
                     {periods.map((p) => {
-                      const slot = data.slots.find((s) => s.teacherId === t.id && s.day === d && s.periodId === p.id);
-                      const cls = slot ? data.classes.find((c) => c.id === slot.classId) : null;
-                      // con tutte le sedi il nome della classe porta la sede (« · Rombiolo»): qui la sede va a parte
-                      const sede = slot && sedi ? sedi.of(slot.classId) : undefined;
-                      if (slot)
-                        return (
-                          <div key={p.id} className={cn("text-foreground", sedi && "whitespace-nowrap")}>
-                            {p.index} {(sedi ? cls?.name.split(" · ")[0] : cls?.name) ?? ""}{" "}
-                            <span className="font-semibold">{slot.subject}</span>
-                            {sede && tSedi.length > 1 && (
-                              <span className="text-muted-foreground">
-                                {" "}
-                                ·{" "}
-                                <span
-                                  aria-hidden
-                                  className="inline-block size-2 rounded-full align-middle"
-                                  style={{ background: sede.color }}
-                                />{" "}
-                                {sede.name}
-                              </span>
-                            )}
-                          </div>
-                        );
-                      if (isAdded(t.id, d, p.id))
-                        return (
-                          <div key={p.id}>
-                            {p.index} <span className="rounded bg-success-soft px-1 font-medium text-success">+ disp.</span>
-                          </div>
-                        );
-                      if (has(g?.cells, d, p.id))
-                        return (
-                          <div key={p.id}>
-                            {p.index} <span className="rounded bg-warning-soft px-1 font-medium text-warning">buca</span>
-                          </div>
-                        );
-                      return (
-                        <div key={p.id} className="text-ink-faint">
-                          {p.index}{" "}
-                          {has(tDisp, d, p.id)
-                            ? "disp."
-                            : (away ?? []).some((a) => a.progetto && sameCell(a, d, p.id))
-                              ? "progetto"
-                              : has(away, d, p.id)
-                                ? "altrove"
-                                : " —"}
-                        </div>
-                      );
+                      const hour = hourState(view, t, d, p.id);
+                      switch (hour.kind) {
+                        case "lezione": {
+                          // con tutte le sedi il nome della classe porta la sede (« · Rombiolo»): qui la sede va a parte
+                          const sede = sedi ? sedi.of(hour.classId) : undefined;
+                          return (
+                            <div key={p.id} className={cn("text-foreground", sedi && "whitespace-nowrap")}>
+                              {p.index} {sedi ? hour.className.split(" · ")[0] : hour.className}{" "}
+                              <span className="font-semibold">{hour.subject}</span>
+                              {sede && tSedi.length > 1 && (
+                                <span className="text-muted-foreground">
+                                  {" "}
+                                  ·{" "}
+                                  <span
+                                    aria-hidden
+                                    className="inline-block size-2 rounded-full align-middle"
+                                    style={{ background: sede.color }}
+                                  />{" "}
+                                  {sede.name}
+                                </span>
+                              )}
+                            </div>
+                          );
+                        }
+                        case "buca":
+                          return (
+                            <div key={p.id}>
+                              {p.index} <span className="rounded bg-warning-soft px-1 font-medium text-warning">buca</span>
+                            </div>
+                          );
+                        default:
+                          if (hour.kind === "disp" && hour.added)
+                            return (
+                              <div key={p.id}>
+                                {p.index} <span className="rounded bg-success-soft px-1 font-medium text-success">+ disp.</span>
+                              </div>
+                            );
+                          return (
+                            <div key={p.id} className="text-ink-faint">
+                              {p.index} {FAINT_HOUR[hour.kind]}
+                            </div>
+                          );
+                      }
                     })}
                   </td>
                 ))}
@@ -3796,6 +3940,14 @@ function TeacherWeekPreview({
     </div>
   );
 }
+
+/** Scritte grigie della scheda «Docenti». */
+const FAINT_HOUR: Record<"disp" | "progetto" | "altrove" | "libera", string> = {
+  disp: "disp.",
+  progetto: "progetto",
+  altrove: "altrove",
+  libera: " —",
+};
 
 function CellBody({
   occupants,
@@ -4634,37 +4786,40 @@ const VERSIONI_SCELTE: { value: VersioniScelta; label: string }[] = [
 /** la scelta delle versioni, ricordata su questo dispositivo */
 const VERSIONI_KEY = "gestione-docenti-multisede-versioni";
 
+/** I docenti della vista Docenti per tutte le sedi (chi ha ore in almeno una sede) e le loro sedi. */
+function insiemeDocentiInfo(data: PersistedData, joint: InsiemeData) {
+  const list = allSedi(data);
+  const byId = new Map(list.map((s) => [s.id, { name: sedeName(s.data.settings), color: sedeColor(sedeColorIndex(data, s.id)) }]));
+  const sedeIdOfClass = (classId: string) => classId.split("~")[0]!;
+  const tSedi = new Map<string, string[]>();
+  for (const t of joint.teachers) {
+    const ids = new Set(joint.slots.filter((x) => x.teacherId === t.id).map((x) => sedeIdOfClass(x.classId)));
+    tSedi.set(t.id, list.filter((s) => ids.has(s.id)).map((s) => sedeName(s.data.settings)));
+  }
+  const teachers = joint.teachers
+    .filter((t) => isTimetableTeacher(t) && (tSedi.get(t.id)?.length ?? 0) > 0)
+    .sort((a, b) => teacherName(a).localeCompare(teacherName(b), "it"));
+  return {
+    teachers,
+    sedi: {
+      of: (classId: string) => byId.get(sedeIdOfClass(classId)),
+      teacher: (id: string) => tSedi.get(id) ?? [],
+      // le × di chi è in più sedi stanno sede per sede; quelle degli altri nella scheda
+      away: (id: string) => [
+        ...(joint.insieme.sedeAway[id] ?? []),
+        ...(joint.teachers.find((t) => t.id === id)?.awaySlots ?? []),
+      ],
+    },
+  };
+}
+
 /**
  * Vista Docenti della proposta per tutte le sedi: come con una sede sola (ogni giorno le ore una sotto l'altra,
  * buche e disposizioni), con le sedi del docente e, per chi è in più sedi, la sede accanto a ogni ora.
  */
 function InsiemeDocenti({ data, joint, report }: { data: PersistedData; joint: InsiemeData; report: TimetableReport }) {
   const [onlyShared, setOnlyShared] = useState(false);
-  const info = useMemo(() => {
-    const list = allSedi(data);
-    const byId = new Map(list.map((s) => [s.id, { name: sedeName(s.data.settings), color: sedeColor(sedeColorIndex(data, s.id)) }]));
-    const sedeIdOfClass = (classId: string) => classId.split("~")[0]!;
-    const tSedi = new Map<string, string[]>();
-    for (const t of joint.teachers) {
-      const ids = new Set(joint.slots.filter((x) => x.teacherId === t.id).map((x) => sedeIdOfClass(x.classId)));
-      tSedi.set(t.id, list.filter((s) => ids.has(s.id)).map((s) => sedeName(s.data.settings)));
-    }
-    const teachers = joint.teachers
-      .filter((t) => isTimetableTeacher(t) && (tSedi.get(t.id)?.length ?? 0) > 0)
-      .sort((a, b) => teacherName(a).localeCompare(teacherName(b), "it"));
-    return {
-      teachers,
-      sedi: {
-        of: (classId: string) => byId.get(sedeIdOfClass(classId)),
-        teacher: (id: string) => tSedi.get(id) ?? [],
-        // le × di chi è in più sedi stanno sede per sede; quelle degli altri nella scheda
-        away: (id: string) => [
-          ...(joint.insieme.sedeAway[id] ?? []),
-          ...(joint.teachers.find((t) => t.id === id)?.awaySlots ?? []),
-        ],
-      },
-    };
-  }, [data, joint]);
+  const info = useMemo(() => insiemeDocentiInfo(data, joint), [data, joint]);
   const shown = onlyShared ? info.teachers.filter((t) => info.sedi.teacher(t.id).length > 1) : info.teachers;
   return (
     <div>
@@ -4874,12 +5029,13 @@ function InsiemeProposta({
     }),
     [chosen],
   );
+  const inUseJoint = useMemo(() => buildInsieme(data).joint, [data]);
   const inUse = useMemo(
     () => ({
-      total: evaluateCurrent(buildInsieme(data).joint),
+      total: evaluateCurrent(inUseJoint),
       sedi: new Map(allSedi(data).map((x) => [x.id, evaluateCurrent(withOtherSedi(switchSede(data, x.id)))])),
     }),
-    [data],
+    [data, inUseJoint],
   );
   const [numbers, setNumbers] = useState("tutte");
   const pickedSede = final.sedi.find((x) => x.id === numbers) ?? null;
@@ -4917,6 +5073,27 @@ function InsiemeProposta({
   );
   const sedi = vistaSedi(final.after);
   const [view, setView] = useState<"giorno" | "settimana" | "docenti" | "classe">("giorno");
+  // vista Docenti: l'orario nuovo (proposta o slot aperto) oppure quello in vigore, per confrontarli
+  const [docentiShow, setDocentiShow] = useState<"nuovo" | "vigore">("nuovo");
+  const docentiChanges = useMemo(() => {
+    if (view !== "docenti") return null;
+    const after = insiemeDocentiInfo(final.after, final.joint);
+    const before = insiemeDocentiInfo(data, inUseJoint);
+    return weekChanges(
+      { data: inUseJoint, teachers: before.teachers, gaps: inUse.total.gapsByTeacher, away: before.sedi.away },
+      { data: final.joint, teachers: after.teachers, gaps: final.total.gapsByTeacher, away: after.sedi.away },
+      final.joint.settings.days,
+      corePeriods(final.joint.settings.periods),
+    );
+  }, [view, final, data, inUseJoint, inUse]);
+  const docentiCount = useMemo(
+    () => (view === "docenti" ? insiemeDocentiInfo(final.after, final.joint).teachers.length : 0),
+    [view, final],
+  );
+  const hasDocentiChanges = (docentiChanges?.length ?? 0) > 0;
+  const showVigore = docentiShow === "vigore" && hasDocentiChanges;
+  // un'altra versione, un'altra proposta o un altro slot si guarda dall'orario nuovo
+  useEffect(() => setDocentiShow("nuovo"), [value, version]);
   const [day, setDay] = useState<DayOfWeek>(data.settings.days[0] ?? 1);
   const [dialog, setDialog] = useState<"save" | "use" | null>(null);
   const name = value.slot
@@ -5006,6 +5183,9 @@ function InsiemeProposta({
               );
             })}
           </div>
+        )}
+        {view === "docenti" && hasDocentiChanges && (
+          <VigoreSwitch value={showVigore ? "vigore" : "nuovo"} onChange={setDocentiShow} />
         )}
         {running ? (
           <SearchBar progress={running} className="min-w-0 flex-1 md:mr-auto md:flex-none" />
@@ -5136,7 +5316,24 @@ function InsiemeProposta({
         )}
         {view === "giorno" && <GiornoGenerale sedi={sedi} day={day} />}
         {view === "settimana" && <SettimanaGenerale sedi={sedi} />}
-        {view === "docenti" && <InsiemeDocenti data={final.after} joint={final.joint} report={final.total} />}
+        {view === "docenti" && (
+          <div>
+            {docentiChanges && (
+              <DocentiChanges
+                changes={docentiChanges}
+                teachers={docentiCount}
+                showing={showVigore ? "vigore" : "nuovo"}
+                what={value.slot ? `lo slot ${value.slot.n}` : "la proposta"}
+              />
+            )}
+            {/* stesso riquadro per i due orari: passando dall'uno all'altro la tabella resta dov'è */}
+            {showVigore ? (
+              <InsiemeDocenti key="docenti" data={data} joint={inUseJoint} report={inUse.total} />
+            ) : (
+              <InsiemeDocenti key="docenti" data={final.after} joint={final.joint} report={final.total} />
+            )}
+          </div>
+        )}
         {view === "classe" && <ClasseGenerale sedi={sedi} />}
       </div>
 
