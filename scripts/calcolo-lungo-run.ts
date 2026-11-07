@@ -86,6 +86,8 @@ type Args = {
   request: LongRunRequest;
   runSeconds: number;
   workers: number;
+  /** ogni quanti minuti si scrive il file di uscita con le versioni migliori trovate finora */
+  saveMinutes: number;
 };
 
 function numbers(v: string | undefined): number[] {
@@ -119,6 +121,7 @@ function parseArgs(argv: string[]): Args {
     },
     runSeconds: Number(get("corsa") ?? 120),
     workers: Number(get("processi") ?? Math.max(1, availableParallelism() - 1)),
+    saveMinutes: Number(get("salva-ogni") ?? 5),
   };
 }
 
@@ -160,11 +163,74 @@ export async function main(argv: string[], bundle: string): Promise<void> {
   const jointPool: JointCandidate[] = [];
   let runs = 0;
   let complete = 0;
+  let changed = false;
   const keep = <T extends Candidate | JointCandidate>(list: T[], c: T, cap: number) => {
     list.push(c);
     list.sort((a, b) => compareReports(a.report, b.report));
     if (list.length > cap) list.length = cap;
+    changed = true;
   };
+
+  const ordered = [...slots].sort((a, b) => a - b);
+  /** Scrive le versioni migliori trovate finora; `null` se non ce n'è ancora nessuna completa. */
+  const writeVersions = (): { lines: string[]; written: number } | null => {
+    let out: PersistedData;
+    let lines: string[];
+    if (all) {
+      const versions = pickJointVersions(jointPool, plan);
+      if (versions.length === 0) return null;
+      const placed = versions.map((v, i) => ({
+        n: ordered[i]!,
+        name: `Calcolo lungo ${i + 1} di ${versions.length} · ${INSIEME_VERSIONI.find((x) => x.key === v.versione)!.short}`,
+        parts: v.parts,
+      }));
+      out = withJointVersions(data, placed);
+      for (const p of placed) {
+        for (const sede of allSedi(out)) {
+          const saved = sede.data.savedTimetables?.find((s) => s.n === p.n);
+          if (!saved || saved.lessons.length !== (p.parts[sede.id]?.lessons.length ?? -1) || !saved.calcoloLungo) {
+            throw new Error(`slot ${p.n} non scritto in ${sedeName(sede.data.settings)}`);
+          }
+        }
+      }
+      lines = placed.map((p, i) => `- slot ${p.n} (tutte le sedi): «${p.name}» (${reportLine(versions[i]!.report)})`);
+    } else {
+      const versions = pickVersions(pool, slots.length);
+      if (versions.length === 0) return null;
+      const placed = versions.map((v, i) => ({ n: ordered[i]!, name: `Calcolo lungo ${i + 1} di ${versions.length}`, part: v.part }));
+      out = withVersions(data, placed);
+      for (const p of placed) {
+        const saved = out.savedTimetables?.find((s) => s.n === p.n);
+        if (!saved || saved.lessons.length !== p.part.lessons.length || !saved.calcoloLungo) throw new Error(`slot ${p.n} non scritto`);
+      }
+      lines = placed.map((p, i) => `- slot ${p.n}: «${p.name}» (${reportLine(versions[i]!.report)})`);
+    }
+    writeFileSync(args.out, backupJson(out));
+    changed = false;
+    return { lines, written: lines.length };
+  };
+
+  const workers: Worker[] = [];
+  // fermato prima della fine (Ctrl+C, tempo massimo dell'assistente…): salva quello che c'è ed esce
+  const stop = (signal: string) => {
+    const done = pool.length || jointPool.length ? writeVersions() : null;
+    console.log(
+      done
+        ? `\nFermato (${signal}) dopo ${runs} corse: ${done.written} versioni scritte in ${args.out}.`
+        : `\nFermato (${signal}) dopo ${runs} corse: ancora nessuna versione completa, il backup non è stato scritto.`,
+    );
+    for (const l of done?.lines ?? []) console.log(l);
+    for (const w of workers) void w.terminate();
+    process.exit(done ? 0 : 1);
+  };
+  process.once("SIGINT", () => stop("SIGINT"));
+  process.once("SIGTERM", () => stop("SIGTERM"));
+  process.once("SIGHUP", () => stop("SIGHUP"));
+  const every = setInterval(() => {
+    if (!changed) return;
+    const done = writeVersions();
+    if (done) console.log(`[${clock(Date.now() - start)}] salvate ${done.written} versioni in ${args.out}`);
+  }, args.saveMinutes * 60_000);
 
   await new Promise<void>((resolve, reject) => {
     let open = args.workers;
@@ -182,6 +248,7 @@ export async function main(argv: string[], bundle: string): Promise<void> {
           weights: rotated,
         } satisfies WorkerIn,
       });
+      workers.push(w);
       w.on("message", (msg: WorkerOut) => {
         if (msg.type === "result") {
           runs += 1;
@@ -215,56 +282,18 @@ export async function main(argv: string[], bundle: string): Promise<void> {
         if (open === 0) resolve();
       });
     }
-  });
+  }).finally(() => clearInterval(every));
 
-  const ordered = [...slots].sort((a, b) => a - b);
-  let out: PersistedData;
-  let lines: string[];
-  let written: number;
-  if (all) {
-    const versions = pickJointVersions(jointPool, plan);
-    if (versions.length === 0) {
-      console.error("Nessuna versione completa: il backup non è stato scritto.");
-      process.exitCode = 1;
-      return;
-    }
-    const placed = versions.map((v, i) => ({
-      n: ordered[i]!,
-      name: `Calcolo lungo ${i + 1} di ${versions.length} · ${INSIEME_VERSIONI.find((x) => x.key === v.versione)!.short}`,
-      parts: v.parts,
-    }));
-    out = withJointVersions(data, placed);
-    for (const p of placed) {
-      for (const sede of allSedi(out)) {
-        const saved = sede.data.savedTimetables?.find((s) => s.n === p.n);
-        if (!saved || saved.lessons.length !== (p.parts[sede.id]?.lessons.length ?? -1)) {
-          throw new Error(`slot ${p.n} non scritto in ${sedeName(sede.data.settings)}`);
-        }
-      }
-    }
-    lines = placed.map((p, i) => `- slot ${p.n} (tutte le sedi): «${p.name}» (${reportLine(versions[i]!.report)})`);
-    written = placed.length;
-  } else {
-    const versions = pickVersions(pool, slots.length);
-    if (versions.length === 0) {
-      console.error("Nessuna versione completa: il backup non è stato scritto.");
-      process.exitCode = 1;
-      return;
-    }
-    const placed = versions.map((v, i) => ({ n: ordered[i]!, name: `Calcolo lungo ${i + 1} di ${versions.length}`, part: v.part }));
-    out = withVersions(data, placed);
-    for (const p of placed) {
-      const saved = out.savedTimetables?.find((s) => s.n === p.n);
-      if (!saved || saved.lessons.length !== p.part.lessons.length) throw new Error(`slot ${p.n} non scritto`);
-    }
-    lines = placed.map((p, i) => `- slot ${p.n}: «${p.name}» (${reportLine(versions[i]!.report)})`);
-    written = placed.length;
+  const done = writeVersions();
+  if (!done) {
+    console.error("Nessuna versione completa: il backup non è stato scritto.");
+    process.exitCode = 1;
+    return;
   }
-  writeFileSync(args.out, backupJson(out));
   console.log(`\nCorse: ${runs}. Versioni scritte in ${args.out}:`);
-  for (const l of lines) console.log(l);
-  if (written < slots.length) {
-    console.log(`Solo ${written} versioni diverse su ${slots.length}: gli slot rimasti non sono stati toccati.`);
+  for (const l of done.lines) console.log(l);
+  if (done.written < slots.length) {
+    console.log(`Solo ${done.written} versioni diverse su ${slots.length}: gli slot rimasti non sono stati toccati.`);
   }
 }
 

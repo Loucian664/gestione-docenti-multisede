@@ -1,6 +1,6 @@
 /**
- * «Calcolo lungo»: lo stesso motore di Costruisci, fatto girare fuori dall'app (da Claude Code, con
- * `scripts/calcolo-lungo.mjs`) per molto più tempo. Dal backup dell'app escono più versioni dell'orario, le
+ * «Calcolo lungo»: lo stesso motore di Costruisci, fatto girare fuori dall'app (da Claude Code o da un altro
+ * assistente che lavora sul codice, con `scripts/calcolo-lungo.mjs`) per molto più tempo. Dal backup dell'app escono più versioni dell'orario, le
  * migliori e diverse tra loro, che tornano negli slot scelti; gli altri slot e tutti gli altri dati restano
  * come nel backup.
  *
@@ -30,7 +30,9 @@ import { builtLessonTest } from "./svuota";
 import {
   activeSlotOf,
   SAVE_SLOTS,
+  slotPart,
   slotsWithLessons,
+  timetableKey,
   timetablePart,
   withPart,
   type TimetablePart,
@@ -91,7 +93,26 @@ function slotsInUse(data: PersistedData, scope: LongRunRequest["scope"]): Set<nu
   return new Set(sedi.map((s) => activeSlotOf(sedeAsData(data, s.data))));
 }
 
-/** Il messaggio da incollare in Claude Code: dice cosa fare e dove trovare le istruzioni. */
+/** Il comando del programma, con le scelte della richiesta: il percorso del backup lo mette chi lo esegue. */
+export function longRunCommand(req: LongRunRequest): string {
+  const slots = [...req.slots].sort((a, b) => a - b);
+  const replace = slots.filter((n) => req.replace.includes(n));
+  return [
+    "node scripts/calcolo-lungo.mjs --backup <percorso del backup>",
+    `--sedi ${req.scope === "tutte" ? "tutte" : "sede"}`,
+    `--modo ${req.mode === "improve" ? "migliora" : "da-zero"}`,
+    `--slot ${slots.join(",")}`,
+    replace.length ? `--sostituisci ${replace.join(",")}` : "",
+    `--minuti ${req.minutes}`,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+/**
+ * Il messaggio da incollare in un assistente che lavora sul codice (Claude Code o un altro): basta da solo, con il
+ * comando già pronto, anche a chi non legge le istruzioni della repository.
+ */
 export function longRunMessage(
   data: PersistedData,
   req: LongRunRequest,
@@ -103,19 +124,28 @@ export function longRunMessage(
     .sort((a, b) => a - b)
     .map((n) => (taken.has(n) ? `${n} (sostituisce «${taken.get(n)}»)` : String(n)))
     .join(", ");
-  return [
-    "Calcolo lungo dell’orario.",
-    `Repository: ${repository}. Segui la sezione «Calcolo lungo dell’orario» del file CLAUDE.md.`,
-    `Backup allegato: ${backupName}.`,
+  const others = req.slots.length < SAVE_SLOTS.length ? "; gli altri restano come sono" : "";
+  const duration = durationText(req.minutes);
+  const sedi =
     req.scope === "tutte"
       ? `Sedi: tutte insieme (${allSedi(data)
           .map((x) => sedeName(x.data.settings))
-          .join(", ")}).`
-      : `Sede: ${sedeName(data.settings)} (quella in uso nel backup).`,
-    `Partenza: ${req.mode === "improve" ? "migliora l’orario attuale" : "da zero"}.`,
-    `Slot da usare: ${slotText}.${req.slots.length < SAVE_SLOTS.length ? " Gli altri slot restano come sono." : ""}`,
-    `Durata: ${durationText(req.minutes)}.`,
-    "Serve un ambiente che possa aprire la repository ed eseguire programmi a lungo (per esempio Claude Code): senza, non inventare un orario.",
+          .join(", ")}); ogni versione va nello stesso slot di ogni sede.`
+      : `Sede: ${sedeName(data.settings)} (quella in uso nel backup).`;
+  return [
+    "Calcolo lungo dell’orario (app Orario Generale, più sedi).",
+    `Repository: https://github.com/${repository} — istruzioni complete nel file CALCOLO-LUNGO.md.`,
+    `Backup allegato: ${backupName}. Contiene nomi veri: usalo solo nella tua cartella di lavoro, non pubblicarlo.`,
+    sedi,
+    `Partenza: ${req.mode === "improve" ? "migliora l’orario attuale" : "da zero"}. Slot: ${slotText}${others}. Durata: ${duration}.`,
+    "",
+    "Cosa fare:",
+    "1. Scarica la repository ed esegui npm ci (serve Node 22 o più recente).",
+    `2. Esegui questo comando; si ferma da solo dopo ${duration}, lascialo arrivare alla fine:`,
+    `   ${longRunCommand(req)}`,
+    "3. Restituisci il file che scrive il programma (finisce con «-calcolo-lungo.json») e il riepilogo che stampa. Se il comando si interrompe prima, il file contiene le versioni migliori trovate fino a quel momento: restituisci quello e dillo.",
+    "",
+    "Regole: non modificare il codice e non pubblicare nulla. Se non puoi eseguire programmi, fermati e dillo. Se puoi tenerne uno in esecuzione solo per meno tempo, usa un numero di minuti più basso e dillo. Non scrivere mai un orario a mano.",
   ].join("\n");
 }
 
@@ -228,6 +258,101 @@ export function reportLine(report: TimetableReport): string {
 }
 
 /**
+ * Il codice di controllo di una versione scritta dal programma: cambia se cambia anche una sola lezione o ora a
+ * disposizione. Non è una protezione contro chi esegue il programma, ma scopre un orario scritto o ritoccato a mano.
+ */
+export function longRunCheck(part: TimetablePart): string {
+  const text = `calcolo-lungo|1\n${timetableKey(part)}`;
+  let a = 0x811c9dc5;
+  let b = 0x01000193 ^ 0x5bd1e995;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    a = Math.imul(a ^ c, 0x01000193) >>> 0;
+    b = Math.imul(b ^ c, 0x5bd1e995) >>> 0;
+    b = (b ^ (b >>> 15)) >>> 0;
+  }
+  return `cl1-${a.toString(16).padStart(8, "0")}${b.toString(16).padStart(8, "0")}`;
+}
+
+/**
+ * Da dove viene un orario salvato: «verificato» se è quello calcolato dal programma, «cambiato» se ha il codice ma
+ * l'orario non corrisponde più, «senza-controllo» se si chiama «Calcolo lungo…» ma non ha il codice; `null` per gli
+ * altri slot.
+ */
+export type LongRunStatus = "verificato" | "cambiato" | "senza-controllo" | null;
+
+export function longRunStatus(entry: Pick<SavedTimetable, "name" | "calcoloLungo">, part: TimetablePart | null): LongRunStatus {
+  if (entry.calcoloLungo) return part && longRunCheck(part) === entry.calcoloLungo ? "verificato" : "cambiato";
+  return /^calcolo lungo/i.test(entry.name.trim()) ? "senza-controllo" : null;
+}
+
+/**
+ * Nel dialogo dello slot: lo stato della versione. Per uno slot di tutte le sedi insieme conta ogni sede: è
+ * verificato solo se lo è dappertutto, altrimenti `sedi` dice dove non lo è.
+ */
+export function longRunSlotStatus(data: PersistedData, n: number, joint: boolean): { status: LongRunStatus; sedi: string[] } {
+  const views = joint ? allSedi(data).map((s) => sedeAsData(data, s.data)) : [data];
+  const found = views.map((view) => {
+    const entry = (view.savedTimetables ?? []).find((e) => e.n === n);
+    return { sede: sedeName(view.settings), status: entry ? longRunStatus(entry, slotPart(view, n)) : null };
+  });
+  for (const bad of ["cambiato", "senza-controllo"] as const) {
+    const where = found.filter((f) => f.status === bad);
+    if (where.length) return { status: bad, sedi: where.map((f) => f.sede) };
+  }
+  return { status: found.some((f) => f.status === "verificato") ? "verificato" : null, sedi: [] };
+}
+
+/** «A», «A e B», «A, B e C». */
+export function andList(items: string[]): string {
+  return items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} e ${items.at(-1)}`;
+}
+
+/** «1», «1 e 4», «1, 4 e 5». */
+function slotList(ns: number[]): string {
+  return andList([...ns].sort((a, b) => a - b).map(String));
+}
+
+/**
+ * All'importazione: quali slot vengono dal calcolo lungo e se sono proprio quelli calcolati dal programma, in tutte
+ * le sedi (uno slot è a posto solo se lo è in ogni sede). `null` se nel backup non ce ne sono.
+ */
+export function longRunImportNote(data: PersistedData): { text: string; warn: boolean } | null {
+  const ok = new Set<number>();
+  const bad = new Map<number, string[]>();
+  for (const sede of allSedi(data)) {
+    const view = sedeAsData(data, sede.data);
+    for (const entry of view.savedTimetables ?? []) {
+      if (entry.n < 1) continue;
+      const status = longRunStatus(entry, slotPart(view, entry.n));
+      if (status === "verificato") ok.add(entry.n);
+      else if (status) bad.set(entry.n, [...(bad.get(entry.n) ?? []), sedeName(view.settings)]);
+    }
+  }
+  for (const n of bad.keys()) ok.delete(n);
+  if (!ok.size && !bad.size) return null;
+  const okList = [...ok];
+  const good = okList.length
+    ? `Slot ${slotList(okList)}: ${okList.length === 1 ? "calcolato" : "calcolati"} dal programma del calcolo lungo.`
+    : "";
+  if (!bad.size) return { text: good, warn: false };
+  const several = allSedi(data).length > 1;
+  const badText = [...bad.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([n, sedi]) => (several ? `${n} (${sedi.join(", ")})` : String(n)));
+  const one = bad.size === 1;
+  return {
+    text: [
+      good,
+      `Attenzione: ${one ? "lo slot" : "gli slot"} ${andList(badText)} ${one ? "non risulta calcolato" : "non risultano calcolati"} dal programma (orario scritto o cambiato a mano): ${one ? "controllalo prima di usarlo" : "controllali prima di usarli"}.`,
+    ]
+      .filter(Boolean)
+      .join(" "),
+    warn: true,
+  };
+}
+
+/**
  * Il backup da restituire: identico a quello ricevuto, con le versioni negli slot scelti. `savedAt` appena
  * dopo quello del backup: se nel frattempo sul dispositivo è cambiato qualcosa, all'importazione l'app avvisa
  * che il backup è più vecchio.
@@ -238,7 +363,13 @@ export function withVersions(
   now = Date.now(),
 ): PersistedData {
   const ns = new Set(versions.map((v) => v.n));
-  const entries: SavedTimetable[] = versions.map((v) => ({ n: v.n, name: v.name, savedAt: now, ...v.part }));
+  const entries: SavedTimetable[] = versions.map((v) => ({
+    n: v.n,
+    name: v.name,
+    savedAt: now,
+    ...v.part,
+    calcoloLungo: longRunCheck(v.part),
+  }));
   return {
     ...data,
     savedTimetables: [...(data.savedTimetables ?? []).filter((x) => !ns.has(x.n)), ...entries].sort((a, b) => a.n - b.n),
@@ -317,7 +448,7 @@ export function withJointVersions(
         ...d,
         savedTimetables: [
           ...(d.savedTimetables ?? []).filter((x) => x.n !== v.n),
-          { n: v.n, name: v.name, savedAt: now, ...part, insieme },
+          { n: v.n, name: v.name, savedAt: now, ...part, insieme, calcoloLungo: longRunCheck(part) },
         ].sort((a, b) => a.n - b.n),
       }));
     }
