@@ -85,7 +85,9 @@ function AssenzePage() {
   // sabato solo se è giorno di scuola (Impostazioni → «Includi il sabato»), domenica mai: più spazio per i nomi
   const withSaturday = data.settings.days.includes(6);
   const cells = useMemo(() => monthSchoolDays(monthIso, withSaturday), [monthIso, withSaturday]);
-  const sintesi = useMemo(() => assemblySummary(data, data.selectedDate), [data]);
+  // la sintesi dell'assemblea è del giorno toccato nel calendario; finché non se ne tocca uno, di quello di «Oggi»
+  const sintesiDate = peek ?? data.selectedDate;
+  const sintesi = useMemo(() => assemblySummary(data, sintesiDate), [data, sintesiDate]);
   const peekDay = peek ? dayCoverage(data, peek, elsewhere) : null;
   const peekRows = (peekDay?.absences ?? [])
     .map((a) => {
@@ -188,7 +190,9 @@ function AssenzePage() {
         )}
         <p className="text-[12px] text-muted-foreground sm:max-w-xs">
           Excel: una riga per ogni ora, con data, docente assente, materia, sostituto, tipo e stato della copertura.
-          {sintesi ? " Sintesi: copia il riepilogo dell’assemblea sindacale per il dirigente." : ""}
+          {sintesi
+            ? " Sintesi: copia per il dirigente il riepilogo dell’assemblea sindacale del giorno toccato nel calendario (se non ne hai toccato nessuno, del giorno scelto in «Oggi»)."
+            : ""}
         </p>
       </div>
 
