@@ -13,6 +13,7 @@ import type { MissingTeacher } from "@/lib/build-timetable";
 import { TN_NOTE } from "@/components/missing-teachers";
 import type { SchoolClass, Tempo } from "@/lib/types";
 import { Plus } from "lucide-react";
+import { countOf } from "@/lib/utils";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/classi")({ component: ClassiPage });
@@ -22,6 +23,15 @@ function tempoLabel(tempo: Tempo): string {
 }
 
 const ALL = "tutte";
+
+/** Alunni delle classi date (quelle senza numero contano 0). */
+function pupils(list: SchoolClass[]): number {
+  return list.reduce((n, c) => n + (c.students ?? 0), 0);
+}
+
+function listText(names: string[]): string {
+  return names.length === 1 ? names[0]! : `${names.slice(0, -1).join(", ")} e ${names[names.length - 1]}`;
+}
 
 function ClassiPage() {
   const store = useAppStore();
@@ -33,6 +43,18 @@ function ClassiPage() {
   const several = sedi.length > 1;
   // ore senza docente di ogni classe: accanto al suo nome
   const missing = useMemo(() => missingBySede(data), [data]);
+  // alunni delle sedi mostrate: in tutto e per tempo scuola; le classi senza numero si dicono a parte
+  const shownClasses = shown.flatMap((s) => s.data.classes);
+  const total = pupils(shownClasses);
+  const tn = pupils(shownClasses.filter((c) => c.tempo === "TN"));
+  const tp = total - tn;
+  const noCount = shown
+    .flatMap((s) =>
+      s.data.classes
+        .filter((c) => !c.students)
+        .map((c) => (filter === ALL && several ? `${c.name} (${sedeName(s.data.settings)})` : c.name)),
+    )
+    .sort((a, b) => a.localeCompare(b, "it"));
 
   function saveTempo(sedeId: string, c: SchoolClass, tempo: Tempo) {
     if (c.tempo === tempo) return;
@@ -65,6 +87,18 @@ function ClassiPage() {
             ))}
           </NativeSelect>
         </div>
+      )}
+      {shownClasses.length > 0 && (
+        <p className="mb-4 text-sm text-muted-foreground">
+          {total > 0 && (
+            <>
+              Totale: <span className="font-medium text-foreground">{countOf(total, "alunno", "alunni")}</span> in{" "}
+              {countOf(shownClasses.length, "classe", "classi")}
+              {tn > 0 && tp > 0 ? ` · ${tn} a tempo normale, ${tp} a tempo prolungato` : ""}.
+            </>
+          )}
+          {noCount.length > 0 && ` ${total > 0 ? "Manca" : "Manca ancora"} il numero di alunni di ${listText(noCount)}.`}
+        </p>
       )}
       <div className="flex flex-col gap-6">
         {shown.map((s) => (
@@ -104,17 +138,31 @@ function SedeClasses({
   onTempo: (c: SchoolClass, tempo: Tempo) => void;
 }) {
   const grouped = [1, 2, 3] as const;
+  const sedeSum = pupils(sede.data.classes);
   return (
     <section>
-      {title && <h2 className="mb-2 font-display text-lg">{sedeName(sede.data.settings)}</h2>}
+      {title && (
+        <div className="mb-2 flex items-baseline justify-between gap-3">
+          <h2 className="font-display text-lg">{sedeName(sede.data.settings)}</h2>
+          {sedeSum > 0 && (
+            <span className="text-[13px] text-muted-foreground">{countOf(sedeSum, "alunno", "alunni")}</span>
+          )}
+        </div>
+      )}
       <div className="grid gap-4 md:grid-cols-3">
         {grouped.map((grade) => {
           const items = sede.data.classes
             .filter((c) => c.grade === grade)
             .sort((a, b) => a.section.localeCompare(b.section));
+          const sum = pupils(items);
           return (
             <section key={grade} className="paper-panel rounded-xl p-4">
-              <h3 className="font-display text-xl">{grade}ª</h3>
+              <div className="flex items-baseline justify-between gap-3">
+                <h3 className="font-display text-xl">{grade}ª</h3>
+                {sum > 0 && (
+                  <span className="text-[13px] text-muted-foreground">{countOf(sum, "alunno", "alunni")}</span>
+                )}
+              </div>
               <ul className="mt-3 flex flex-col gap-1.5">
                 {items.map((c) => {
                   const without = missing.filter((m) => m.classId === c.id && !m.tn);
