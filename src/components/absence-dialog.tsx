@@ -27,10 +27,13 @@ export function AbsenceDialog({
   open,
   onOpenChange,
   initial,
+  date,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   initial?: Absence | null;
+  /** giorno da cui parte una nuova assenza; se manca, quello scelto in «Oggi» */
+  date?: string;
 }) {
   const current = useAppStore((s) => s.teachers);
   const formerTeachers = useAppStore((s) => s.formerTeachers);
@@ -39,7 +42,8 @@ export function AbsenceDialog({
   const teachers = former ? [...current, former] : current;
   const settings = useAppStore((s) => s.settings);
   const periods = visiblePeriods(settings).filter((p) => !isMensaPeriod(p));
-  const selectedDate = useAppStore((s) => s.selectedDate);
+  const oggi = useAppStore((s) => s.selectedDate);
+  const selectedDate = date ?? oggi;
   const addAbsence = useAppStore((s) => s.addAbsence);
   const addAbsenceIn = useAppStore((s) => s.addAbsenceIn);
   const updateAbsence = useAppStore((s) => s.updateAbsence);

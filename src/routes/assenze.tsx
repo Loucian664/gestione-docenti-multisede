@@ -85,7 +85,8 @@ function AssenzePage() {
   // sabato solo se è giorno di scuola (Impostazioni → «Includi il sabato»), domenica mai: più spazio per i nomi
   const withSaturday = data.settings.days.includes(6);
   const cells = useMemo(() => monthSchoolDays(monthIso, withSaturday), [monthIso, withSaturday]);
-  // la sintesi dell'assemblea è del giorno toccato nel calendario; finché non se ne tocca uno, di quello di «Oggi»
+  // la sintesi dell'assemblea e la nuova assenza sono del giorno toccato nel calendario; finché non se ne tocca uno,
+  // di quello di «Oggi»
   const sintesiDate = peek ?? data.selectedDate;
   const sintesi = useMemo(() => assemblySummary(data, sintesiDate), [data, sintesiDate]);
   const peekDay = peek ? dayCoverage(data, peek, elsewhere) : null;
@@ -451,6 +452,7 @@ function AssenzePage() {
           if (!v) setEditing(null);
         }}
         initial={editing}
+        date={sintesiDate}
       />
     </div>
   );
