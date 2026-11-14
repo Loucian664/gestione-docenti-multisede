@@ -346,6 +346,75 @@ describe("classShifts", () => {
     assert.equal(shifts[0]?.phrase, "esce alla 3ª");
   });
 
+  describe("materie solo per una parte della classe", () => {
+    // 2A: sei ore al mattino e Latino alle 14:00, seguito solo da alcuni alunni
+    function withLatin(groupSubjects: string[] | undefined, over: Partial<PersistedData>) {
+      const d = data({ selectedDate: date, ...over });
+      d.settings = {
+        ...d.settings,
+        groupSubjects,
+        periods: [...d.settings.periods, { id: "p-mensa", index: 7, label: "14:00", start: "14:00", end: "15:00" }],
+      };
+      return d;
+    }
+    const teachers = [teacher("t1", "Lepri"), teacher("t3", "Cerri"), teacher("t-lat", "Albani")];
+    const morning = ["p1", "p2", "p3", "p4", "p5", "p6"].map((p, i) => slot("c-2A", p, i < 5 ? "t3" : "t1"));
+    const latin = slot("c-2A", "p-mensa", "t-lat", "Latino");
+
+    it("senza impostazione il Latino dopo la 6ª trattiene la classe", () => {
+      const d = withLatin(undefined, { teachers, slots: [...morning, latin], absences: [absent("t1")] });
+      assert.equal(classShifts(d, date).length, 0);
+    });
+
+    it("con Latino tra le materie la classe esce alla 5ª e resta chi lo frequenta", () => {
+      const d = withLatin([" latino "], { teachers, slots: [...morning, latin], absences: [absent("t1")] });
+      const shifts = classShifts(d, date);
+      assert.equal(shifts.length, 1);
+      assert.equal(shifts[0]?.kind, "esce");
+      assert.equal(shifts[0]?.phrase, "esce alla 5ª");
+      assert.equal(shifts[0]?.note, "Resta chi frequenta Latino (14:00).");
+      assert.deepEqual(shifts[0]?.needs.map((n) => n.slot.periodId), ["p6"]);
+    });
+
+    it("se manca anche il docente di Latino non c’è avviso", () => {
+      const d = withLatin(["Latino"], { teachers, slots: [...morning, latin], absences: [absent("t1"), absent("t-lat")] });
+      const shifts = classShifts(d, date);
+      assert.equal(shifts.length, 1);
+      assert.equal(shifts[0]?.phrase, "esce alla 5ª");
+      assert.equal(shifts[0]?.note, undefined);
+      assert.deepEqual(shifts[0]?.needs.map((n) => n.slot.periodId), ["p6"]);
+    });
+
+    it("entra dopo: avvisa chi frequenta Latino alla 1ª", () => {
+      const d = withLatin(["Latino"], {
+        teachers,
+        slots: [
+          slot("c-2A", "p1", "t-lat", "Latino"),
+          slot("c-2A", "p2", "t1"),
+          slot("c-2A", "p3", "t1"),
+          ...["p4", "p5", "p6"].map((p) => slot("c-2A", p, "t3")),
+        ],
+        absences: [absent("t1")],
+      });
+      const shifts = classShifts(d, date);
+      assert.equal(shifts.length, 1);
+      assert.equal(shifts[0]?.phrase, "entra alla 4ª");
+      assert.equal(shifts[0]?.note, "Entra prima chi frequenta Latino (08:00).");
+    });
+
+    it("non entra: avvisa che entra solo chi frequenta Latino", () => {
+      const d = withLatin(["Latino"], {
+        teachers,
+        slots: [...["p1", "p2", "p3", "p4", "p5", "p6"].map((p) => slot("c-2A", p, "t1")), latin],
+        absences: [absent("t1")],
+      });
+      const shifts = classShifts(d, date);
+      assert.equal(shifts.length, 1);
+      assert.equal(shifts[0]?.phrase, "non entra");
+      assert.equal(shifts[0]?.note, "Entra solo chi frequenta Latino (14:00).");
+    });
+  });
+
   it("non fa uscire prima se l’assenza non è assemblea", () => {
     const d = data({
       selectedDate: date,

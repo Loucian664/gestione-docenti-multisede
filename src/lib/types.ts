@@ -178,6 +178,9 @@ export type Settings = {
   monteOre?: MonteOreRow[];
   /** Mostra mensa, 7ª e 8ª sulle classi T.P. Costruisci non le usa. */
   tpAfternoon?: boolean;
+  /** Materie seguite solo da una parte della classe (es. Latino): non trattengono la classe intera
+   *  quando, per un'assemblea sindacale, entra dopo o esce prima. */
+  groupSubjects?: string[];
 };
 
 /**

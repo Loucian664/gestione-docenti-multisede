@@ -146,7 +146,15 @@ export type ClassShift = {
   phrase: string;
   needs: CoverageNeed[];
   applied: boolean;
+  /** Lezioni per una parte della classe (es. Latino) che restano fuori dalla variazione:
+   *  «Resta chi frequenta Latino (14:00).» */
+  note?: string;
 };
+
+/** Materie seguite solo da una parte della classe (Impostazioni), in minuscolo. */
+export function groupSubjectSet(data: PersistedData): Set<string> {
+  return new Set((data.settings.groupSubjects ?? []).map((s) => s.trim().toLowerCase()).filter(Boolean));
+}
 
 /** Ore vuote di fila in testa o in coda: la classe entra dopo, esce prima, o non entra.
  *  Entra dopo o esce prima solo se chi tiene la classe manca per assemblea sindacale. */
@@ -154,14 +162,43 @@ export function classShifts(data: PersistedData, date: string): ClassShift[] {
   const day = toSchoolDay(date);
   if (!day) return [];
   const needs = coverageNeeds(data, date);
+  const groups = groupSubjectSet(data);
+  const isGroupLesson = (slot: TimetableSlot) => groups.has(slot.subject.trim().toLowerCase());
 
   function holdsClass(teacherId: string): boolean {
     const teacher = data.teachers.find((t) => t.id === teacherId);
     return teacher?.role !== "sostegno" && teacher?.role !== "potenziamento";
   }
 
+  // le materie per una parte della classe (es. Latino) non trattengono la classe intera
   function lessonSlots(classId: string, periodId: string) {
-    return cellSlots(data, classId, day!, periodId).filter((slot) => holdsClass(slot.teacherId));
+    return cellSlots(data, classId, day!, periodId).filter((slot) => holdsClass(slot.teacherId) && !isGroupLesson(slot));
+  }
+
+  /** Lezione che si tiene: il docente c'è, oppure è sostituito o la classe è divisa. */
+  function held(slot: TimetableSlot): boolean {
+    const need = needs.find(
+      (n) => n.slot.classId === slot.classId && n.slot.periodId === slot.periodId && n.slot.teacherId === slot.teacherId,
+    );
+    if (!need) return true;
+    return Boolean(need.substitution?.substituteId) || need.substitution?.type === "divisione";
+  }
+
+  /** «Latino (14:00)», più materie unite da «e». */
+  function groupNote(classId: string, inRange: (index: number) => boolean): string {
+    const bySubject = new Map<string, string[]>();
+    const lessons = data.slots
+      .filter((s) => s.day === day && s.classId === classId && holdsClass(s.teacherId) && isGroupLesson(s) && held(s))
+      .filter((s) => inRange(periodIndex(data, s.periodId)))
+      .sort((a, b) => periodIndex(data, a.periodId) - periodIndex(data, b.periodId));
+    for (const s of lessons) {
+      const start = data.settings.periods.find((p) => p.id === s.periodId)?.start ?? "";
+      const subject = s.subject.trim();
+      const times = bySubject.get(subject) ?? [];
+      if (start && !times.includes(start)) times.push(start);
+      bySubject.set(subject, times);
+    }
+    return [...bySubject].map(([subject, times]) => (times.length ? `${subject} (${times.join(", ")})` : subject)).join(" e ");
   }
 
   function voidPeriod(classId: string, periodId: string): boolean {
@@ -181,7 +218,7 @@ export function classShifts(data: PersistedData, date: string): ClassShift[] {
     if (!voidPeriod(classId, periodId)) return false;
     const hourNeeds = needs.filter((n) => {
       if (n.slot.classId !== classId || n.slot.periodId !== periodId) return false;
-      return holdsClass(n.slot.teacherId);
+      return holdsClass(n.slot.teacherId) && !isGroupLesson(n.slot);
     });
     return hourNeeds.length > 0 && hourNeeds.every((n) => n.absence.reason === "assemblea_sindacale");
   }
@@ -204,12 +241,11 @@ export function classShifts(data: PersistedData, date: string): ClassShift[] {
     let trail = 0;
     while (trail < states.length - lead && assemblyVoid(classId, states[states.length - 1 - trail].periodId)) trail += 1;
 
-    const push = (kind: ClassShift["kind"], slice: { periodId: string }[], phrase: string) => {
+    const push = (kind: ClassShift["kind"], slice: { periodId: string }[], phrase: string, note?: string) => {
       const ids = new Set(slice.map((s) => s.periodId));
       const blockNeeds = needs.filter((n) => {
         if (n.slot.classId !== classId || !ids.has(n.slot.periodId)) return false;
-        const teacher = data.teachers.find((t) => t.id === n.slot.teacherId);
-        return teacher?.role !== "sostegno" && teacher?.role !== "potenziamento";
+        return holdsClass(n.slot.teacherId) && !isGroupLesson(n.slot);
       });
       if (blockNeeds.length === 0) return;
       out.push({
@@ -218,21 +254,26 @@ export function classShifts(data: PersistedData, date: string): ClassShift[] {
         phrase,
         needs: blockNeeds,
         applied: blockNeeds.every((n) => n.substitution?.type === kind),
+        ...(note ? { note } : {}),
       });
     };
 
     if (lead === states.length) {
-      push("non_entra", states, "non entra");
+      const only = groupNote(classId, () => true);
+      push("non_entra", states, "non entra", only ? `Entra solo chi frequenta ${only}.` : undefined);
       continue;
     }
     if (lead > 0) {
-      const label = data.settings.periods.find((p) => p.id === states[lead].periodId)?.label ?? "";
-      push("entra", states.slice(0, lead), `entra alla ${periodMark(label)}`);
+      const first = states[lead];
+      const label = data.settings.periods.find((p) => p.id === first.periodId)?.label ?? "";
+      const before = groupNote(classId, (i) => i < periodIndex(data, first.periodId));
+      push("entra", states.slice(0, lead), `entra alla ${periodMark(label)}`, before ? `Entra prima chi frequenta ${before}.` : undefined);
     }
     if (trail > 0) {
       const kept = states[states.length - 1 - trail];
       const label = data.settings.periods.find((p) => p.id === kept.periodId)?.label ?? "";
-      push("esce", states.slice(states.length - trail), `esce alla ${periodMark(label)}`);
+      const after = groupNote(classId, (i) => i > periodIndex(data, kept.periodId));
+      push("esce", states.slice(states.length - trail), `esce alla ${periodMark(label)}`, after ? `Resta chi frequenta ${after}.` : undefined);
     }
   }
 

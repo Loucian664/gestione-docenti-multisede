@@ -384,8 +384,11 @@ function OggiPage() {
               const code = (cls?.name ?? "?").replace(/ª\s*/g, "").replace(/\s+/g, "");
               return (
                 <li key={`${s.classId}-${s.kind}`} className="flex items-center justify-between gap-3">
-                  <span className="text-sm font-medium">
-                    {code} {s.phrase}
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium">
+                      {code} {s.phrase}
+                    </span>
+                    {s.note && <span className="block text-[12px] text-muted-foreground">{s.note}</span>}
                   </span>
                   <Button size="sm" variant={s.applied ? "outline" : "default"} onClick={() => (s.applied ? undoShift(s) : applyShift(s))}>
                     {s.applied ? "Annulla" : "Conferma"}
