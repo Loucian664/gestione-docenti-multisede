@@ -117,7 +117,7 @@ export function SubjectPicker({
         {value.map((subject) => (
           <span
             key={subject}
-            className="inline-flex h-7 items-center rounded-full bg-accent px-2.5 text-sm leading-none font-medium text-accent-foreground"
+            className="inline-flex h-7 items-center rounded-full bg-accent px-2.5 text-sm leading-none font-medium text-accent-foreground [@media(pointer:coarse)]:text-base"
           >
             {subject}
           </span>
