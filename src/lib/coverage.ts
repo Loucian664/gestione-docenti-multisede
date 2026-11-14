@@ -156,6 +156,30 @@ export function groupSubjectSet(data: PersistedData): Set<string> {
   return new Set((data.settings.groupSubjects ?? []).map((s) => s.trim().toLowerCase()).filter(Boolean));
 }
 
+/** Materie che si possono scegliere come «solo per una parte della classe»: quelle dell'orario e dei docenti,
+ *  senza mensa, sostegno, potenziamento e ore a disposizione. */
+export function groupSubjectChoices(data: Pick<PersistedData, "slots" | "teachers">): string[] {
+  const skip = /mensa|sostegno|potenziamento|disposizione/i;
+  const roles = new Map(data.teachers.map((t) => [t.id, t.role]));
+  const out = new Map<string, string>();
+  const add = (subject: string) => {
+    const name = subject.trim();
+    if (!name || skip.test(name)) return;
+    const key = name.toLowerCase();
+    if (!out.has(key)) out.set(key, name);
+  };
+  for (const s of data.slots) {
+    const role = roles.get(s.teacherId);
+    if (role === "sostegno" || role === "potenziamento") continue;
+    add(s.subject);
+  }
+  for (const t of data.teachers) {
+    if (t.role === "sostegno" || t.role === "potenziamento") continue;
+    t.subjects.forEach(add);
+  }
+  return [...out.values()].sort((a, b) => a.localeCompare(b, "it"));
+}
+
 /** Ore vuote di fila in testa o in coda: la classe entra dopo, esce prima, o non entra.
  *  Entra dopo o esce prima solo se chi tiene la classe manca per assemblea sindacale. */
 export function classShifts(data: PersistedData, date: string): ClassShift[] {

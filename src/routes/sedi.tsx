@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { PageHeader } from "@/components/layout";
 import { CampanellaEditor } from "@/components/campanella-editor";
 import { Button } from "@/components/ui/button";
@@ -28,7 +28,8 @@ import {
   type SedeStats,
 } from "@/lib/sedi";
 import { missingText, type MissingTeacher } from "@/lib/build-timetable";
-import { teacherName } from "@/lib/coverage";
+import { groupSubjectChoices, teacherName } from "@/lib/coverage";
+import { SubjectPicker } from "@/components/subject-picker";
 import { DAY_SHORT, type PersistedData, type SedeData, type Teacher } from "@/lib/types";
 import { ArrowDownAZ, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, FileDown, FileUp, Plus, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
@@ -425,7 +426,7 @@ function SedeDialog({ sedeId, onClose }: { sedeId: string; onClose: () => void }
             </p>
             <CampanellaEditor settings={settings} onChange={update} />
           </div>
-          <GroupSubjectsField saved={settings.groupSubjects} onChange={(groupSubjects) => update({ groupSubjects })} />
+          <GroupSubjectsField data={sede.data} onChange={(groupSubjects) => update({ groupSubjects })} />
           <div className="sticky bottom-0 z-10 grid gap-3 border-t border-border bg-popover pt-3">
             {step === 1 && info && (
               <div className="rounded-xl border border-destructive/25 bg-danger-soft px-4 py-3 text-sm">
@@ -819,39 +820,26 @@ function UpdateSedeDialog({
   );
 }
 
-/** Materie per una parte della classe, separate da virgole: il testo resta com'è scritto mentre si digita. */
+/** Materie per una parte della classe: si scelgono tra quelle dell'orario della sede. */
 function GroupSubjectsField({
-  saved,
+  data,
   onChange,
 }: {
-  saved: string[] | undefined;
+  data: SedeData;
   onChange: (list: string[] | undefined) => void;
 }) {
-  const [text, setText] = useState(() => (saved ?? []).join(", "));
-  const parse = (value: string) =>
-    value
-      .split(",")
-      .map((x) => x.trim())
-      .filter(Boolean);
-  // dati cambiati altrove (backup ripristinato, altra sede): il campo li segue
-  useEffect(() => {
-    setText((current) => (parse(current).join("|") === (saved ?? []).join("|") ? current : (saved ?? []).join(", ")));
-  }, [saved]);
+  const options = useMemo(() => groupSubjectChoices(data), [data]);
   return (
     <div className="mt-2 flex min-w-0 flex-col gap-1.5">
       <Label htmlFor="group-subjects">Materie solo per una parte della classe</Label>
-      <Input
+      <SubjectPicker
         id="group-subjects"
-        value={text}
-        placeholder="Es. Latino"
-        onChange={(e) => {
-          setText(e.target.value);
-          const list = parse(e.target.value);
-          onChange(list.length ? list : undefined);
-        }}
+        value={data.settings.groupSubjects ?? []}
+        options={options}
+        onChange={(list) => onChange(list.length ? list : undefined)}
       />
       <p className="text-[12px] text-muted-foreground">
-        Se sono più di una, separale con una virgola. Nelle assemblee sindacali non trattengono la classe intera: la classe può entrare dopo o uscire prima e in «Oggi» un avviso ricorda gli alunni che la seguono.
+        Nelle assemblee sindacali, se restano solo queste materie, la classe può uscire prima o entrare dopo.
       </p>
     </div>
   );

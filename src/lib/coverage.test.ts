@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { autoAssignPlan, classShifts, coverageNeeds, eccedenteLines, isCovered, rankSubstitutes, type CoverageNeed } from "./coverage.ts";
+import { autoAssignPlan, classShifts, coverageNeeds, groupSubjectChoices, eccedenteLines, isCovered, rankSubstitutes, type CoverageNeed } from "./coverage.ts";
 import { assemblySummary, dailySheetText, eccedenteXlsx } from "./export.ts";
 import type { PersistedData, Teacher, TimetableSlot } from "./types.ts";
 
@@ -360,6 +360,14 @@ describe("classShifts", () => {
     const teachers = [teacher("t1", "Lepri"), teacher("t3", "Cerri"), teacher("t-lat", "Albani")];
     const morning = ["p1", "p2", "p3", "p4", "p5", "p6"].map((p, i) => slot("c-2A", p, i < 5 ? "t3" : "t1"));
     const latin = slot("c-2A", "p-mensa", "t-lat", "Latino");
+
+    it("propone le materie dell’orario, senza mensa e sostegno", () => {
+      const d = withLatin(undefined, {
+        teachers: [...teachers, teacher("t-sos", "Porcu", "sostegno", ["Sostegno"])],
+        slots: [...morning, latin, slot("c-2A", "p1", "t-sos", "Sostegno"), slot("c-2A", "p-mensa", "t3", "Mensa")],
+      });
+      assert.deepEqual(groupSubjectChoices(d), ["Italiano", "Latino"]);
+    });
 
     it("senza impostazione il Latino dopo la 6ª trattiene la classe", () => {
       const d = withLatin(undefined, { teachers, slots: [...morning, latin], absences: [absent("t1")] });
