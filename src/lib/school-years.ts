@@ -1,7 +1,9 @@
+import { frozenCattedre } from "./build-timetable";
 import { isoDate, schoolYearRange } from "./dates";
 import { withFormerTeachers } from "./replace-teacher";
 import { officialData } from "./saved-timetables";
 import { allSedi, editSede, FIRST_SEDE_ID, sedeAsData, sedeIdOf, sedeName, setSchoolYear } from "./sedi";
+import { EMPTY_ALL, emptyTeacherPatch } from "./svuota";
 import type { ArchivedSedeData, ArchivedYear, PersistedData } from "./types";
 import { uid } from "./utils";
 
@@ -35,16 +37,32 @@ export function archiveCurrentYear(data: PersistedData, archivedAt = Date.now())
 }
 
 /**
- * «Nuovo anno scolastico», in tutte le sedi insieme: l'anno in corso va in archivio (se in una sede ci sono assenze o
- * sostituzioni) e assenze, sostituzioni e chi non è più in servizio ripartono da zero. Docenti, classi, orari (anche
- * negli slot), campanelle e impostazioni restano. Senza anno scritto resta quello di prima.
+ * «Nuovo anno scolastico»: l'anno in corso va in archivio con tutte le sedi (se una ha assenze o sostituzioni) e, in
+ * ogni sede, assenze, sostituzioni, chi non è più in servizio e tutto l'orario ripartono da zero: lezioni, ore a
+ * disposizione e di progetto, segni di Costruisci, orari salvati negli slot (anche quelli di tutte le sedi insieme).
+ * Restano docenti, classi, cattedre (quelle ricavate dall'orario, scritte), campanelle e impostazioni. Senza anno
+ * scritto resta quello di prima.
  */
 export function startNewSchoolYear(data: PersistedData, schoolYear: string, archivedAt = Date.now()): PersistedData {
   const archived = data.archivedYears ?? [];
   const hasWork = allSedi(data).some((s) => s.data.absences.length > 0 || s.data.substitutions.length > 0);
   let next = setSchoolYear(data, schoolYear.trim() || data.settings.schoolYear);
   for (const s of allSedi(next)) {
-    next = editSede(next, s.id, (sede) => ({ ...sede, absences: [], substitutions: [], formerTeachers: [] }));
+    next = editSede(next, s.id, (sede) => ({
+      ...sede,
+      absences: [],
+      substitutions: [],
+      formerTeachers: [],
+      slots: [],
+      teachers: sede.teachers.map((t) => ({ ...t, ...emptyTeacherPatch(t, EMPTY_ALL, []) })),
+      // tolte le lezioni non si potrebbero più ricavare: restano scritte
+      cattedre: frozenCattedre(officialData(sedeAsData(next, sede))) ?? sede.cattedre,
+      savedTimetables: [],
+      activeSlot: 0,
+      officialBackup: undefined,
+      cattedraBackup: undefined,
+      cattedraDispBackup: undefined,
+    }));
   }
   return { ...next, archivedYears: hasWork ? [...archived, archiveCurrentYear(data, archivedAt)] : archived };
 }

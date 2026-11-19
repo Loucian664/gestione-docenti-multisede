@@ -204,9 +204,9 @@ type Actions = {
   setTeacherSedi: (teacherId: string, sedeIds: string[]) => string[];
   importData: (data: PersistedData, fileName?: string) => void;
   /**
-   * Nuovo anno scolastico, in tutte le sedi: l’anno in corso va in archivio con tutte le sedi; assenze, sostituzioni
-   * e chi non è più in servizio ripartono da zero; restano docenti, classi, orario (anche gli slot), campanelle e
-   * impostazioni, con l’anno scolastico nuovo.
+   * Nuovo anno scolastico, in tutte le sedi: l’anno in corso va in archivio con tutte le sedi; assenze, sostituzioni,
+   * chi non è più in servizio e tutto l’orario (anche gli slot) ripartono da zero; restano docenti, classi, cattedre,
+   * campanelle e impostazioni, con l’anno scolastico nuovo.
    */
   startNewSchoolYear: (schoolYear: string) => void;
   removeArchivedYear: (id: string) => void;

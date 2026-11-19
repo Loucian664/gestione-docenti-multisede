@@ -57,3 +57,48 @@ describe("«Svuota orario»: che cosa resta", () => {
     assert.equal(stayText(0, 0), "");
   });
 });
+
+describe("«Svuota orario»: ore di progetto e segni", () => {
+  it("toglie solo ciò che è spuntato, e i segni senza i blocchi delle lezioni rimaste", async () => {
+    const { emptyTeacherPatch, marksOf, projectHoursOf, marksNote, keptText } = await import("./svuota.ts");
+    const t = {
+      ...buildSeed().teachers[0]!,
+      awaySlots: [
+        { day: 1 as const, periodId: "p1", progetto: true },
+        { day: 2 as const, periodId: "p2" },
+      ],
+      avoidSlots: [{ day: 3 as const, periodId: "p3" }],
+      dispSlots: [{ day: 4 as const, periodId: "p4" }],
+      lockedSlots: [
+        { day: 5 as const, periodId: "p5", classId: "c-1A" },
+        { day: 5 as const, periodId: "p6", classId: "c-1A" },
+      ],
+    };
+    const kept = [{ id: "k", day: 5 as const, periodId: "p5", classId: "c-1A", teacherId: t.id, subject: "Italiano" }];
+    assert.equal(projectHoursOf(t), 1);
+    assert.equal(marksOf(t), 2);
+    const none = { disp: false, locked: false, project: false, marks: false };
+    assert.equal(emptyTeacherPatch(t, none, kept), null);
+    // solo progetto: restano le × altro plesso
+    assert.deepEqual(emptyTeacherPatch(t, { ...none, project: true }, kept), { awaySlots: [{ day: 2, periodId: "p2" }] });
+    // solo segni: resta il progetto e il blocco della lezione rimasta
+    assert.deepEqual(emptyTeacherPatch(t, { ...none, marks: true }, kept), {
+      awaySlots: [{ day: 1, periodId: "p1", progetto: true }],
+      avoidSlots: [],
+      lockedSlots: [{ day: 5, periodId: "p5", classId: "c-1A" }],
+    });
+    // tutto
+    assert.deepEqual(emptyTeacherPatch(t, { disp: true, locked: true, project: true, marks: true }, []), {
+      awaySlots: [],
+      avoidSlots: [],
+      dispSlots: [],
+      lockedSlots: [],
+      lockWeek: false,
+    });
+    assert.equal(marksNote([t]), "× altro plesso, «no».");
+    assert.equal(
+      keptText({ disp: false, project: true, marks: false }),
+      "Restano docenti, classi, cattedre, ore di progetto, assenze, sostituzioni e orari salvati negli slot.",
+    );
+  });
+});

@@ -385,9 +385,27 @@ describe("più sedi: elimina docente", () => {
 });
 
 describe("più sedi: nuovo anno scolastico", () => {
-  it("nuovo anno in tutte le sedi: via assenze, sostituzioni e chi non è più in servizio; il resto resta", () => {
+  it("nuovo anno in tutte le sedi: via assenze, sostituzioni, chi non è più in servizio e tutto l’orario", () => {
     const { d, here, bId } = twoSedi();
-    const before = replaceTeacherSedi(d, here.id, { lastName: "Nuova", firstName: "Persona" }, FROM, true)!;
+    // segni, ore di progetto e a disposizione, e uno slot salvato con «Tutte le sedi insieme», in ogni sede
+    const marked = (sede: SedeData): SedeData => ({
+      ...sede,
+      teachers: sede.teachers.map((t, i) =>
+        i === 0
+          ? {
+              ...t,
+              dispSlots: [{ day: 1 as const, periodId: "p1" }],
+              awaySlots: [{ day: 2 as const, periodId: "p2", progetto: true }],
+              avoidSlots: [{ day: 3 as const, periodId: "p3" }],
+              lockWeek: true,
+            }
+          : t,
+      ),
+      savedTimetables: [{ n: 1, name: "Prova", savedAt: 1, lessons: sede.slots, disp: {}, insieme: "x" }],
+    });
+    let before = replaceTeacherSedi(d, here.id, { lastName: "Nuova", firstName: "Persona" }, FROM, true)!;
+    before = editSede(before, sedeIdOf(d), marked);
+    before = editSede(before, bId, marked);
     const after = startNewSchoolYear(before, " 2027/2028 ");
     for (const s of allSedi(after)) {
       assert.deepEqual([s.data.absences, s.data.substitutions, s.data.formerTeachers], [[], [], []]);
@@ -396,14 +414,20 @@ describe("più sedi: nuovo anno scolastico", () => {
     for (const id of [sedeIdOf(d), bId]) {
       const a = allSedi(before).find((s) => s.id === id)!.data;
       const b = allSedi(after).find((s) => s.id === id)!.data;
-      assert.deepEqual([b.teachers, b.classes, b.slots, b.savedTimetables, b.settings.periods], [
-        a.teachers,
-        a.classes,
-        a.slots,
-        a.savedTimetables,
-        a.settings.periods,
-      ]);
+      assert.ok(a.slots.length > 0);
+      assert.deepEqual([b.slots, b.savedTimetables, b.activeSlot ?? 0], [[], [], 0]);
+      assert.deepEqual(
+        b.teachers.map((t) => [t.id, t.lastName, t.firstName, t.personId]),
+        a.teachers.map((t) => [t.id, t.lastName, t.firstName, t.personId]),
+      );
+      const t = b.teachers[0]!;
+      assert.deepEqual([t.dispSlots, t.awaySlots, t.avoidSlots, t.lockWeek], [[], [], [], false]);
+      // le cattedre ricavate dall’orario restano, scritte
+      assert.ok((b.cattedre ?? []).length > 0);
+      assert.deepEqual([b.classes, b.settings.periods], [a.classes, a.settings.periods]);
     }
+    // l’anno in archivio resta com’era
+    assert.deepEqual(after.archivedYears![0]!.data.slots, before.slots);
     // senza anno scritto resta quello di prima
     assert.equal(startNewSchoolYear(after, "  ").settings.schoolYear, "2027/2028");
   });
